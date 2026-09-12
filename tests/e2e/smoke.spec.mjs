@@ -65,6 +65,33 @@ test.describe("Shot tracker smoke", () => {
     await expect(page.locator("#new-game-form")).toBeVisible();
   });
 
+  test("Prep tab opens Opponent Prep", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/#shots-prep");
+    await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");
+    await page.locator(".prep-tab", { hasText: "Explore" }).click();
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Explore");
+    await expect(page.locator("#explore-form")).toBeVisible();
+  });
+
+  test("Record footer opens this-game Opponent Prep", async ({ page }) => {
+    test.setTimeout(60000);
+    await signIn(page);
+    await page.goto("/#shots-games");
+    const gameBtn = page.locator("[data-open-game]").first();
+    await expect(gameBtn).toBeVisible({ timeout: 15000 });
+    await gameBtn.click();
+    await page.locator("[data-open-mode=track]").click();
+    await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
+    await page.locator(".prep-game-link a").click();
+    await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");
+    await expect(page.locator(".prep-locked-banner, .prep-pitch-wrap").first()).toBeVisible({
+      timeout: 20000,
+    });
+  });
+
   test("add game, record shot, edit shot, lineup swap", async ({ page }) => {
     test.setTimeout(120000);
     await signIn(page);

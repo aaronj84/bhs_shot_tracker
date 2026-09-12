@@ -7,12 +7,13 @@
 
   function parseHash() {
     const raw = (location.hash || "#shots").replace(/^#/, "");
-    if (raw === "shots-map") return "shots-map";
-    if (raw === "shots-games") return "shots-games";
-    if (raw === "shots-history") return "shots-history";
-    if (raw === "shots-explore") return "shots-explore";
-    if (raw === "shots-scoreboard") return "shots-scoreboard";
-    if (raw === "shots" || !raw || raw === "home") return "shots";
+    const path = raw.split("?")[0];
+    if (path === "shots-map") return "shots-map";
+    if (path === "shots-games") return "shots-games";
+    if (path === "shots-history") return "shots-history";
+    if (path === "shots-prep" || path === "shots-explore") return "shots-prep";
+    if (path === "shots-scoreboard") return "shots-scoreboard";
+    if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
   }
@@ -23,7 +24,7 @@
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
     document.body.classList.toggle(
       "shots-admin-view",
-      view === "shots-games" || view === "shots-history" || view === "shots-explore"
+      view === "shots-games" || view === "shots-history" || view === "shots-prep"
     );
     const theme = document.querySelector('meta[name="theme-color"]');
     if (theme) theme.setAttribute("content", view === "shots-scoreboard" ? "#0b1f33" : "#f4f7fb");
@@ -44,7 +45,7 @@
         (view === "shots" && key === "shots") ||
         (view === "shots-games" && key === "shots-games") ||
         (view === "shots-history" && key === "shots-history") ||
-        (view === "shots-explore" && key === "shots-explore") ||
+        (view === "shots-prep" && key === "shots-prep") ||
         (view === "shots-map" && key === "shots-map");
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");

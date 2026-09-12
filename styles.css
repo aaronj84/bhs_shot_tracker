@@ -3161,3 +3161,172 @@ button.scoreboard-period:focus-visible {
   }
 }
 
+.prep-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+}
+
+.prep-tab {
+  min-height: 40px;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.prep-tab.is-on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.prep-scope {
+  margin: 0 0 1rem;
+}
+
+.prep-friendly-check,
+.prep-game-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin: 0 0 0.4rem;
+}
+
+.prep-game-set {
+  margin: 0.5rem 0 0;
+}
+
+.prep-game-set-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.prep-locked-banner {
+  margin: 0.25rem 0 0;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  font-weight: 650;
+}
+
+.prep-pitch-wrap {
+  margin: 0.65rem 0 0.4rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #24633c;
+}
+
+.prep-pitch-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(78vh, 42rem);
+}
+
+.prep-shot-dot,
+.prep-pitch-svg text[data-prep-shot] {
+  cursor: pointer;
+}
+
+.prep-shot-detail {
+  margin: 0.35rem 0 0.2rem;
+}
+
+.prep-game-link {
+  margin: 1.5rem 0 0;
+  padding: 0.75rem 0 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.prep-game-link a {
+  font-weight: 750;
+}
+
+.prep-gemini-answer {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+}
+
+.prep-gemini-answer h3 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 1.02rem;
+}
+
+.prep-gemini-answer p {
+  margin: 0 0 0.55rem;
+  line-height: 1.45;
+}
+
+.prep-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.65rem;
+}
+
+.prep-tag-suggest,
+.prep-tag {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  background: var(--bg);
+}
+
+.prep-tag-suggest {
+  cursor: pointer;
+}
+
+.prep-note {
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.prep-note-meta {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.prep-note-body {
+  margin: 0 0 0.4rem;
+  white-space: pre-wrap;
+}
+
+.prep-note-tags {
+  margin: 0 0 0.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.prep-note-del {
+  min-height: 36px;
+  padding: 0.2rem 0.55rem;
+}
+
+.prep-unlock {
+  font-weight: 700;
+}
+

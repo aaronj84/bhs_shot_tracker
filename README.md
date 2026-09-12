@@ -1,6 +1,6 @@
 # Brighton Varsity Shot Tracker
 
-Sideline shot / play recording for Brighton varsity — games, lineups, history, maps, and Explore.
+Sideline shot / play recording for Brighton varsity — games, lineups, history, maps, and Prep.
 
 Vanilla HTML, CSS, and JavaScript + Supabase. No build step for the client.
 
@@ -48,7 +48,8 @@ GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/
 | `#shots` | Record |
 | `#shots-games` | Games / schedule |
 | `#shots-history` | Cross-game history |
-| `#shots-explore` | Explore (LLM) |
+| `#shots-prep` | Opponent Prep (Gemini briefing + notes) |
+| `#shots-prep?tab=explore` | Explore (LLM Q&A; `#shots-explore` still redirects here) |
 | `#shots-map` | Full-field shot map |
 
 ## Project structure

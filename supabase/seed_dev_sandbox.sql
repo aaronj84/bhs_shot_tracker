@@ -8,7 +8,15 @@
 --
 -- Prerequisites: migrations applied.
 -- Safe to re-run: skips games if 'DEV Sandbox' already exists; always
---   refreshes the Bogwater Badgers cartoon roster (names + positions).
+--   refreshes Medville Marauders + Bogwater Badgers cartoon rosters
+--   (names + positions).
+--
+-- Suggested 4-3-3 XI:
+--   GK  1 Waffles
+--   DEF 2 Maple, 3 Boulder, 4 Beetle, 5 Biscuit
+--   MID 7 Nimbus, 6 Cosmo, 8 Ziggy
+--   FWD 11 Pixel, 10 Nova, 9 Pip
+-- Subs: 00 Sprocket, 12 Twinkle, 14 Pretzel
 --
 -- Dashboard: DEV project → SQL Editor → paste → Run
 
@@ -28,7 +36,7 @@ declare
   rec record;
   pid uuid;
   loaded int := 0;
-  -- Medville XI (fake)
+  -- Medville roster (fake)
   p_pip uuid;
   p_ziggy uuid;
   p_nova uuid;
@@ -55,12 +63,84 @@ begin
   select id into season from public.seasons where label = 'DEV Sandbox' limit 1;
   if season is not null then
     skip_games := true;
-    raise notice 'DEV Sandbox already present — skip games/shots; refreshing Bogwater roster';
+    raise notice 'DEV Sandbox already present — skip games/shots; refreshing cartoon rosters';
   else
     insert into public.seasons (year, label)
     values (2099, 'DEV Sandbox')
     returning id into season;
   end if;
+
+  -- Re-runnable: Medville names + positions so the lineup editor can fill a full XI.
+  loaded := 0;
+  for rec in
+    select * from (
+      values
+        ('1',  'Captain Waffles',      'Waffles',  '{GK}'::text[]),
+        ('00', 'Sprocket Pancake',     'Sprocket', '{GK}'),
+        ('2',  'Maple Syrupson',       'Maple',    '{OB}'),
+        ('5',  'Biscuit Flanagan',     'Biscuit',  '{OB}'),
+        ('3',  'Boulder Crumbs',       'Boulder',  '{CB}'),
+        ('4',  'Beetlejuice Carver',   'Beetle',   '{CB}'),
+        ('6',  'Cosmo Driftwood',      'Cosmo',    '{MID}'),
+        ('7',  'Nimbus Puddlejump',    'Nimbus',   '{MID}'),
+        ('8',  'Ziggy Thunderfoot',    'Ziggy',    '{MID}'),
+        ('12', 'Twinkle Toaster',      'Twinkle',  '{MID}'),
+        ('9',  'Pippa "Pip" McNoodle', 'Pip',      '{FWD}'),
+        ('10', 'Nova Sparkles',        'Nova',     '{FWD}'),
+        ('11', 'Pixel Vanderguard',    'Pixel',    '{MID,FWD}'),
+        ('14', 'Pretzel Moonbeam',     'Pretzel',  '{FWD}')
+    ) as t(jersey, full_name, short_name, groups)
+  loop
+    select r.player_id into pid
+    from public.rosters r
+    where r.team_id = marauders
+      and r.season_id = season
+      and r.jersey_number = rec.jersey;
+
+    if pid is null then
+      insert into public.players (name, short_name, position_groups)
+      values (rec.full_name, rec.short_name, rec.groups)
+      returning id into pid;
+
+      insert into public.rosters (team_id, season_id, player_id, jersey_number, squad)
+      values (marauders, season, pid, rec.jersey, 'varsity')
+      on conflict (team_id, season_id, jersey_number) do nothing;
+
+      select r.player_id into pid
+      from public.rosters r
+      where r.team_id = marauders
+        and r.season_id = season
+        and r.jersey_number = rec.jersey;
+    end if;
+
+    if pid is not null then
+      update public.players
+      set name = rec.full_name,
+          short_name = rec.short_name,
+          position_groups = rec.groups
+      where id = pid;
+      loaded := loaded + 1;
+    end if;
+  end loop;
+
+  raise notice 'Medville Marauders roster ready (% players) for DEV Sandbox', loaded;
+
+  select r.player_id into p_waffles from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '1';
+  select r.player_id into p_maple from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '2';
+  select r.player_id into p_beetle from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '4';
+  select r.player_id into p_cosmo from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '6';
+  select r.player_id into p_ziggy from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '8';
+  select r.player_id into p_pip from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '9';
+  select r.player_id into p_nova from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '10';
+  select r.player_id into p_pixel from public.rosters r
+    where r.team_id = marauders and r.season_id = season and r.jersey_number = '11';
 
   if not skip_games then
 
@@ -75,39 +155,6 @@ begin
   select id into opp_rivals from public.teams where name = 'Rivertown Rivals';
   select id into opp_comets from public.teams where name = 'Cedar Comets';
   select id into opp_badgers from public.teams where name = 'Bogwater Badgers';
-
-  -- Obviously fake Marauders players
-  insert into public.players (name, short_name, position_groups) values
-    ('Pippa "Pip" McNoodle', 'Pip', array['FWD']),
-    ('Ziggy Thunderfoot', 'Ziggy', array['MID']),
-    ('Nova Sparkles', 'Nova', array['FWD']),
-    ('Beetlejuice Carver', 'Beetle', array['CB']),
-    ('Maple Syrupson', 'Maple', array['OB']),
-    ('Cosmo Driftwood', 'Cosmo', array['MID']),
-    ('Pixel Vanderguard', 'Pixel', array['MID', 'FWD']),
-    ('Captain Waffles', 'Waffles', array['GK'])
-  ;
-
-  select id into p_pip from public.players where name = 'Pippa "Pip" McNoodle' limit 1;
-  select id into p_ziggy from public.players where name = 'Ziggy Thunderfoot' limit 1;
-  select id into p_nova from public.players where name = 'Nova Sparkles' limit 1;
-  select id into p_beetle from public.players where name = 'Beetlejuice Carver' limit 1;
-  select id into p_maple from public.players where name = 'Maple Syrupson' limit 1;
-  select id into p_cosmo from public.players where name = 'Cosmo Driftwood' limit 1;
-  select id into p_pixel from public.players where name = 'Pixel Vanderguard' limit 1;
-  select id into p_waffles from public.players where name = 'Captain Waffles' limit 1;
-
-  insert into public.rosters (team_id, season_id, player_id, jersey_number, squad)
-  values
-    (marauders, season, p_waffles, '1', 'varsity'),
-    (marauders, season, p_maple, '2', 'varsity'),
-    (marauders, season, p_beetle, '4', 'varsity'),
-    (marauders, season, p_cosmo, '6', 'varsity'),
-    (marauders, season, p_ziggy, '8', 'varsity'),
-    (marauders, season, p_pip, '9', 'varsity'),
-    (marauders, season, p_nova, '10', 'varsity'),
-    (marauders, season, p_pixel, '11', 'varsity')
-  on conflict (team_id, season_id, jersey_number) do nothing;
 
   insert into public.players (name, short_name) values
     ('Rival Robot #9', 'R9'),
@@ -217,6 +264,7 @@ begin
     raise exception 'Bogwater team or DEV Sandbox season missing';
   end if;
 
+  loaded := 0;
   for rec in
     select * from (
       values

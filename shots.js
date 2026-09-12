@@ -189,6 +189,7 @@
   const LS_UI_V2 = "brighton-varsity-shot-tracker-ui-v2";
   const LS_LINEUP = "brighton-varsity-shot-tracker-lineup";
   const LS_DEFAULT_LINEUP = "brighton-varsity-shot-tracker-default-lineup";
+  const LS_NOTE_AUTHOR = "brighton-varsity-shot-tracker-note-author";
   const LS_CLOCK = "brighton-varsity-shot-tracker-clock";
   const LS_STAMP_OFFSET = "brighton-shot-stamp-offset";
   const LS_SCOREBOARD_POLL = "brighton-scoreboard-poll-sec";
@@ -345,6 +346,27 @@
       loading: false,
       lastResult: null,
       error: "",
+    },
+    prep: {
+      tab: "opponent",
+      opponentId: "",
+      seasonId: "",
+      includeFriendly: false,
+      selectedGameIds: [],
+      lockedGameId: "",
+      teamFilter: "both",
+      resultFilter: "all",
+      periodFilter: "all",
+      rows: null,
+      notes: [],
+      loading: false,
+      loadKey: "",
+      selectedShotId: "",
+      noteBody: "",
+      noteTags: "",
+      noteAuthor: localStorage.getItem(LS_NOTE_AUTHOR) || "",
+      noteGameId: "",
+      gemini: { loading: false, text: "", error: "" },
     },
   };
 
@@ -4894,6 +4916,10 @@
           ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty }) : ""}
         </section>
         ${stampOffsetMarkup()}
+        <p class="prep-game-link">
+          <a href="#shots-prep?game=${encodeURIComponent(st.gameId)}">Opponent prep — this game</a>
+          <span class="muted">Halftime / pre-ET glance</span>
+        </p>
       </div>`;
 
     $("#tracker-cancel-record")?.addEventListener("click", () => {
@@ -5326,6 +5352,705 @@
     "Where do Brighton goals tend to come from on the pitch?",
   ];
 
+  function prepHashParams() {
+    const raw = (location.hash || "").replace(/^#/, "");
+    const path = raw.split("?")[0];
+    const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(qs);
+    if (path === "shots-explore" && !params.get("tab")) params.set("tab", "explore");
+    return { path, params };
+  }
+
+  function applyPrepHash() {
+    const { params } = prepHashParams();
+    st.prep.tab = params.get("tab") === "explore" ? "explore" : "opponent";
+    const gameId = params.get("game") || "";
+    if (gameId) {
+      if (st.prep.lockedGameId !== gameId) {
+        st.prep.lockedGameId = gameId;
+        st.prep.selectedGameIds = [gameId];
+        st.prep.includeFriendly = true;
+        st.prep.loadKey = "";
+        st.prep.gemini = { loading: false, text: "", error: "" };
+        st.prep.rows = null;
+        const game = st.games.find((g) => g.id === gameId);
+        const opp = game ? opponentOf(game) : null;
+        if (opp) st.prep.opponentId = opp.id;
+        if (game?.season_id) st.prep.seasonId = game.season_id;
+      }
+    } else if (st.prep.lockedGameId) {
+      st.prep.lockedGameId = "";
+      fillPrepSelectionFromCandidates();
+      st.prep.loadKey = "";
+      st.prep.gemini = { loading: false, text: "", error: "" };
+    }
+  }
+
+  function prepTabsMarkup(active) {
+    return `
+      <div class="prep-tabs" role="tablist" aria-label="Prep">
+        <a class="prep-tab ${active === "opponent" ? "is-on" : ""}" href="#shots-prep" role="tab" aria-selected="${
+          active === "opponent" ? "true" : "false"
+        }">Opponent Prep</a>
+        <a class="prep-tab ${active === "explore" ? "is-on" : ""}" href="#shots-prep?tab=explore" role="tab" aria-selected="${
+          active === "explore" ? "true" : "false"
+        }">Explore</a>
+      </div>`;
+  }
+
+  function isOfficialGameType(type) {
+    return type === "region" || type === "playoffs";
+  }
+
+  function prepCandidateGames() {
+    const oppId = st.prep.opponentId;
+    if (!oppId) return [];
+    if (st.prep.lockedGameId) {
+      const locked = st.games.find((g) => g.id === st.prep.lockedGameId);
+      return locked ? [locked] : [];
+    }
+    return st.games.filter((g) => {
+      const opp = opponentOf(g);
+      if (!opp || opp.id !== oppId) return false;
+      if (st.prep.seasonId && g.season_id !== st.prep.seasonId) return false;
+      if (!st.prep.includeFriendly && !isOfficialGameType(g.game_type)) return false;
+      return true;
+    });
+  }
+
+  function prepSelectedIds() {
+    if (st.prep.lockedGameId) return [st.prep.lockedGameId];
+    const allowed = new Set(prepCandidateGames().map((g) => g.id));
+    return (st.prep.selectedGameIds || []).filter((id) => allowed.has(id));
+  }
+
+  function fillPrepSelectionFromCandidates() {
+    st.prep.selectedGameIds = prepCandidateGames().map((g) => g.id);
+  }
+
+  function prepLoadKey() {
+    return [
+      st.prep.opponentId || "",
+      prepSelectedIds().slice().sort().join(","),
+      st.prep.includeFriendly ? "1" : "0",
+      st.prep.seasonId || "",
+      st.prep.lockedGameId || "",
+    ].join("|");
+  }
+
+  function tacticalPoint(loc, team) {
+    const x = Number(loc?.x);
+    const y = Number(loc?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (team === "opp") return { fx: PW - x, fy: PL - y };
+    return { fx: x, fy: y };
+  }
+
+  function prepVisibleRows() {
+    const rows = st.prep.rows || [];
+    return rows.filter((ev) => {
+      const team = eventTeam(ev);
+      if (st.prep.teamFilter === "us" && team !== "us") return false;
+      if (st.prep.teamFilter === "opp" && team !== "opp") return false;
+      const period = eventPeriod(ev);
+      if (st.prep.periodFilter !== "all" && period !== st.prep.periodFilter) return false;
+      if (st.prep.resultFilter === "goals") {
+        return ev.result === "goal" || ev.result === "pk-goal";
+      }
+      if (st.prep.resultFilter === "on-frame") {
+        return ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal";
+      }
+      return true;
+    });
+  }
+
+  function prepPlayerLabel(ev) {
+    const team = eventTeam(ev);
+    return eventPersonLabel(team, ev.shooterNumber, ev.shooterName, ev.shooterShort);
+  }
+
+  function prepClockLabel(ev) {
+    const face = goalMinuteLabel(ev);
+    if (face) return face;
+    const p = eventPeriod(ev);
+    return p === "1" ? "1H" : p === "2" ? "2H" : p;
+  }
+
+  function prepShotPayload(ev) {
+    return {
+      team: eventTeam(ev),
+      player: prepPlayerLabel(ev),
+      jersey: ev.shooterNumber || "",
+      position: ev.position || "",
+      period: eventPeriod(ev),
+      clock: prepClockLabel(ev),
+      result: ev.result,
+      zone: ev.shot?.zoneId || ev.shot?.zoneLabel || "",
+      x: ev.shot?.x,
+      y: ev.shot?.y,
+      game_date: ev.gameDate || ev.game?.date || "",
+      assist: ev.assist
+        ? {
+            player: eventPersonLabel(
+              eventTeam(ev),
+              ev.assist.number,
+              ev.assist.name,
+              ev.assist.short
+            ),
+            type: ev.assist.type || "",
+            zone: ev.assist.zoneId || ev.assist.zoneLabel || "",
+          }
+        : null,
+    };
+  }
+
+  function prepAggregates(rows) {
+    const byTeam = (team) => trackerSummary(rows.filter((e) => eventTeam(e) === team));
+    const playerMap = {};
+    rows.forEach((ev) => {
+      const key = `${eventTeam(ev)}:${prepPlayerLabel(ev)}`;
+      if (!playerMap[key]) {
+        playerMap[key] = {
+          team: eventTeam(ev),
+          player: prepPlayerLabel(ev),
+          shots: 0,
+          goals: 0,
+          on_frame: 0,
+          assists: 0,
+        };
+      }
+      const row = playerMap[key];
+      if (SHOT_RESULTS.has(ev.result)) row.shots += 1;
+      if (ev.result === "goal" || ev.result === "pk-goal") row.goals += 1;
+      if (ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal") row.on_frame += 1;
+    });
+    rows.forEach((ev) => {
+      if (!ev.assist) return;
+      const who = eventPersonLabel(eventTeam(ev), ev.assist.number, ev.assist.name, ev.assist.short);
+      const key = `${eventTeam(ev)}:${who}`;
+      if (!playerMap[key]) {
+        playerMap[key] = { team: eventTeam(ev), player: who, shots: 0, goals: 0, on_frame: 0, assists: 0 };
+      }
+      playerMap[key].assists += 1;
+    });
+    const players = Object.values(playerMap).sort((a, b) => b.shots + b.assists - (a.shots + a.assists));
+    return { us: byTeam("us"), opp: byTeam("opp"), players: players.slice(0, 16) };
+  }
+
+  function tacticalTrianglePoints(cx, cy, r, pointUp) {
+    const half = r * 0.866;
+    if (pointUp) {
+      return `${cx},${cy - r} ${cx - half},${cy + r * 0.5} ${cx + half},${cy + r * 0.5}`;
+    }
+    return `${cx},${cy + r} ${cx - half},${cy - r * 0.5} ${cx + half},${cy - r * 0.5}`;
+  }
+
+  function tacticalPitchMarkup(events, selectedId) {
+    const line = "#f2f6f3";
+    const goalW = 7.32;
+    const goalX = (PW - goalW) / 2;
+    const penW = 40.32;
+    const penH = 16.5;
+    const sixW = 18.32;
+    const sixH = 5.5;
+    const penX = (PW - penW) / 2;
+    const sixX = (PW - sixW) / 2;
+    const arcR = 9.15;
+    const spotInset = 11;
+    const dx = Math.sqrt(Math.max(0, arcR * arcR - (penH - spotInset) * (penH - spotInset)));
+    const stripes = [];
+    for (let i = 0; i < 6; i += 1) {
+      stripes.push(
+        `<rect fill="${i % 2 ? "#277047" : "#2d7a4a"}" x="0" y="${i * (PL / 6)}" width="${PW}" height="${PL / 6}" />`
+      );
+    }
+    const markers = events
+      .map((ev) => {
+        const team = eventTeam(ev);
+        const shot = tacticalPoint(ev.shot, team);
+        if (!shot) return "";
+        const selected = selectedId && ev.id === selectedId;
+        const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        let html = "";
+        if (ev.assist) {
+          const a = tacticalPoint(ev.assist, team);
+          if (a) {
+            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+            html += `<circle cx="${a.fx}" cy="${a.fy}" r="0.8" fill="#7ec8e3" stroke="${stroke}" stroke-width="0.2" />`;
+          }
+        }
+        html += `<polygon class="prep-shot-dot" data-prep-shot="${escapeHtml(ev.id || "")}" points="${tacticalTrianglePoints(
+          shot.fx,
+          shot.fy,
+          selected ? 2.35 : 1.85,
+          team !== "opp"
+        )}" fill="${resultFill(ev.result)}" stroke="${
+          selected ? "#f7e27c" : stroke
+        }" stroke-width="${selected ? 0.55 : team === "opp" ? 0.42 : 0.28}" />`;
+        if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && String(ev.shooterNumber) !== "") {
+          html += `<text data-prep-shot="${escapeHtml(ev.id || "")}" x="${shot.fx}" y="${shot.fy}" fill="${numFill}" font-size="1.2" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(
+            String(ev.shooterNumber)
+          )}</text>`;
+        }
+        return html;
+      })
+      .join("");
+    return `
+      <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. Brighton attack up, opponent attack down.">
+        ${stripes.join("")}
+        <rect x="0" y="0" width="${PW}" height="${PL}" fill="none" stroke="${line}" stroke-width="0.45" />
+        <line x1="0" y1="${HALF_L}" x2="${PW}" y2="${HALF_L}" stroke="${line}" stroke-width="0.4" />
+        <circle cx="${PW / 2}" cy="${HALF_L}" r="9.15" fill="none" stroke="${line}" stroke-width="0.35" />
+        <circle cx="${PW / 2}" cy="${HALF_L}" r="0.45" fill="${line}" />
+        <rect x="${goalX}" y="-1.4" width="${goalW}" height="1.4" fill="none" stroke="${line}" stroke-width="0.45" />
+        <rect x="${goalX}" y="${PL}" width="${goalW}" height="1.4" fill="none" stroke="${line}" stroke-width="0.45" />
+        <rect x="${penX}" y="0" width="${penW}" height="${penH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <rect x="${penX}" y="${PL - penH}" width="${penW}" height="${penH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <rect x="${sixX}" y="0" width="${sixW}" height="${sixH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <rect x="${sixX}" y="${PL - sixH}" width="${sixW}" height="${sixH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <circle cx="${PW / 2}" cy="${spotInset}" r="0.45" fill="${line}" />
+        <circle cx="${PW / 2}" cy="${PL - spotInset}" r="0.45" fill="${line}" />
+        <path d="M ${PW / 2 - dx} ${penH} A ${arcR} ${arcR} 0 0 0 ${PW / 2 + dx} ${penH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <path d="M ${PW / 2 - dx} ${PL - penH} A ${arcR} ${arcR} 0 0 1 ${PW / 2 + dx} ${PL - penH}" fill="none" stroke="${line}" stroke-width="0.35" />
+        <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Brighton attack</text>
+        <text x="${PW / 2}" y="${PL + 3.6}" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Opponent attack</text>
+        ${markers}
+      </svg>`;
+  }
+
+  function prepFilterChip(name, value, current, label) {
+    return `<button type="button" class="plays-filter-btn ${current === value ? "is-on" : ""}" data-prep-filter="${name}" data-prep-value="${escapeHtml(
+      value
+    )}">${escapeHtml(label)}</button>`;
+  }
+
+  function prepTagSuggestions(rows) {
+    const seen = new Set();
+    const out = [];
+    const add = (raw) => {
+      const tag = String(raw || "")
+        .trim()
+        .toLowerCase();
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      out.push(tag);
+    };
+    (rows || []).forEach((ev) => {
+      if (ev.shooterShort) add(ev.shooterShort);
+      else if (ev.shooterName) add(firstName(ev.shooterName));
+      if (ev.shooterNumber) add(`#${ev.shooterNumber}`);
+      if (ev.assist?.short) add(ev.assist.short);
+      else if (ev.assist?.name) add(firstName(ev.assist.name));
+    });
+    return out.slice(0, 24);
+  }
+
+  function markdownLite(text) {
+    const escaped = escapeHtml(text || "").replace(/\r\n/g, "\n");
+    const withHead = escaped
+      .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+      .replace(/^## (.+)$/gm, "<h3>$1</h3>")
+      .replace(/^# (.+)$/gm, "<h3>$1</h3>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    return withHead
+      .split(/\n{2,}/)
+      .map((block) => {
+        if (block.startsWith("<h3>")) return block.replace(/\n/g, "<br>");
+        return `<p>${block.replace(/\n/g, "<br>")}</p>`;
+      })
+      .join("");
+  }
+
+  async function loadPrepData() {
+    if (st.prep.lockedGameId && !st.games.find((g) => g.id === st.prep.lockedGameId)) {
+      try {
+        const g = await API.game(st.prep.lockedGameId);
+        if (g && !st.games.some((x) => x.id === g.id)) st.games.unshift(g);
+        const opp = opponentOf(g);
+        if (opp) st.prep.opponentId = opp.id;
+        if (g?.season_id) st.prep.seasonId = g.season_id;
+      } catch (err) {
+        st.error = err.message || "Could not load that game";
+      }
+    }
+    const key = prepLoadKey();
+    st.prep.loading = true;
+    st.prep.loadKey = key;
+    draw();
+    try {
+      const ids = prepSelectedIds();
+      const rows = ids.length ? await API.queryShots({ gameIds: ids }) : [];
+      st.prep.rows = rows.map(historyViewRow);
+      try {
+        st.prep.notes = ids.length ? await API.notesForGames(ids) : [];
+      } catch (noteErr) {
+        st.prep.notes = [];
+        if (!/schema cache|could not find/i.test(String(noteErr.message || ""))) {
+          st.error = noteErr.message || "Could not load notes";
+        }
+      }
+    } catch (err) {
+      st.error = err.message || "Could not load prep shots";
+      st.prep.rows = [];
+      st.prep.notes = [];
+    }
+    st.prep.loading = false;
+    if (st.prep.loadKey === key) draw();
+  }
+
+  async function runPrepGemini() {
+    const visible = prepVisibleRows();
+    if (!visible.length || st.prep.gemini.loading) return;
+    const games = prepCandidateGames().filter((g) => prepSelectedIds().includes(g.id));
+    const live = !!(st.prep.lockedGameId && st.game && st.game.id === st.prep.lockedGameId);
+    st.prep.gemini.loading = true;
+    st.prep.gemini.error = "";
+    draw();
+    const opp = st.teams.find((t) => t.id === st.prep.opponentId);
+    const periods = [...new Set(visible.map((e) => eventPeriod(e)))];
+    const result = await API.prepOpponent({
+      our_team: ourTeamName(),
+      opponent: opp?.name || "Opponent",
+      in_progress: live,
+      periods,
+      games: games.map((g) => ({ date: g.date, game_type: g.game_type })),
+      aggregates: prepAggregates(visible),
+      shots: visible.map(prepShotPayload),
+    });
+    st.prep.gemini.loading = false;
+    if (!result.ok) {
+      st.prep.gemini.error = result.error || "Summary failed";
+      st.prep.gemini.text = "";
+    } else {
+      st.prep.gemini.text = result.data?.answer || "";
+      st.prep.gemini.error = "";
+    }
+    draw();
+  }
+
+  function renderPrep() {
+    applyPrepHash();
+    if (st.prep.tab === "explore") {
+      renderExplore();
+      return;
+    }
+    renderOpponentPrep();
+  }
+
+  function renderOpponentPrep() {
+    if (!st.prep.seasonId && st.seasonId) st.prep.seasonId = st.seasonId;
+    const candidates = prepCandidateGames();
+    const key = prepLoadKey();
+    if ((st.prep.opponentId || st.prep.lockedGameId) && key !== st.prep.loadKey && !st.prep.loading) {
+      loadPrepData();
+    }
+    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const selectedIds = prepSelectedIds();
+    const visible = prepVisibleRows();
+    const aggregates = prepAggregates(visible);
+    const lockedGame = st.prep.lockedGameId ? st.games.find((g) => g.id === st.prep.lockedGameId) : null;
+    const selectedShot = visible.find((e) => e.id === st.prep.selectedShotId) || null;
+    const suggestions = prepTagSuggestions(visible);
+    const noteGameChoices = (st.prep.lockedGameId ? candidates : candidates.filter((g) => selectedIds.includes(g.id)));
+    if (!st.prep.noteGameId && noteGameChoices.length) st.prep.noteGameId = noteGameChoices[0].id;
+
+    const gameChecks = st.prep.lockedGameId
+      ? `<p class="prep-locked-banner">This game only · ${escapeHtml(gameTitle(lockedGame))} · recorded periods so far.</p>`
+      : candidates
+          .map(
+            (g) => `
+            <label class="prep-game-check">
+              <input type="checkbox" data-prep-game="${escapeHtml(g.id)}" ${
+                selectedIds.includes(g.id) ? "checked" : ""
+              } />
+              <span>${escapeHtml(String(g.date || "").slice(0, 10))} · ${escapeHtml(g.game_type || "")}</span>
+            </label>`
+          )
+          .join("") || `<p class="muted">No games match this opponent and season filter.</p>`;
+
+    const shotDetail = selectedShot
+      ? `<p class="prep-shot-detail"><strong>${escapeHtml(prepPlayerLabel(selectedShot))}</strong> · ${escapeHtml(
+          SHOT_RESULT_LABELS[selectedShot.result] || selectedShot.result
+        )} · ${escapeHtml(prepClockLabel(selectedShot))} · ${escapeHtml(
+          selectedShot.shot?.zoneLabel || selectedShot.shot?.zoneId || ""
+        )} · ${escapeHtml(selectedShot.gameDate || "")}</p>`
+      : `<p class="muted prep-shot-detail">Tap a shot for player, clock, and game.</p>`;
+
+    const notesList = (st.prep.notes || [])
+      .map((note) => {
+        const game = st.games.find((g) => g.id === note.game_id);
+        const tags = (note.tags || []).map((t) => `<span class="prep-tag">${escapeHtml(t)}</span>`).join("");
+        return `
+          <article class="prep-note">
+            <p class="prep-note-meta">${escapeHtml(gameTitle(game))}${
+              note.author_label ? ` · ${escapeHtml(note.author_label)}` : ""
+            }</p>
+            <p class="prep-note-body">${escapeHtml(note.body)}</p>
+            ${tags ? `<p class="prep-note-tags">${tags}</p>` : ""}
+            <button type="button" class="btn btn-ghost prep-note-del" data-del-note="${escapeHtml(note.id)}">Delete</button>
+          </article>`;
+      })
+      .join("") || `<p class="muted">No notes on these games yet.</p>`;
+
+    const suggestBtns = suggestions
+      .map((t) => `<button type="button" class="prep-tag-suggest" data-prep-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`)
+      .join("");
+
+    root().innerHTML = `
+      <div class="shots-admin shots-prep">
+        ${trackerNav()}
+        <h1>Prep</h1>
+        ${prepTabsMarkup("opponent")}
+        <p class="muted">Tactical pitch: Brighton attack up, opponent attack down. Selected games overlay. Totals are counted here; Gemini interprets them.</p>
+        ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+        <div class="prep-scope shots-form">
+          <label class="shots-field">Opponent
+            <select id="prep-opponent" ${st.prep.lockedGameId ? "disabled" : ""}>
+              <option value="">Select opponent…</option>
+              ${oppTeams
+                .map(
+                  (t) =>
+                    `<option value="${t.id}" ${t.id === st.prep.opponentId ? "selected" : ""}>${escapeHtml(t.name)}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+          ${
+            st.prep.lockedGameId
+              ? `<p><a class="prep-unlock" href="#shots-prep">Show all meetings with this opponent</a></p>`
+              : `<label class="shots-field">Season
+            <select id="prep-season">
+              <option value="">All seasons</option>
+              ${seasonOptions(st.prep.seasonId, false)}
+            </select>
+          </label>
+          <label class="prep-friendly-check">
+            <input type="checkbox" id="prep-friendly" ${st.prep.includeFriendly ? "checked" : ""} />
+            Include friendly / preseason
+          </label>`
+          }
+          <div class="prep-game-set">
+            <p class="prep-game-set-label">Games</p>
+            ${gameChecks}
+          </div>
+        </div>
+        ${
+          st.prep.loading
+            ? `<p class="explore-loading">Loading shots…</p>`
+            : st.prep.opponentId
+            ? `
+        <section class="prep-stats">
+          <h2>Totals</h2>
+          <div class="shot-map-stats">
+            <div>
+              <p class="shot-map-stat-split muted">${escapeHtml(ourTeamName())}</p>
+              <div class="tracker-summary">${summaryPills(aggregates.us)}</div>
+            </div>
+            <div>
+              <p class="shot-map-stat-split muted">${escapeHtml(
+                oppTeams.find((t) => t.id === st.prep.opponentId)?.name || "Opponent"
+              )}</p>
+              <div class="tracker-summary">${summaryPills(aggregates.opp)}</div>
+            </div>
+          </div>
+        </section>
+        <section class="prep-pitch-section">
+          <h2>Tactical pitch</h2>
+          <div class="plays-filters" role="group" aria-label="Pitch filters">
+            <div class="plays-filter-row">
+              <span class="plays-filter-label">Team</span>
+              <div class="plays-filter-btns">
+                ${prepFilterChip("teamFilter", "both", st.prep.teamFilter, "Both")}
+                ${prepFilterChip("teamFilter", "us", st.prep.teamFilter, ourTeamName())}
+                ${prepFilterChip("teamFilter", "opp", st.prep.teamFilter, "Opp")}
+              </div>
+            </div>
+            <div class="plays-filter-row">
+              <span class="plays-filter-label">Result</span>
+              <div class="plays-filter-btns">
+                ${prepFilterChip("resultFilter", "all", st.prep.resultFilter, "All")}
+                ${prepFilterChip("resultFilter", "goals", st.prep.resultFilter, "Goals")}
+                ${prepFilterChip("resultFilter", "on-frame", st.prep.resultFilter, "On frame")}
+              </div>
+            </div>
+            <div class="plays-filter-row">
+              <span class="plays-filter-label">Period</span>
+              <div class="plays-filter-btns">
+                ${prepFilterChip("periodFilter", "all", st.prep.periodFilter, "All")}
+                ${prepFilterChip("periodFilter", "1", st.prep.periodFilter, "1st")}
+                ${prepFilterChip("periodFilter", "2", st.prep.periodFilter, "2nd")}
+                ${prepFilterChip("periodFilter", "ET1", st.prep.periodFilter, "ET1")}
+                ${prepFilterChip("periodFilter", "ET2", st.prep.periodFilter, "ET2")}
+              </div>
+            </div>
+          </div>
+          <div class="prep-pitch-wrap">${tacticalPitchMarkup(visible, st.prep.selectedShotId)}</div>
+          ${shotDetail}
+          <p class="muted">Triangles: Brighton ▲ up · opponent ▼ down. Gold = goal · White = on target · Orange = blocked · Hollow = missed · Blue = assist. ${
+            visible.length
+          } play${visible.length === 1 ? "" : "s"} shown.</p>
+        </section>
+        <section class="prep-gemini">
+          <h2>Gemini briefing</h2>
+          <p class="muted">Uses the filtered shots and the totals above. Does not guess lineup.</p>
+          <button type="button" class="btn btn-primary" id="prep-gemini-run" ${
+            visible.length && !st.prep.gemini.loading ? "" : "disabled"
+          }>${st.prep.gemini.loading ? "Summarizing…" : "Summarize with Gemini"}</button>
+          ${st.prep.gemini.error ? `<p class="shots-error">${escapeHtml(st.prep.gemini.error)}</p>` : ""}
+          ${
+            st.prep.gemini.text
+              ? `<div class="prep-gemini-answer">${markdownLite(st.prep.gemini.text)}</div>`
+              : ""
+          }
+        </section>
+        <section class="prep-notes">
+          <h2>Notes</h2>
+          <p class="muted">Each note is attached to one game. Tags are loose (players, themes).</p>
+          <form id="prep-note-form" class="shots-form">
+            <label class="shots-field">Game
+              <select id="prep-note-game" ${st.prep.lockedGameId ? "disabled" : ""}>
+                ${noteGameChoices
+                  .map(
+                    (g) =>
+                      `<option value="${g.id}" ${g.id === st.prep.noteGameId ? "selected" : ""}>${escapeHtml(
+                        gameTitle(g)
+                      )}</option>`
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label class="shots-field">Note
+              <textarea id="prep-note-body" class="explore-input" rows="3" maxlength="4000" placeholder="They overload our left after 30'">${escapeHtml(
+                st.prep.noteBody
+              )}</textarea>
+            </label>
+            <label class="shots-field">Tags
+              <input type="text" id="prep-note-tags" value="${escapeHtml(st.prep.noteTags)}" placeholder="pip, #9, press" />
+            </label>
+            <div class="prep-tag-row">${suggestBtns}</div>
+            <label class="shots-field">Your name (optional)
+              <input type="text" id="prep-note-author" maxlength="40" value="${escapeHtml(st.prep.noteAuthor)}" />
+            </label>
+            <button type="submit" class="btn btn-secondary" ${noteGameChoices.length ? "" : "disabled"}>Save note</button>
+          </form>
+          <div class="prep-note-list">${notesList}</div>
+        </section>`
+            : `<p class="muted">Pick an opponent to overlay meetings on one pitch.</p>`
+        }
+      </div>`;
+
+    $("#prep-opponent")?.addEventListener("change", (e) => {
+      st.prep.opponentId = e.target.value;
+      st.prep.loadKey = "";
+      st.prep.gemini = { loading: false, text: "", error: "" };
+      st.prep.rows = null;
+      st.prep.notes = [];
+      fillPrepSelectionFromCandidates();
+      draw();
+    });
+    $("#prep-season")?.addEventListener("change", (e) => {
+      st.prep.seasonId = e.target.value;
+      st.prep.loadKey = "";
+      fillPrepSelectionFromCandidates();
+      draw();
+    });
+    $("#prep-friendly")?.addEventListener("change", (e) => {
+      st.prep.includeFriendly = !!e.target.checked;
+      st.prep.loadKey = "";
+      fillPrepSelectionFromCandidates();
+      draw();
+    });
+    $$("[data-prep-game]").forEach((box) => {
+      box.addEventListener("change", () => {
+        st.prep.selectedGameIds = $$("[data-prep-game]:checked").map((el) => el.getAttribute("data-prep-game"));
+        st.prep.loadKey = "";
+        st.prep.gemini = { loading: false, text: "", error: "" };
+        draw();
+      });
+    });
+    $$("[data-prep-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.getAttribute("data-prep-filter");
+        const value = btn.getAttribute("data-prep-value");
+        if (name === "teamFilter") st.prep.teamFilter = value;
+        if (name === "resultFilter") st.prep.resultFilter = value;
+        if (name === "periodFilter") st.prep.periodFilter = value;
+        draw({ keepScroll: true });
+      });
+    });
+    $$("[data-prep-shot]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        st.prep.selectedShotId = el.getAttribute("data-prep-shot") || "";
+        draw({ keepScroll: true });
+      });
+    });
+    $("#prep-gemini-run")?.addEventListener("click", () => runPrepGemini());
+    $("#prep-note-body")?.addEventListener("input", (e) => {
+      st.prep.noteBody = e.target.value;
+    });
+    $("#prep-note-tags")?.addEventListener("input", (e) => {
+      st.prep.noteTags = e.target.value;
+    });
+    $("#prep-note-author")?.addEventListener("input", (e) => {
+      st.prep.noteAuthor = e.target.value;
+      localStorage.setItem(LS_NOTE_AUTHOR, st.prep.noteAuthor);
+    });
+    $("#prep-note-game")?.addEventListener("change", (e) => {
+      st.prep.noteGameId = e.target.value;
+    });
+    $$("[data-prep-tag]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tag = btn.getAttribute("data-prep-tag");
+        const cur = st.prep.noteTags
+          .split(/[,;]+/)
+          .map((t) => t.trim())
+          .filter(Boolean);
+        if (!cur.includes(tag)) cur.push(tag);
+        st.prep.noteTags = cur.join(", ");
+        draw({ keepScroll: true });
+      });
+    });
+    $("#prep-note-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const gameId = st.prep.lockedGameId || st.prep.noteGameId;
+      const body = String(st.prep.noteBody || "").trim();
+      if (!gameId || !body) {
+        showToast("Add a note and pick a game");
+        return;
+      }
+      try {
+        await API.createNote({
+          game_id: gameId,
+          body,
+          author_label: st.prep.noteAuthor,
+          tags: st.prep.noteTags,
+        });
+        st.prep.noteBody = "";
+        st.prep.noteTags = "";
+        st.prep.loadKey = "";
+        showToast("Note saved");
+        await loadPrepData();
+      } catch (err) {
+        showToast(err.message || "Could not save note");
+      }
+    });
+    $$("[data-del-note]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Delete this note?")) return;
+        const id = btn.getAttribute("data-del-note");
+        const result = await API.deleteNote(id);
+        if (!result.ok) {
+          showToast(result.error || "Could not delete");
+          return;
+        }
+        st.prep.loadKey = "";
+        await loadPrepData();
+      });
+    });
+  }
+
   function exploreCell(value) {
     if (value === null || value === undefined) return "—";
     if (typeof value === "object") return escapeHtml(JSON.stringify(value));
@@ -5468,8 +6193,9 @@
 
     root().innerHTML = `
       <div class="shots-admin shots-explore">
-        ${trackerNav("explore")}
-        <h1>Explore</h1>
+        ${trackerNav()}
+        <h1>Prep</h1>
+        ${prepTabsMarkup("explore")}
         <p class="muted">Ask questions about games, shots, assists, and opponents. Answers use live Supabase data via OpenAI.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${ex.error ? `<p class="shots-error">${escapeHtml(ex.error)}</p>` : ""}
@@ -5992,8 +6718,9 @@
       renderHistory();
       return;
     }
-    if (view === "shots-explore") {
-      renderExplore();
+    if (view === "shots-prep") {
+      renderPrep();
+      if (opts.keepScroll) window.scrollTo(0, scrollY);
       return;
     }
     if (!st.gameId || !st.game) {

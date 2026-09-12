@@ -67,27 +67,31 @@ These were one-off / hand-run scripts. The baseline migrations already cover the
 
 Optional DEV seed: `sample_data.sql` in the SQL editor.
 
-## Explore tab (optional AI)
+## Explore + Opponent Prep (optional AI)
 
-Natural-language questions over shot data (`#shots-explore`). Uses a Supabase Edge Function + OpenAI.
+Natural-language questions live under **Prep → Explore** (`#shots-prep?tab=explore`; `#shots-explore` still works). Uses a Supabase Edge Function + OpenAI.
 
-1. Migrations must include semantic + explore (already in `migrations/`).
+Opponent Prep briefings (`#shots-prep`) use a separate function + Gemini.
+
+1. Migrations must include semantic + explore (already in `migrations/`) and `prep_notes`.
 2. Create an [OpenAI API](https://platform.openai.com) key. Set a low monthly spend limit.
 3. Store as a project secret:
 
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
+supabase secrets set GEMINI_API_KEY=...
 ```
 
 4. Deploy:
 
 ```bash
 supabase functions deploy explore-shots
+supabase functions deploy prep-opponent
 ```
 
 Confirm JWT verification stays on (default).
 
-Optional: `EXPLORE_OPENAI_MODEL` secret to override default `gpt-4.1`.
+Optional: `EXPLORE_OPENAI_MODEL` (default `gpt-4.1`), `PREP_GEMINI_MODEL` (default `gemini-2.5-flash`).
 
 Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../benchmark/README.md`](../benchmark/README.md).
 
@@ -98,4 +102,4 @@ Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../
 3. `python3 -m http.server 8080` → open `#shots`.
 4. Log in with PIN.
 
-Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-explore` AI explore · `#shots-map` game map.
+Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-prep` opponent prep · `#shots-prep?tab=explore` AI explore · `#shots-map` game map.

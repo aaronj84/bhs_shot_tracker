@@ -4,8 +4,14 @@
 # Deploy Explore (optional):
 #   supabase secrets set OPENAI_API_KEY=sk-...
 #   supabase functions deploy explore-shots
+# Opponent Prep Gemini (optional):
+#   supabase secrets set GEMINI_API_KEY=...
+#   supabase functions deploy prep-opponent
 
 project_id = "bhs_shot_tracker"
 
 [functions.explore-shots]
+verify_jwt = true
+
+[functions.prep-opponent]
 verify_jwt = true
