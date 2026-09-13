@@ -24,7 +24,7 @@ async function assignTwoUsLineupPlayers(page) {
   await page.locator('select[data-lineup-team="us"][data-lineup-slot="9"]').selectOption(values[1]);
 }
 
-/** Tracker listens for pointerup with a custom double-tap window (not click/dblclick). */
+/** Tracker records pointerdown, then treats a nearby pointerup as a tap (drag if moved > 14px). */
 async function doubleTapUsPitch(page) {
   const svg = page.locator("#tracker-pitch-us .pitch-svg");
   await svg.scrollIntoViewIfNeeded();
@@ -32,8 +32,8 @@ async function doubleTapUsPitch(page) {
   expect(box).toBeTruthy();
   const clientX = box.x + box.width * 0.55;
   const clientY = box.y + box.height * 0.4;
-  const pointerUp = () =>
-    svg.dispatchEvent("pointerup", {
+  const pointerEvent = (type) =>
+    svg.dispatchEvent(type, {
       bubbles: true,
       cancelable: true,
       clientX,
@@ -42,9 +42,11 @@ async function doubleTapUsPitch(page) {
       pointerType: "mouse",
       isPrimary: true,
     });
-  await pointerUp();
+  await pointerEvent("pointerdown");
+  await pointerEvent("pointerup");
   await page.waitForTimeout(120);
-  await pointerUp();
+  await pointerEvent("pointerdown");
+  await pointerEvent("pointerup");
 }
 
 test.describe("Shot tracker smoke", () => {
