@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="Brighton Bengals Shot Tracker — sideline recording, history, and explore." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="description" content="Brighton Bengals Shot Tracker — sideline recording, history, and prep." />
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20260905a" />
+  <link rel="stylesheet" href="styles.css?v=20260912i" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -25,7 +25,7 @@
       <a class="nav-link" href="#shots-games" data-nav="shots-games">Games</a>
       <a class="nav-link" href="#shots" data-nav="shots">Record</a>
       <a class="nav-link" href="#shots-history" data-nav="shots-history">History</a>
-      <a class="nav-link" href="#shots-explore" data-nav="shots-explore">Explore</a>
+      <a class="nav-link" href="#shots-prep" data-nav="shots-prep">Prep</a>
       <a class="nav-link" href="#shots-map" data-nav="shots-map">Map</a>
     </nav>
 
@@ -45,7 +45,7 @@
       <a href="#shots-games" data-nav="shots-games" data-close-drawer>Games</a>
       <a href="#shots" data-nav="shots" data-close-drawer>Record</a>
       <a href="#shots-history" data-nav="shots-history" data-close-drawer>History</a>
-      <a href="#shots-explore" data-nav="shots-explore" data-close-drawer>Explore</a>
+      <a href="#shots-prep" data-nav="shots-prep" data-close-drawer>Prep</a>
       <a href="#shots-map" data-nav="shots-map" data-close-drawer>Map</a>
     </nav>
   </div>
@@ -241,10 +241,22 @@
     </div>
   </div>
 
+  <div class="modal" id="prep-config-modal" hidden role="dialog" aria-modal="true" aria-labelledby="prep-config-title">
+    <div class="modal-backdrop" data-close-prep-config></div>
+    <div class="modal-panel prep-config-panel">
+      <h2 id="prep-config-title">Prep setup</h2>
+      <p class="muted">Opponent and games for this session. You can reopen this anytime from Setup.</p>
+      <div id="prep-config-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" data-close-prep-config>Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
-  <script src="shots-api.js?v=20260903c"></script>
-  <script src="shots.js?v=20260905a"></script>
-  <script src="app.js?v=20260903e"></script>
+  <script src="shots-api.js?v=20260912c"></script>
+  <script src="shots.js?v=20260912i"></script>
+  <script src="app.js?v=20260912i"></script>
 </body>
 </html>

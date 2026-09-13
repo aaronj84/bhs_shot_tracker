@@ -303,6 +303,7 @@
         if (filters.playerId) q = q.eq("player_id", filters.playerId);
         if (filters.teamId) q = q.eq("team_id", filters.teamId);
         if (filters.gameId) q = q.eq("game_id", filters.gameId);
+        if (filters.gameIds && filters.gameIds.length) q = q.in("game_id", filters.gameIds);
         if (filters.result) q = q.eq("result", filters.result);
         if (filters.period) q = q.eq("period", filters.period);
         if (filters.zoneId) q = q.eq("zone_id", filters.zoneId);
@@ -381,7 +382,148 @@
       }
       return { ok: true, data: payload };
     },
+
+    async notesForGames(gameIds) {
+      const ids = (gameIds || []).filter(Boolean);
+      if (!ids.length) return [];
+      const { data, error } = await getClient()
+        .from("notes")
+        .select("*, note_tags (tag)")
+        .in("game_id", ids)
+        .order("created_at", { ascending: false });
+      throwIfError(error, "Could not load notes");
+      return (data || []).map((row) => ({
+        ...row,
+        tags: (row.note_tags || []).map((t) => t.tag).filter(Boolean),
+      }));
+    },
+
+    async createNote(row) {
+      const tags = normalizeNoteTags(row.tags);
+      const insert = await getClient()
+        .from("notes")
+        .insert({
+          game_id: row.game_id,
+          body: String(row.body || "").trim(),
+          author_label: row.author_label ? String(row.author_label).trim() : null,
+        })
+        .select("*")
+        .single();
+      throwIfError(insert.error, "Could not save note");
+      await replaceNoteTags(insert.data.id, tags);
+      return { ...insert.data, tags };
+    },
+
+    async updateNote(id, patch) {
+      const body = {};
+      if (patch.body != null) body.body = String(patch.body).trim();
+      if (Object.prototype.hasOwnProperty.call(patch, "author_label")) {
+        body.author_label = patch.author_label ? String(patch.author_label).trim() : null;
+      }
+      let data = null;
+      if (Object.keys(body).length) {
+        const upd = await getClient().from("notes").update(body).eq("id", id).select("*").single();
+        throwIfError(upd.error, "Could not update note");
+        data = upd.data;
+      } else {
+        const existing = await getClient().from("notes").select("*").eq("id", id).single();
+        throwIfError(existing.error, "Could not load note");
+        data = existing.data;
+      }
+      let tags = null;
+      if (Object.prototype.hasOwnProperty.call(patch, "tags")) {
+        tags = normalizeNoteTags(patch.tags);
+        await replaceNoteTags(id, tags);
+      }
+      if (tags == null) {
+        const { data: tagRows, error } = await getClient().from("note_tags").select("tag").eq("note_id", id);
+        throwIfError(error, "Could not load tags");
+        tags = (tagRows || []).map((t) => t.tag);
+      }
+      return { ...data, tags };
+    },
+
+    async deleteNote(id) {
+      const { error } = await getClient().from("notes").delete().eq("id", id);
+      if (error) return { ok: false, error: error.message || "Could not delete note" };
+      return { ok: true };
+    },
+
+    /**
+     * Opponent Prep briefing via Edge Function prep-opponent (Gemini).
+     * Requires staff PIN session. GEMINI_API_KEY must be set as a Supabase secret.
+     */
+    async prepOpponent(payload) {
+      const sb = getClient();
+      if (!sb) return { ok: false, error: "Supabase is not configured" };
+      const { data, error } = await sb.functions.invoke("prep-opponent", {
+        body: payload && typeof payload === "object" ? payload : {},
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyPrepError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
   };
+
+  async function functionPayload(data, error) {
+    if (data && typeof data === "object") return data;
+    const ctx = error && error.context;
+    if (!ctx) return null;
+    try {
+      if (typeof ctx.json === "function") return await ctx.json();
+      if (typeof ctx.clone === "function") return await ctx.clone().json();
+    } catch (_) {
+      /* body already consumed or not JSON */
+    }
+    return null;
+  }
+
+  function friendlyPrepError(msg) {
+    const text = String(msg || "").trim();
+    if (/GEMINI_API_KEY is not configured/i.test(text)) {
+      return "Gemini is not configured on this Supabase project. In the DEV project run: supabase secrets set GEMINI_API_KEY=… (Google AI Studio key).";
+    }
+    if (/non-2xx status code/i.test(text)) {
+      return "Prep summary failed. If this is a new project, set GEMINI_API_KEY on the Edge Function secrets.";
+    }
+    return text || "Prep request failed. Deploy prep-opponent and set GEMINI_API_KEY.";
+  }
+
+  function normalizeNoteTags(raw) {
+    const list = Array.isArray(raw)
+      ? raw
+      : String(raw || "")
+          .split(/[,;]+/)
+          .map((t) => t.trim());
+    const seen = new Set();
+    const out = [];
+    list.forEach((item) => {
+      const tag = String(item || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      out.push(tag);
+    });
+    return out;
+  }
+
+  async function replaceNoteTags(noteId, tags) {
+    const del = await getClient().from("note_tags").delete().eq("note_id", noteId);
+    throwIfError(del.error, "Could not update tags");
+    if (!tags.length) return;
+    const ins = await getClient()
+      .from("note_tags")
+      .insert(tags.map((tag) => ({ note_id: noteId, tag })));
+    throwIfError(ins.error, "Could not save tags");
+  }
 
   global.ShotAPI = api;
 })(window);

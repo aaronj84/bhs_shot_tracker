@@ -66,7 +66,15 @@ Optional DEV seed (rich fake season — **DEV only**):
 
 1. Confirm the dashboard project is `bhs-shot-tracker-dev` (ref `fmiymqnfezkqagpbrmoi`).
 2. **SQL Editor** → paste [`supabase/seed_dev_sandbox.sql`](../supabase/seed_dev_sandbox.sql) → Run.
-3. Local app → Games → season **DEV Sandbox**. Opponent **Bogwater Badgers** has a cartoon roster (names + positions). Re-run the seed anytime to refresh that roster without duplicating games.
+3. Local app → Games → season **DEV Sandbox**. **Medville Marauders** has a full cartoon XI plus a few subs; opponent **Bogwater Badgers** has a cartoon roster (names + positions). Re-run the seed anytime to refresh those rosters without duplicating games.
+4. Optional full-game replay (Brighton @ Olympus CSV, translated onto Medville @ Bogwater, including extra time):
+
+```bash
+python3 scripts/generate_dev_recorded_game_sql.py
+supabase db query --linked -f supabase/seed_dev_recorded_game.sql
+```
+
+Safe to re-run: replaces shots on the **2099-04-05 playoffs** game only.
 
 Lighter alternative: `supabase/sample_data.sql`. Never run either on **prod**.
 
@@ -80,16 +88,18 @@ Legacy one-off scripts (`supabase/migrate_*.sql`, `schema.sql`) are historical; 
 
 ---
 
-## 4. Optional: Explore on DEV
+## 4. Optional: Explore / Opponent Prep on DEV
 
-Only if you want the Explore tab against DEV:
+Only if you want the Prep AI tabs against DEV:
 
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
+supabase secrets set GEMINI_API_KEY=...
 supabase functions deploy explore-shots
+supabase functions deploy prep-opponent
 ```
 
-Core CI does **not** require Explore.
+Core CI does **not** require those functions. Notes tables come from `supabase db push` (migration `prep_notes`).
 
 ---
 

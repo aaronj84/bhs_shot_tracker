@@ -24,7 +24,7 @@ async function assignTwoUsLineupPlayers(page) {
   await page.locator('select[data-lineup-team="us"][data-lineup-slot="9"]').selectOption(values[1]);
 }
 
-/** Tracker listens for pointerup with a custom double-tap window (not click/dblclick). */
+/** Tracker records pointerdown, then treats a nearby pointerup as a tap (drag if moved > 14px). */
 async function doubleTapUsPitch(page) {
   const svg = page.locator("#tracker-pitch-us .pitch-svg");
   await svg.scrollIntoViewIfNeeded();
@@ -32,8 +32,8 @@ async function doubleTapUsPitch(page) {
   expect(box).toBeTruthy();
   const clientX = box.x + box.width * 0.55;
   const clientY = box.y + box.height * 0.4;
-  const pointerUp = () =>
-    svg.dispatchEvent("pointerup", {
+  const pointerEvent = (type) =>
+    svg.dispatchEvent(type, {
       bubbles: true,
       cancelable: true,
       clientX,
@@ -42,9 +42,11 @@ async function doubleTapUsPitch(page) {
       pointerType: "mouse",
       isPrimary: true,
     });
-  await pointerUp();
+  await pointerEvent("pointerdown");
+  await pointerEvent("pointerup");
   await page.waitForTimeout(120);
-  await pointerUp();
+  await pointerEvent("pointerdown");
+  await pointerEvent("pointerup");
 }
 
 test.describe("Shot tracker smoke", () => {
@@ -63,6 +65,62 @@ test.describe("Shot tracker smoke", () => {
     await page.goto("/#shots-games");
     await expect(page.locator(".shots-admin h1")).toHaveText("Games", { timeout: 15000 });
     await expect(page.locator("#new-game-form")).toBeVisible();
+  });
+
+  test("Prep tab opens Opponent Prep", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/#shots-prep");
+    await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");
+    await expect(page.locator("#prep-config-open")).toBeVisible();
+    await expect(page.locator(".prep-empty")).toBeVisible();
+    await expect(page.locator(".prep-gemini")).toHaveCount(0);
+    await page.locator("#prep-config-open").click();
+    await expect(page.locator("#prep-config-modal")).toBeVisible();
+    const opp = page.locator("#prep-opponent");
+    await expect(opp).toBeVisible();
+    const values = await opp.locator("option").evaluateAll((opts) =>
+      opts.map((o) => o.value).filter(Boolean)
+    );
+    if (values.length) {
+      await opp.selectOption(values[0]);
+      await page.locator("#prep-config-modal .btn-primary").click();
+      await expect(page.locator("#prep-config-modal")).toBeHidden();
+      await expect(page.locator(".prep-pitch-wrap")).toBeVisible({ timeout: 20000 });
+      await expect(page.locator(".prep-gemini")).toBeVisible();
+      await expect(page.locator(".prep-notes")).toBeVisible();
+      await expect(page.locator("#prep-note-form")).toHaveCount(0);
+      await page.locator("#prep-filter-toggle").click();
+      await expect(page.locator("#prep-filter-panel")).toBeVisible();
+      await page.locator("#prep-stats-toggle").click();
+      await expect(page.locator("#prep-stats-panel")).toBeVisible();
+      await expect(page.locator("#prep-filter-panel")).toHaveCount(0);
+      await page.locator("#prep-note-add").click();
+      await expect(page.locator("#prep-note-form")).toBeVisible();
+    } else {
+      await page.locator("#prep-config-modal .btn-primary").click();
+      await expect(page.locator("#prep-config-modal")).toBeHidden();
+    }
+    await page.locator(".prep-tab", { hasText: "Explore" }).click();
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Explore");
+    await expect(page.locator("#explore-form")).toBeVisible();
+  });
+
+  test("Record footer opens this-game Opponent Prep", async ({ page }) => {
+    test.setTimeout(60000);
+    await signIn(page);
+    await page.goto("/#shots-games");
+    const gameBtn = page.locator("[data-open-game]").first();
+    await expect(gameBtn).toBeVisible({ timeout: 15000 });
+    await gameBtn.click();
+    await page.locator("[data-open-mode=track]").click();
+    await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
+    await page.locator(".prep-game-link a").click();
+    await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
+    await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");
+    await expect(page.locator(".prep-locked-banner, .prep-pitch-wrap").first()).toBeVisible({
+      timeout: 20000,
+    });
   });
 
   test("add game, record shot, edit shot, lineup swap", async ({ page }) => {

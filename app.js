@@ -7,23 +7,25 @@
 
   function parseHash() {
     const raw = (location.hash || "#shots").replace(/^#/, "");
-    if (raw === "shots-map") return "shots-map";
-    if (raw === "shots-games") return "shots-games";
-    if (raw === "shots-history") return "shots-history";
-    if (raw === "shots-explore") return "shots-explore";
-    if (raw === "shots-scoreboard") return "shots-scoreboard";
-    if (raw === "shots" || !raw || raw === "home") return "shots";
+    const path = raw.split("?")[0];
+    if (path === "shots-map") return "shots-map";
+    if (path === "shots-games") return "shots-games";
+    if (path === "shots-history") return "shots-history";
+    if (path === "shots-prep" || path === "shots-explore") return "shots-prep";
+    if (path === "shots-scoreboard") return "shots-scoreboard";
+    if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
   }
 
   function updateChrome(view) {
     document.body.classList.add("shots-mode", "tracker-view");
+    document.body.classList.toggle("shots-record-view", view === "shots");
     document.body.classList.toggle("shot-map-view", view === "shots-map");
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
     document.body.classList.toggle(
       "shots-admin-view",
-      view === "shots-games" || view === "shots-history" || view === "shots-explore"
+      view === "shots-games" || view === "shots-history" || view === "shots-prep"
     );
     const theme = document.querySelector('meta[name="theme-color"]');
     if (theme) theme.setAttribute("content", view === "shots-scoreboard" ? "#0b1f33" : "#f4f7fb");
@@ -44,7 +46,7 @@
         (view === "shots" && key === "shots") ||
         (view === "shots-games" && key === "shots-games") ||
         (view === "shots-history" && key === "shots-history") ||
-        (view === "shots-explore" && key === "shots-explore") ||
+        (view === "shots-prep" && key === "shots-prep") ||
         (view === "shots-map" && key === "shots-map");
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");
@@ -98,8 +100,31 @@
     closeDrawer();
   });
 
+  function lockViewportScale() {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (meta) {
+      meta.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+      );
+    }
+    const blockGesture = (e) => e.preventDefault();
+    document.addEventListener("gesturestart", blockGesture, { passive: false });
+    document.addEventListener("gesturechange", blockGesture, { passive: false });
+    document.addEventListener("gestureend", blockGesture, { passive: false });
+    document.addEventListener(
+      "touchmove",
+      (e) => {
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+        if (typeof e.scale === "number" && e.scale !== 1) e.preventDefault();
+      },
+      { passive: false }
+    );
+  }
+
   if (!location.hash || location.hash === "#" || location.hash === "#home") {
     location.replace("#shots");
   }
+  lockViewportScale();
   render();
 })();

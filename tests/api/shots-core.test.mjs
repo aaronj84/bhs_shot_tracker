@@ -174,6 +174,31 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(data?.length ?? 0).toBe(0);
     shotId = null;
   });
+
+  it("saves a game note with tags", async () => {
+    const { data: note, error } = await sb
+      .from("notes")
+      .insert({
+        game_id: gameId,
+        body: `CI note ${runId}`,
+        author_label: "CI",
+      })
+      .select()
+      .single();
+    expect(error).toBeNull();
+    expect(note.game_id).toBe(gameId);
+
+    const { error: tagErr } = await sb.from("note_tags").insert({ note_id: note.id, tag: "press" });
+    expect(tagErr).toBeNull();
+
+    const { data: tagged, error: readErr } = await sb
+      .from("notes")
+      .select("id, body, note_tags (tag)")
+      .eq("id", note.id)
+      .single();
+    expect(readErr).toBeNull();
+    expect(tagged.note_tags?.map((t) => t.tag)).toContain("press");
+  });
 });
 
 describe.skipIf(configured)("Shot tracker API (env missing)", () => {
