@@ -20,6 +20,7 @@
 
   function updateChrome(view) {
     document.body.classList.add("shots-mode", "tracker-view");
+    document.body.classList.toggle("shots-record-view", view === "shots");
     document.body.classList.toggle("shot-map-view", view === "shots-map");
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
     document.body.classList.toggle(
@@ -99,8 +100,31 @@
     closeDrawer();
   });
 
+  function lockViewportScale() {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (meta) {
+      meta.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+      );
+    }
+    const blockGesture = (e) => e.preventDefault();
+    document.addEventListener("gesturestart", blockGesture, { passive: false });
+    document.addEventListener("gesturechange", blockGesture, { passive: false });
+    document.addEventListener("gestureend", blockGesture, { passive: false });
+    document.addEventListener(
+      "touchmove",
+      (e) => {
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+        if (typeof e.scale === "number" && e.scale !== 1) e.preventDefault();
+      },
+      { passive: false }
+    );
+  }
+
   if (!location.hash || location.hash === "#" || location.hash === "#home") {
     location.replace("#shots");
   }
+  lockViewportScale();
   render();
 })();

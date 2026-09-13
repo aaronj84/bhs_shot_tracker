@@ -339,6 +339,8 @@
     importOpen: false,
     stampOffset: loadStampOffset(),
     editingClockId: null,
+    inspectEventId: "",
+    inspectRole: "",
     pendingOpenGameId: "",
     history: { seasonId: "", playerId: "", opponentId: "", depth: "", rows: null, loading: false },
     explore: {
@@ -2685,6 +2687,117 @@
     return pt.matrixTransform(ctm.inverse());
   }
 
+  function halfPitchSvgPoint(x, y, swapped) {
+    if (swapped) return { sx: y, sy: PW - x };
+    return { sx: HALF_L - y, sy: x };
+  }
+
+  function inspectPopupPlace(x, y, swapped) {
+    const p = halfPitchSvgPoint(x, y, swapped);
+    const vb = swapped ? { x: -3.5, y: -1, w: 64.8, h: 70 } : { x: -9.4, y: -1, w: 64.8, h: 70 };
+    const left = ((p.sx - vb.x) / vb.w) * 100;
+    const top = ((p.sy - vb.y) / vb.h) * 100;
+    const place = [];
+    if (top < 28) place.push("is-below");
+    if (left < 22) place.push("is-start");
+    else if (left > 78) place.push("is-end");
+    return { left, top, place };
+  }
+
+  function pitchInspectMarks(ev) {
+    const marks = [];
+    if (ev?.shot) marks.push({ role: "shot", x: Number(ev.shot.x), y: Number(ev.shot.y) });
+    if (ev?.assist) marks.push({ role: "assist", x: Number(ev.assist.x), y: Number(ev.assist.y) });
+    if (ev?.secondAssist) {
+      marks.push({ role: "secondAssist", x: Number(ev.secondAssist.x), y: Number(ev.secondAssist.y) });
+    }
+    return marks.filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
+  }
+
+  function nearestInspectHit(events, team, loc, maxDist = 3.6) {
+    let best = null;
+    (events || []).forEach((ev) => {
+      if (eventTeam(ev) !== team) return;
+      pitchInspectMarks(ev).forEach((m) => {
+        const d = Math.hypot(m.x - loc.x, m.y - loc.y);
+        if (d > maxDist) return;
+        if (!best || d < best.d) best = { id: ev.id, role: m.role, d };
+      });
+    });
+    return best;
+  }
+
+  function clearPitchInspect() {
+    const had = !!(st.inspectEventId || st.inspectRole);
+    st.inspectEventId = "";
+    st.inspectRole = "";
+    return had;
+  }
+
+  function trackerInspectPopupMarkup(ev, role, swapped) {
+    if (!ev) return "";
+    const team = eventTeam(ev);
+    const mark =
+      role === "secondAssist" && ev.secondAssist
+        ? ev.secondAssist
+        : role === "assist" && ev.assist
+          ? ev.assist
+          : ev.shot;
+    if (!mark) return "";
+    const { left, top, place } = inspectPopupPlace(Number(mark.x), Number(mark.y), swapped);
+    const shooter = eventPersonLabel(team, ev.shooterNumber, ev.shooterName, ev.shooterShort);
+    const result = SHOT_RESULT_LABELS[ev.result] || ev.result || "";
+    const miss = ev.missDirection ? MISS_DIRECTION_LABELS[ev.missDirection] : "";
+    const clock = formatEventClock(ev, ev.game || st.game);
+    const zone = ev.shot?.zoneLabel || ev.shot?.zoneId || "";
+    const roleLabel = role === "secondAssist" ? "2nd assist" : role === "assist" ? "Assist" : "Shot";
+    let extra = "";
+    if (ev.assist) {
+      const who = eventPersonLabel(team, ev.assist.number, ev.assist.name, ev.assist.short);
+      const kind = ASSIST_TYPE_LABELS[ev.assist.type] || ev.assist.type || "";
+      extra += `<p>Assist ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
+    }
+    if (ev.secondAssist) {
+      const who = eventPersonLabel(team, ev.secondAssist.number, ev.secondAssist.name, ev.secondAssist.short);
+      const kind = ASSIST_TYPE_LABELS[ev.secondAssist.type] || ev.secondAssist.type || "";
+      extra += `<p>2nd ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
+    }
+    return `
+      <div class="pitch-inspect-popup ${place.join(" ")}" id="pitch-inspect-popup" role="dialog" aria-label="Play details" style="--x:${left}%; --y:${top}%;">
+        <button type="button" class="pitch-inspect-popup-close" data-inspect-close aria-label="Close play details">×</button>
+        <p class="pitch-inspect-popup-kicker">${escapeHtml(teamLabel(team, ev))} · ${escapeHtml(roleLabel)}</p>
+        ${shooter && shooter !== "—" ? `<p class="pitch-inspect-popup-player">${escapeHtml(shooter)}</p>` : ""}
+        <p class="pitch-inspect-popup-result">${escapeHtml(result)}${miss ? ` · ${escapeHtml(miss)}` : ""}</p>
+        <p>${escapeHtml([clock, zone].filter(Boolean).join(" · "))}</p>
+        ${extra}
+        <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-edit="${escapeHtml(ev.id)}">Edit play</button>
+      </div>`;
+  }
+
+  function trackerPitchFieldMarkup(team, events, swapped, pitchOpts) {
+    const ev = st.inspectEventId ? events.find((e) => e.id === st.inspectEventId) : null;
+    const showPopup = ev && eventTeam(ev) === team;
+    return `
+      <span class="tracker-pitch-handle" aria-hidden="true"><span></span><span></span><span></span></span>
+      <div class="tracker-pitch-field">
+        ${halfPitchMarkup(
+          events,
+          Object.assign(
+            {
+              team,
+              swapped,
+              inspectable: true,
+              inspectId: st.inspectEventId,
+              inspectRole: st.inspectRole,
+            },
+            pitchOpts
+          )
+        )}
+        ${showPopup ? trackerInspectPopupMarkup(ev, st.inspectRole || "shot", swapped) : ""}
+      </div>
+      <span class="tracker-pitch-handle" aria-hidden="true"><span></span><span></span><span></span></span>`;
+  }
+
   function halfPitchMarkup(events, opts = {}) {
     const swapped = !!opts.swapped;
     const team = opts.team || "us";
@@ -2766,7 +2879,15 @@
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && ev.shooterNumber !== "") {
           html += `<text class="tracker-shot-num" x="${ev.shot.x}" y="${ev.shot.y}" transform="rotate(${numRot} ${ev.shot.x} ${ev.shot.y})">${escapeHtml(String(ev.shooterNumber))}</text>`;
         }
-        return `<g class="tracker-event ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
+        if (opts.inspectable) {
+          const selected = ev.id === opts.inspectId;
+          const selectedRole = selected ? opts.inspectRole || "shot" : "";
+          [...pitchInspectMarks(ev)].reverse().forEach((m) => {
+            const on = selected && selectedRole === m.role;
+            html += `<circle class="tracker-inspect-hit${on ? " is-on" : ""}" data-inspect-id="${escapeHtml(ev.id)}" data-inspect-role="${escapeHtml(m.role)}" cx="${m.x}" cy="${m.y}" r="3.2" />`;
+          });
+        }
+        return `<g class="tracker-event ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
       })
       .join("");
     const inner = swapped
@@ -2848,6 +2969,7 @@
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.justAddedNumber = "";
+    clearPitchInspect();
     renderShotModal();
     shotModal.dataset.openedAt = String(Date.now());
     shotModal.hidden = false;
@@ -4099,13 +4221,23 @@
       const wrap = svg.closest(".tracker-pitch-wrap");
       const block = svg.closest(".tracker-pitch-block");
       const canSecondTap = awaitingShot && recordingTeam() === team;
-      wrap?.classList.toggle("is-recording", canSecondTap || !awaitingShot);
+      wrap?.classList.toggle("is-recording", canSecondTap);
       block?.classList.toggle("is-active", canSecondTap || (!awaitingShot && recordingTeam() === team));
       let lastTapAt = 0;
       let lastTapX = 0;
       let lastTapY = 0;
+      let downX = 0;
+      let downY = 0;
+      const onPointerDown = (evt) => {
+        const e = evt.changedTouches?.[0] || evt.touches?.[0] || evt;
+        downX = e.clientX;
+        downY = e.clientY;
+      };
       const onTap = (evt) => {
         if (!shotModal.hidden) return;
+        const e = evt.changedTouches?.[0] || evt.touches?.[0] || evt;
+        const moved = Math.hypot((e.clientX || 0) - downX, (e.clientY || 0) - downY);
+        if (moved > 14) return;
         const now = Date.now();
         const p = svgEventPoint(svg, evt);
         const pitchSwapped = team === "opp" ? !st.swapSides : !!st.swapSides;
@@ -4129,6 +4261,30 @@
           return;
         }
 
+        const hitEl = evt.target?.closest?.("[data-inspect-id]");
+        const periodEvents = (st.shots || []).filter((ev) => eventPeriod(ev) === st.period);
+        const inspectHit =
+          (hitEl && {
+            id: hitEl.getAttribute("data-inspect-id") || "",
+            role: hitEl.getAttribute("data-inspect-role") || "shot",
+          }) ||
+          nearestInspectHit(periodEvents, team, loc);
+        if (inspectHit?.id) {
+          const same = st.inspectEventId === inspectHit.id && (st.inspectRole || "shot") === (inspectHit.role || "shot");
+          if (same) clearPitchInspect();
+          else {
+            st.inspectEventId = inspectHit.id;
+            st.inspectRole = inspectHit.role || "shot";
+          }
+          draw({ keepScroll: true });
+          return;
+        }
+
+        if (clearPitchInspect()) {
+          draw({ keepScroll: true });
+          return;
+        }
+
         if (!isDouble) return;
         st.team = team === "opp" ? "opp" : "us";
         st.mode = "idle";
@@ -4137,8 +4293,24 @@
         fillShotModal("first", loc);
         draw({ keepScroll: true });
       };
+      svg.addEventListener("pointerdown", onPointerDown);
       svg.addEventListener("pointerup", onTap);
     });
+    $("[data-inspect-close]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearPitchInspect();
+      draw({ keepScroll: true });
+    });
+    $("[data-inspect-edit]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute("data-inspect-edit");
+      clearPitchInspect();
+      draw({ keepScroll: true });
+      if (id) openEditShot(id);
+    });
+    $("#pitch-inspect-popup")?.addEventListener("click", (e) => e.stopPropagation());
   }
 
   function trackerSummary(events) {
@@ -5208,7 +5380,7 @@
     const oppSwapped = !usSwapped;
     const pitchOpts = { showGrid: st.showGrid, period };
     const goalSide = usSwapped ? "left" : "right";
-    let status = `Double-tap a spot on either pitch to start a play. ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
+    let status = `Tap a shot or assist for who did what. Double-tap empty grass to start a play. ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
       const a = st.pending?.assist;
       const s2 = st.pending?.secondAssist;
@@ -5228,13 +5400,13 @@
       ? usActive
         ? "Brighton · tap next pass or shot"
         : "Brighton"
-      : "Brighton · double-tap to record";
+      : "Brighton · double-tap empty grass to record";
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const oppCaption = awaitingShot
       ? !usActive
         ? `${oppName} · tap next pass or shot`
         : oppName
-      : `${oppName} · double-tap to record`;
+      : `${oppName} · double-tap empty grass to record`;
 
     root().innerHTML = `
       <div class="tracker-page${awaitingShot ? " is-recording-play" : ""}">
@@ -5256,11 +5428,11 @@
           <div class="tracker-pitches">
             <div class="tracker-pitch-block ${usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(usCaption)}</p>
-              <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-us">${halfPitchMarkup(events, Object.assign({ team: "us", swapped: usSwapped }, pitchOpts))}</div>
+              <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-us">${trackerPitchFieldMarkup("us", events, usSwapped, pitchOpts)}</div>
             </div>
             <div class="tracker-pitch-block is-opp ${!usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(oppCaption)}</p>
-              <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-opp">${halfPitchMarkup(events, Object.assign({ team: "opp", swapped: oppSwapped }, pitchOpts))}</div>
+              <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-opp">${trackerPitchFieldMarkup("opp", events, oppSwapped, pitchOpts)}</div>
             </div>
           </div>
         </section>
@@ -7483,12 +7655,18 @@
       closeClockSetup();
       stopScoreboardPollTick();
       st.editingClockId = null;
+      clearPitchInspect();
       const edit = $("#shot-edit-modal");
       if (edit) edit.hidden = true;
     },
     onEscape() {
       if (shotModal && !shotModal.hidden) {
         dismissShotModal();
+        return true;
+      }
+      if (st.inspectEventId) {
+        clearPitchInspect();
+        draw({ keepScroll: true });
         return true;
       }
       if (lineupGesture) {
