@@ -91,7 +91,7 @@ supabase functions deploy prep-opponent
 
 Confirm JWT verification stays on (default).
 
-Optional: `EXPLORE_OPENAI_MODEL` (default `gpt-4.1`), `PREP_GEMINI_MODEL` (default `gemini-2.5-flash`).
+Optional: `EXPLORE_OPENAI_MODEL` (default `gpt-4.1`), `PREP_GEMINI_MODEL` (default `gemini-3.6-flash`).
 
 Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../benchmark/README.md`](../benchmark/README.md).
 

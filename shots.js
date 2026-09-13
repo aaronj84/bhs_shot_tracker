@@ -316,6 +316,7 @@
     teams: [],
     seasons: [],
     games: [],
+    allGames: [],
     game: null,
     seasonId: savedUi.seasonId || sessionStorage.getItem("shots-season-id") || "",
     gameId: savedUi.gameId || sessionStorage.getItem("shots-game-id") || "",
@@ -366,7 +367,11 @@
       noteTags: "",
       noteAuthor: localStorage.getItem(LS_NOTE_AUTHOR) || "",
       noteGameId: "",
-      gemini: { loading: false, text: "", error: "" },
+      gemini: { loading: false, error: "", messages: [], draft: "" },
+      showConfig: false,
+      showFilters: false,
+      showStats: false,
+      showNoteForm: false,
     },
   };
 
@@ -959,6 +964,347 @@
     return game.away_team || teamById(game.away_team_id);
   }
 
+  function slugify(name) {
+    return String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+  }
+
+  function parseLocationHash() {
+    const raw = (location.hash || "").replace(/^#/, "");
+    const path = raw.split("?")[0] || "shots";
+    const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
+    return { path, params: new URLSearchParams(qs) };
+  }
+
+  function gamePool() {
+    return st.allGames && st.allGames.length ? st.allGames : st.games || [];
+  }
+
+  function rememberGame(game) {
+    if (!game || !game.id) return;
+    if (!st.allGames) st.allGames = [];
+    if (!st.allGames.some((g) => g.id === game.id)) st.allGames.unshift(game);
+    if (!st.games.some((g) => g.id === game.id)) st.games.unshift(game);
+  }
+
+  function shareTeamRef(team) {
+    if (!team) return "";
+    const slug = slugify(team.name);
+    if (!slug) return team.id;
+    const hits = (st.teams || []).filter((t) => slugify(t.name) === slug);
+    return hits.length <= 1 ? slug : team.id;
+  }
+
+  function findTeamByRef(ref) {
+    if (!ref) return null;
+    const teams = st.teams || [];
+    const byId = teams.find((t) => t.id === ref);
+    if (byId) return byId;
+    const hits = teams.filter((t) => slugify(t.name) === ref);
+    if (hits.length === 1) return hits[0];
+    return hits.find((t) => !t.is_brighton) || hits[0] || null;
+  }
+
+  function shareSeasonRef(season) {
+    if (!season) return "";
+    if (season.id === "__last3") return "last3";
+    const slug = slugify(season.label) || String(season.year || "");
+    if (!slug) return season.id;
+    const hits = (st.seasons || []).filter((s) => slugify(s.label) === slug || String(s.year) === slug);
+    return hits.length <= 1 ? slug : season.id;
+  }
+
+  function findSeasonByRef(ref) {
+    if (!ref) return null;
+    if (ref === "last3" || ref === "__last3") return { id: "__last3", label: "Last 3 years" };
+    const seasons = st.seasons || [];
+    const byId = seasons.find((s) => s.id === ref);
+    if (byId) return byId;
+    const bySlug = seasons.filter((s) => slugify(s.label) === ref);
+    if (bySlug.length === 1) return bySlug[0];
+    const byYear = seasons.filter((s) => String(s.year) === ref);
+    if (byYear.length === 1) return byYear[0];
+    return null;
+  }
+
+  function sharePlayerRef(player) {
+    if (!player) return "";
+    const slug = slugify(player.short_name || firstName(player.name) || player.name);
+    if (!slug) return player.id;
+    const hits = (st.namedPlayers || []).filter(
+      (p) => slugify(p.short_name || firstName(p.name) || p.name) === slug
+    );
+    return hits.length <= 1 ? slug : player.id;
+  }
+
+  function findPlayerByRef(ref) {
+    if (!ref) return null;
+    const players = st.namedPlayers || [];
+    const byId = players.find((p) => p.id === ref);
+    if (byId) return byId;
+    const hits = players.filter((p) => slugify(p.short_name || firstName(p.name) || p.name) === ref);
+    return hits.length === 1 ? hits[0] : hits[0] || null;
+  }
+
+  function shareGameRef(game) {
+    if (!game) return "";
+    const date = String(game.date || "").slice(0, 10);
+    if (!date) return game.id;
+    const same = gamePool().filter((g) => String(g.date || "").slice(0, 10) === date);
+    return same.length <= 1 ? date : game.id;
+  }
+
+  function findGameByRef(ref, opts = {}) {
+    if (!ref) return null;
+    const games = gamePool();
+    const byId = games.find((g) => g.id === ref);
+    if (byId) return byId;
+    const dated = games.filter((g) => String(g.date || "").slice(0, 10) === ref);
+    if (dated.length === 1) return dated[0];
+    if (opts.opponentId) {
+      const match = dated.find((g) => opponentOf(g)?.id === opts.opponentId);
+      if (match) return match;
+    }
+    return dated[0] || null;
+  }
+
+  async function resolveGameRef(ref, opts = {}) {
+    const hit = findGameByRef(ref, opts);
+    if (hit) return hit;
+    if (!ref) return null;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)) {
+      try {
+        const g = await API.game(ref);
+        rememberGame(g);
+        return g;
+      } catch {
+        return null;
+      }
+    }
+    if (!st.allGames.length) {
+      try {
+        st.allGames = await API.games();
+      } catch {
+        return null;
+      }
+    }
+    return findGameByRef(ref, opts);
+  }
+
+  function compactParams(params) {
+    const next = new URLSearchParams();
+    params.forEach((value, key) => {
+      if (value) next.set(key, value);
+    });
+    return next;
+  }
+
+  function hashFromState() {
+    const view = st.view;
+    if (view === "shots-games") return "shots-games";
+    if (view === "shots-history") {
+      const p = new URLSearchParams();
+      const season = st.history.seasonId === "__last3" ? { id: "__last3" } : st.seasons.find((s) => s.id === st.history.seasonId);
+      if (season) p.set("season", shareSeasonRef(season));
+      const player = st.namedPlayers.find((x) => x.id === st.history.playerId);
+      if (player) p.set("player", sharePlayerRef(player));
+      const opp = teamById(st.history.opponentId);
+      if (opp) p.set("opp", shareTeamRef(opp));
+      if (st.history.depth) p.set("depth", st.history.depth);
+      const qs = compactParams(p).toString();
+      return qs ? `shots-history?${qs}` : "shots-history";
+    }
+    if (view === "shots-prep") {
+      const p = new URLSearchParams();
+      if (st.prep.tab === "explore") {
+        p.set("tab", "explore");
+        const asked = [...(st.explore.messages || [])].reverse().find((m) => m.role === "user");
+        if (asked) p.set("q", asked.content);
+        const qs = compactParams(p).toString();
+        return `shots-prep?${qs}`;
+      }
+      if (st.prep.lockedGameId) {
+        const g = gamePool().find((x) => x.id === st.prep.lockedGameId);
+        p.set("game", g ? shareGameRef(g) : st.prep.lockedGameId);
+      } else {
+        const opp = teamById(st.prep.opponentId);
+        if (opp) p.set("opp", shareTeamRef(opp));
+        const season = st.seasons.find((s) => s.id === st.prep.seasonId);
+        if (season) p.set("season", shareSeasonRef(season));
+        if (st.prep.includeFriendly) p.set("friendly", "1");
+        const selected = prepSelectedIds();
+        const candidates = prepCandidateGames();
+        if (selected.length && candidates.length && selected.length !== candidates.length) {
+          p.set(
+            "games",
+            selected
+              .map((id) => {
+                const g = gamePool().find((x) => x.id === id);
+                return g ? shareGameRef(g) : id;
+              })
+              .join(",")
+          );
+        }
+        if (st.prep.teamFilter && st.prep.teamFilter !== "both") p.set("team", st.prep.teamFilter);
+        if (st.prep.resultFilter && st.prep.resultFilter !== "all") p.set("result", st.prep.resultFilter);
+        if (st.prep.periodFilter && st.prep.periodFilter !== "all") p.set("period", st.prep.periodFilter);
+      }
+      const qs = compactParams(p).toString();
+      return qs ? `shots-prep?${qs}` : "shots-prep";
+    }
+    if (view === "shots" || view === "shots-map" || view === "shots-scoreboard") {
+      const p = new URLSearchParams();
+      const g = st.game || gamePool().find((x) => x.id === st.gameId);
+      if (g) p.set("game", shareGameRef(g));
+      else if (st.gameId) p.set("game", st.gameId);
+      const qs = compactParams(p).toString();
+      const path = view === "shots" ? "shots" : view;
+      return qs ? `${path}?${qs}` : path;
+    }
+    return view || "shots";
+  }
+
+  function syncHashFromState() {
+    if (applyingHash || !st.session || !st.booted) return;
+    const next = hashFromState();
+    const cur = (location.hash || "").replace(/^#/, "");
+    if (cur === next) return;
+    history.replaceState(null, "", `${location.pathname}${location.search}#${next}`);
+  }
+
+  let applyingHash = false;
+  let hashExploreQ = "";
+
+  function hrefForView(view, extra) {
+    const prevView = st.view;
+    const prevTab = st.prep.tab;
+    st.view = view;
+    if (extra && extra.tab) st.prep.tab = extra.tab;
+    const hash = hashFromState();
+    st.view = prevView;
+    st.prep.tab = prevTab;
+    return `#${hash}`;
+  }
+
+  async function consumeShareHash() {
+    if (!st.session || applyingHash) return "skip";
+    const { path, params } = parseLocationHash();
+    applyingHash = true;
+    let gameChanged = false;
+    let runHistory = false;
+    let runQ = "";
+    try {
+      if (path === "shots" || path === "shots-map" || path === "shots-scoreboard") {
+        const ref = params.get("game");
+        if (ref) {
+          const g = await resolveGameRef(ref);
+          if (g && g.id !== st.gameId) {
+            st.gameId = g.id;
+            if (g.season_id) st.seasonId = g.season_id;
+            gameChanged = true;
+          }
+        }
+      }
+      if (path === "shots-prep" || path === "shots-explore") {
+        const tab = params.get("tab") === "explore" || path === "shots-explore" ? "explore" : "opponent";
+        st.prep.tab = tab;
+        const gameRefParam = params.get("game") || "";
+        if (gameRefParam && tab !== "explore") {
+          const g = await resolveGameRef(gameRefParam);
+          if (g) {
+            const was = st.prep.lockedGameId;
+            st.prep.lockedGameId = g.id;
+            st.prep.selectedGameIds = [g.id];
+            st.prep.includeFriendly = true;
+            const opp = opponentOf(g);
+            if (opp) st.prep.opponentId = opp.id;
+            if (g.season_id) st.prep.seasonId = g.season_id;
+            if (was !== g.id) {
+              st.prep.loadKey = "";
+              st.prep.gemini = emptyPrepGemini();
+              st.prep.rows = null;
+            }
+            rememberGame(g);
+          }
+        } else if (!gameRefParam && st.prep.lockedGameId && tab !== "explore") {
+          st.prep.lockedGameId = "";
+          st.prep.loadKey = "";
+          st.prep.gemini = emptyPrepGemini();
+        }
+        if (tab !== "explore" && !gameRefParam) {
+          const opp = findTeamByRef(params.get("opp") || "");
+          if (params.has("opp")) st.prep.opponentId = opp ? opp.id : "";
+          const season = findSeasonByRef(params.get("season") || "");
+          if (params.has("season")) st.prep.seasonId = season && season.id !== "__last3" ? season.id : "";
+          else if (!st.prep.seasonId && st.seasonId) st.prep.seasonId = st.seasonId;
+          if (params.has("friendly")) st.prep.includeFriendly = params.get("friendly") === "1";
+          const team = params.get("team") || "both";
+          if (team === "us" || team === "opp" || team === "both") st.prep.teamFilter = team;
+          const result = params.get("result") || "all";
+          if (result === "all" || result === "goals" || result === "on-frame") st.prep.resultFilter = result;
+          const period = params.get("period") || "all";
+          if (period === "all" || period === "1" || period === "2" || period === "ET1" || period === "ET2") {
+            st.prep.periodFilter = period;
+          }
+          if (params.get("games")) {
+            const ids = [];
+            for (const part of String(params.get("games") || "").split(",")) {
+              const g = await resolveGameRef(part.trim(), { opponentId: st.prep.opponentId });
+              if (g) ids.push(g.id);
+            }
+            if (ids.length) st.prep.selectedGameIds = ids;
+          } else if (st.prep.opponentId && !st.prep.selectedGameIds.length) {
+            fillPrepSelectionFromCandidates();
+          }
+        }
+        if (tab === "explore") {
+          const q = String(params.get("q") || "").trim();
+          if (q && hashExploreQ !== q && !st.explore.messages.some((m) => m.role === "user" && m.content === q)) {
+            runQ = q;
+            hashExploreQ = q;
+          }
+        }
+      }
+      if (path === "shots-history") {
+        const season = findSeasonByRef(params.get("season") || "");
+        if (params.has("season")) st.history.seasonId = season ? season.id : "";
+        const player = findPlayerByRef(params.get("player") || "");
+        if (params.has("player")) st.history.playerId = player ? player.id : "";
+        const opp = findTeamByRef(params.get("opp") || "");
+        if (params.has("opp")) st.history.opponentId = opp ? opp.id : "";
+        if (params.has("depth")) st.history.depth = params.get("depth") || "";
+        runHistory = !!(st.history.seasonId || st.history.playerId || st.history.opponentId || st.history.depth);
+      }
+    } finally {
+      applyingHash = false;
+    }
+    if (gameChanged) {
+      st.loading = true;
+      draw();
+      try {
+        await loadGameContext();
+        st.error = "";
+      } catch (err) {
+        st.error = err.message || "Could not open game";
+      }
+      st.loading = false;
+      draw();
+      return "drew";
+    }
+    if (runQ) {
+      await runExplore(runQ);
+      return "drew";
+    }
+    if (runHistory && !st.history.rows && !st.history.loading) {
+      await runHistoryQuery();
+      return "drew";
+    }
+    return "need-draw";
+  }
+
   function recordingTeam() {
     return st.team === "opp" ? "opp" : "us";
   }
@@ -1481,7 +1827,8 @@
     st.teams = await API.teams();
     st.seasons = await API.seasons();
     if (!st.seasonId && st.seasons[0]) st.seasonId = st.seasons[0].id;
-    st.games = st.seasonId ? await API.games(st.seasonId) : await API.games();
+    st.allGames = await API.games();
+    st.games = st.seasonId ? st.allGames.filter((g) => g.season_id === st.seasonId) : st.allGames.slice();
     try {
       st.namedPlayers = await API.namedPlayers();
     } catch {
@@ -1540,13 +1887,18 @@
       if (st.session) {
         st.loading = true;
         draw();
-        try {
-          await refreshMeta();
-          if (st.gameId) await loadGameContext();
-        } catch (err) {
-          st.error = err.message || "Could not load data";
+      try {
+        await refreshMeta();
+        const hashed = await consumeShareHash();
+        if (hashed === "drew") {
+          st.booted = true;
+          return;
         }
-        st.loading = false;
+        if (st.gameId) await loadGameContext();
+      } catch (err) {
+        st.error = err.message || "Could not load data";
+      }
+      st.loading = false;
       }
       st.booted = true;
       draw();
@@ -1687,6 +2039,8 @@
       draw();
       try {
         await refreshMeta();
+        const hashed = await consumeShareHash();
+        if (hashed === "drew") return;
         if (st.gameId) await loadGameContext();
       } catch (err) {
         st.error = err.message || "Could not load data";
@@ -1703,7 +2057,11 @@
 
   async function selectSeason(id) {
     st.seasonId = id;
-    st.games = id ? await API.games(id) : await API.games();
+    if (st.allGames && st.allGames.length) {
+      st.games = id ? st.allGames.filter((g) => g.season_id === id) : st.allGames.slice();
+    } else {
+      st.games = id ? await API.games(id) : await API.games();
+    }
     saveUi();
     draw();
   }
@@ -1720,7 +2078,8 @@
       st.error = err.message || "Could not open game";
     }
     st.loading = false;
-    const hash = mode === "scoreboard" ? "shots-scoreboard" : "shots";
+    st.view = mode === "scoreboard" ? "shots-scoreboard" : "shots";
+    const hash = hashFromState();
     if (location.hash.replace(/^#/, "") !== hash) location.hash = hash;
     else draw();
   }
@@ -2372,11 +2731,11 @@
     if (!opts.noPending) {
       if (active && pending?.secondAssist?.location) {
         const s = pending.secondAssist.location;
-        pendingDots.push(`<circle class="tracker-pending second-assist" cx="${s.x}" cy="${s.y}" r="1.05" />`);
+        pendingDots.push(svgSquare(s.x, s.y, 2.1, `class="tracker-pending second-assist"`));
       }
       if (active && pending?.assist?.location) {
         const a = pending.assist.location;
-        pendingDots.push(`<circle class="tracker-pending assist" cx="${a.x}" cy="${a.y}" r="1.15" />`);
+        pendingDots.push(svgSquare(a.x, a.y, 2.3, `class="tracker-pending assist"`));
       }
       if (active && modalLoc && shotModal && !shotModal.hidden) {
         pendingDots.push(`<circle class="tracker-pending" cx="${modalLoc.x}" cy="${modalLoc.y}" r="1.25" />`);
@@ -2394,13 +2753,16 @@
         if (ev.secondAssist) {
           const from = ev.assist || ev.shot;
           html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
-          html += `<circle class="tracker-assist-dot is-second" cx="${ev.secondAssist.x}" cy="${ev.secondAssist.y}" r="0.8" />`;
+          html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
         }
         if (ev.assist) {
           html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
-          html += `<circle class="tracker-assist-dot" cx="${ev.assist.x}" cy="${ev.assist.y}" r="0.9" />`;
+          html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
         }
-        html += `<circle class="tracker-shot-dot ${escapeHtml(ev.result)}" cx="${ev.shot.x}" cy="${ev.shot.y}" r="1.7" />`;
+        html += shotShapeMarkup(ev, ev.shot.x, ev.shot.y, {
+          size: 3.4,
+          className: `tracker-shot-dot ${escapeHtml(ev.result)}`,
+        });
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && ev.shooterNumber !== "") {
           html += `<text class="tracker-shot-num" x="${ev.shot.x}" y="${ev.shot.y}" transform="rotate(${numRot} ${ev.shot.x} ${ev.shot.y})">${escapeHtml(String(ev.shooterNumber))}</text>`;
         }
@@ -4953,10 +5315,40 @@
   function resultFill(result) {
     if (result === "goal" || result === "pk-goal") return "#f15a24";
     if (result === "on-target") return "#ffffff";
-    if (result === "blocked") return "#e07a3d";
+    if (result === "blocked") return "#6d5a8c";
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
-    return "rgba(11,31,51,0.45)";
+    return "rgba(11,31,51,0.4)";
+  }
+
+  function isSquareEvent(result) {
+    return result === "foul" || result === "corner";
+  }
+
+  function svgSquare(cx, cy, size, attrs) {
+    const h = size / 2;
+    return `<rect x="${Number(cx) - h}" y="${Number(cy) - h}" width="${size}" height="${size}" ${attrs} />`;
+  }
+
+  function shotShapeMarkup(ev, cx, cy, opts) {
+    const size = opts.size;
+    const r = size / 2;
+    const extra = opts.attrs ? ` ${opts.attrs}` : "";
+    const className = opts.className ? `class="${opts.className}"` : "";
+    const fill = opts.fill || resultFill(ev.result);
+    const stroke = opts.stroke || "";
+    const sw = opts.strokeWidth != null ? opts.strokeWidth : "";
+    const paint = [
+      fill ? `fill="${fill}"` : "",
+      stroke ? `stroke="${stroke}"` : "",
+      sw !== "" ? `stroke-width="${sw}"` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (isSquareEvent(ev.result)) {
+      return svgSquare(cx, cy, size, `${className} ${paint}${extra}`.trim());
+    }
+    return `<circle ${className} cx="${cx}" cy="${cy}" r="${r}" ${paint}${extra} />`.replace(/\s+/g, " ");
   }
 
   function fullFieldMarkup(events) {
@@ -4986,18 +5378,24 @@
         const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         let html = "";
+        const ring = team === "opp" ? "#c0392b" : "#0b1f33";
         if (ev.secondAssist) {
           const s = toFullFieldPoint(ev.secondAssist, period, team);
           const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
           html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-          html += `<circle cx="${s.fx}" cy="${s.fy}" r="0.75" fill="#c5a3e8" stroke="${team === "opp" ? "#c0392b" : "#0b1f33"}" stroke-width="0.2" />`;
+          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
         }
         if (ev.assist) {
           const a = toFullFieldPoint(ev.assist, period, team);
           html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-          html += `<circle cx="${a.fx}" cy="${a.fy}" r="0.85" fill="#7ec8e3" stroke="${team === "opp" ? "#c0392b" : "#0b1f33"}" stroke-width="0.2" />`;
+          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
         }
-        html += `<circle cx="${shot.fx}" cy="${shot.fy}" r="1.65" fill="${resultFill(ev.result)}" stroke="${stroke}" stroke-width="${team === "opp" ? "0.42" : "0.28"}" />`;
+        html += shotShapeMarkup(ev, shot.fx, shot.fy, {
+          size: 3.3,
+          fill: resultFill(ev.result),
+          stroke,
+          strokeWidth: team === "opp" ? 0.42 : 0.28,
+        });
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && String(ev.shooterNumber) !== "") {
           html += `<text x="${shot.fx}" y="${shot.fy}" fill="${numFill}" font-size="1.25" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(String(ev.shooterNumber))}</text>`;
         }
@@ -5134,7 +5532,7 @@
               <div class="tracker-summary">${summaryPills(trackerSummary(oppEvents))}</div>
             </div>
           </div>
-          <p class="shot-map-caption">Each map is that team’s attacking half (all periods overlaid). Goal at the top. Gold = goal · White = on target · Orange = blocked · Hollow = missed · Blue dot = assist · Purple = free kick · Blue = corner.</p>
+          <p class="shot-map-caption">Each map is that team’s attacking half (all periods overlaid). Goal at the top. Circles: Orange = goal · White = on target · Purple = blocked · Hollow = missed. Squares: Blue = assist · Lavender = 2nd assist · Purple = free kick · Blue = corner.</p>
           <div class="shot-map-combined">
             <h2>Full field (both teams)</h2>
             <div class="shot-map-pitch">${fullFieldMarkup(events)}</div>
@@ -5371,7 +5769,7 @@
         st.prep.selectedGameIds = [gameId];
         st.prep.includeFriendly = true;
         st.prep.loadKey = "";
-        st.prep.gemini = { loading: false, text: "", error: "" };
+        st.prep.gemini = emptyPrepGemini();
         st.prep.rows = null;
         const game = st.games.find((g) => g.id === gameId);
         const opp = game ? opponentOf(game) : null;
@@ -5382,7 +5780,7 @@
       st.prep.lockedGameId = "";
       fillPrepSelectionFromCandidates();
       st.prep.loadKey = "";
-      st.prep.gemini = { loading: false, text: "", error: "" };
+      st.prep.gemini = emptyPrepGemini();
     }
   }
 
@@ -5476,6 +5874,45 @@
     return p === "1" ? "1H" : p === "2" ? "2H" : p;
   }
 
+  function prepShotPopupMarkup(ev) {
+    if (!ev) return "";
+    const team = eventTeam(ev);
+    const shot = tacticalPoint(ev.shot, team);
+    if (!shot) return "";
+    const vbX = -4;
+    const vbY = -5;
+    const vbW = PW + 8;
+    const vbH = PL + 10;
+    const left = ((shot.fx - vbX) / vbW) * 100;
+    const top = ((shot.fy - vbY) / vbH) * 100;
+    const place = [];
+    if (shot.fy < PL * 0.28) place.push("is-below");
+    if (shot.fx < PW * 0.22) place.push("is-start");
+    else if (shot.fx > PW * 0.78) place.push("is-end");
+    const player = prepPlayerLabel(ev);
+    const result = SHOT_RESULT_LABELS[ev.result] || ev.result || "";
+    const clock = prepClockLabel(ev);
+    const zone = ev.shot?.zoneLabel || ev.shot?.zoneId || "";
+    const date = String(ev.gameDate || ev.game?.date || "").slice(0, 10);
+    const teamBit = team === "opp" ? "Opponent" : ourTeamName();
+    let assist = "";
+    if (ev.assist) {
+      const who = eventPersonLabel(team, ev.assist.number, ev.assist.name, ev.assist.short);
+      const kind = ASSIST_TYPE_LABELS[ev.assist.type] || ev.assist.type || "";
+      assist = `<p>Assist ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
+    }
+    return `
+      <div class="prep-shot-popup ${place.join(" ")}" id="prep-shot-popup" role="status" style="--x:${left}%; --y:${top}%;">
+        <button type="button" class="prep-shot-popup-close" id="prep-shot-popup-close" aria-label="Close shot details">×</button>
+        <p class="prep-shot-popup-kicker">${escapeHtml(teamBit)}</p>
+        ${player && player !== "—" ? `<p class="prep-shot-popup-player">${escapeHtml(player)}</p>` : ""}
+        <p class="prep-shot-popup-result">${escapeHtml(result)}</p>
+        <p>${escapeHtml([clock, zone].filter(Boolean).join(" · "))}</p>
+        ${date ? `<p class="prep-shot-popup-date">${escapeHtml(date)}</p>` : ""}
+        ${assist}
+      </div>`;
+  }
+
   function prepShotPayload(ev) {
     return {
       team: eventTeam(ev),
@@ -5537,14 +5974,6 @@
     return { us: byTeam("us"), opp: byTeam("opp"), players: players.slice(0, 16) };
   }
 
-  function tacticalTrianglePoints(cx, cy, r, pointUp) {
-    const half = r * 0.866;
-    if (pointUp) {
-      return `${cx},${cy - r} ${cx - half},${cy + r * 0.5} ${cx + half},${cy + r * 0.5}`;
-    }
-    return `${cx},${cy + r} ${cx - half},${cy - r * 0.5} ${cx + half},${cy - r * 0.5}`;
-  }
-
   function tacticalPitchMarkup(events, selectedId) {
     const line = "#f2f6f3";
     const goalW = 7.32;
@@ -5570,24 +5999,32 @@
         const shot = tacticalPoint(ev.shot, team);
         if (!shot) return "";
         const selected = selectedId && ev.id === selectedId;
-        const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         let html = "";
+        if (ev.secondAssist) {
+          const s = tacticalPoint(ev.secondAssist, team);
+          const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+          if (s && aEnd) {
+            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+          }
+        }
         if (ev.assist) {
           const a = tacticalPoint(ev.assist, team);
           if (a) {
             html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-            html += `<circle cx="${a.fx}" cy="${a.fy}" r="0.8" fill="#7ec8e3" stroke="${stroke}" stroke-width="0.2" />`;
+            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
           }
         }
-        html += `<polygon class="prep-shot-dot" data-prep-shot="${escapeHtml(ev.id || "")}" points="${tacticalTrianglePoints(
-          shot.fx,
-          shot.fy,
-          selected ? 2.35 : 1.85,
-          team !== "opp"
-        )}" fill="${resultFill(ev.result)}" stroke="${
-          selected ? "#f7e27c" : stroke
-        }" stroke-width="${selected ? 0.55 : team === "opp" ? 0.42 : 0.28}" />`;
+        html += shotShapeMarkup(ev, shot.fx, shot.fy, {
+          size: selected ? 4.7 : 3.7,
+          className: "prep-shot-dot",
+          fill: resultFill(ev.result),
+          stroke: selected ? "#f7e27c" : ring,
+          strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
+          attrs: `data-prep-shot="${escapeHtml(ev.id || "")}"`,
+        });
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && String(ev.shooterNumber) !== "") {
           html += `<text data-prep-shot="${escapeHtml(ev.id || "")}" x="${shot.fx}" y="${shot.fy}" fill="${numFill}" font-size="1.2" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(
             String(ev.shooterNumber)
@@ -5699,111 +6136,105 @@
     if (st.prep.loadKey === key) draw();
   }
 
-  async function runPrepGemini() {
+  function emptyPrepGemini() {
+    return { loading: false, error: "", messages: [], draft: "" };
+  }
+
+  const PREP_FOLLOWUPS = [
+    { label: "Chances by area", q: "Which parts of the field are yielding better chances?" },
+    { label: "Player impact", q: "Which players are having the biggest impact?" },
+    { label: "By period", q: "How does the chance quality change by period?" },
+    { label: "Next meeting", q: "What should we take into the next meeting?" },
+  ];
+
+  async function runPrepGemini(question) {
     const visible = prepVisibleRows();
-    if (!visible.length || st.prep.gemini.loading) return;
-    const games = prepCandidateGames().filter((g) => prepSelectedIds().includes(g.id));
+    const g = st.prep.gemini;
+    if (!g.messages) g.messages = [];
+    const q = String(question || "").trim();
+    const starting = !g.messages.length;
+    if (!visible.length || g.loading) return;
+    if (!starting && !q) return;
+    const games = prepCandidateGames().filter((x) => prepSelectedIds().includes(x.id));
     const live = !!(st.prep.lockedGameId && st.game && st.game.id === st.prep.lockedGameId);
-    st.prep.gemini.loading = true;
-    st.prep.gemini.error = "";
+    if (!starting) {
+      g.messages.push({ role: "user", content: q });
+      g.draft = "";
+    }
+    g.loading = true;
+    g.error = "";
     draw();
     const opp = st.teams.find((t) => t.id === st.prep.opponentId);
     const periods = [...new Set(visible.map((e) => eventPeriod(e)))];
+    const history = starting
+      ? []
+      : g.messages
+          .slice(0, -1)
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role, content: m.content }));
     const result = await API.prepOpponent({
       our_team: ourTeamName(),
       opponent: opp?.name || "Opponent",
       in_progress: live,
       periods,
-      games: games.map((g) => ({ date: g.date, game_type: g.game_type })),
+      games: games.map((row) => ({ date: row.date, game_type: row.game_type })),
       aggregates: prepAggregates(visible),
       shots: visible.map(prepShotPayload),
+      question: starting ? "" : q,
+      history,
     });
-    st.prep.gemini.loading = false;
+    g.loading = false;
     if (!result.ok) {
-      st.prep.gemini.error = result.error || "Summary failed";
-      st.prep.gemini.text = "";
+      g.error = result.error || "Prep chat failed";
     } else {
-      st.prep.gemini.text = result.data?.answer || "";
-      st.prep.gemini.error = "";
+      g.error = "";
+      g.messages.push({ role: "assistant", content: result.data?.answer || "" });
     }
     draw();
   }
 
-  function renderPrep() {
-    applyPrepHash();
-    if (st.prep.tab === "explore") {
-      renderExplore();
-      return;
-    }
-    renderOpponentPrep();
+  function prepActiveFilterCount() {
+    let n = 0;
+    if (st.prep.teamFilter !== "both") n += 1;
+    if (st.prep.resultFilter !== "all") n += 1;
+    if (st.prep.periodFilter !== "all") n += 1;
+    return n;
   }
 
-  function renderOpponentPrep() {
-    if (!st.prep.seasonId && st.seasonId) st.prep.seasonId = st.seasonId;
-    const candidates = prepCandidateGames();
-    const key = prepLoadKey();
-    if ((st.prep.opponentId || st.prep.lockedGameId) && key !== st.prep.loadKey && !st.prep.loading) {
-      loadPrepData();
-    }
-    const oppTeams = st.teams.filter((t) => !t.is_brighton);
-    const selectedIds = prepSelectedIds();
-    const visible = prepVisibleRows();
-    const aggregates = prepAggregates(visible);
-    const lockedGame = st.prep.lockedGameId ? st.games.find((g) => g.id === st.prep.lockedGameId) : null;
-    const selectedShot = visible.find((e) => e.id === st.prep.selectedShotId) || null;
-    const suggestions = prepTagSuggestions(visible);
-    const noteGameChoices = (st.prep.lockedGameId ? candidates : candidates.filter((g) => selectedIds.includes(g.id)));
-    if (!st.prep.noteGameId && noteGameChoices.length) st.prep.noteGameId = noteGameChoices[0].id;
+  function prepOpponentName() {
+    return st.teams.find((t) => t.id === st.prep.opponentId)?.name || "Opponent";
+  }
 
-    const gameChecks = st.prep.lockedGameId
-      ? `<p class="prep-locked-banner">This game only · ${escapeHtml(gameTitle(lockedGame))} · recorded periods so far.</p>`
-      : candidates
-          .map(
-            (g) => `
-            <label class="prep-game-check">
-              <input type="checkbox" data-prep-game="${escapeHtml(g.id)}" ${
-                selectedIds.includes(g.id) ? "checked" : ""
-              } />
-              <span>${escapeHtml(String(g.date || "").slice(0, 10))} · ${escapeHtml(g.game_type || "")}</span>
-            </label>`
-          )
-          .join("") || `<p class="muted">No games match this opponent and season filter.</p>`;
+  function closePrepConfig() {
+    st.prep.showConfig = false;
+    const modal = $("#prep-config-modal");
+    if (modal) modal.hidden = true;
+  }
 
-    const shotDetail = selectedShot
-      ? `<p class="prep-shot-detail"><strong>${escapeHtml(prepPlayerLabel(selectedShot))}</strong> · ${escapeHtml(
-          SHOT_RESULT_LABELS[selectedShot.result] || selectedShot.result
-        )} · ${escapeHtml(prepClockLabel(selectedShot))} · ${escapeHtml(
-          selectedShot.shot?.zoneLabel || selectedShot.shot?.zoneId || ""
-        )} · ${escapeHtml(selectedShot.gameDate || "")}</p>`
-      : `<p class="muted prep-shot-detail">Tap a shot for player, clock, and game.</p>`;
+  function openPrepConfig() {
+    st.prep.showConfig = true;
+    const modal = $("#prep-config-modal");
+    if (modal) modal.hidden = false;
+  }
 
-    const notesList = (st.prep.notes || [])
-      .map((note) => {
-        const game = st.games.find((g) => g.id === note.game_id);
-        const tags = (note.tags || []).map((t) => `<span class="prep-tag">${escapeHtml(t)}</span>`).join("");
-        return `
-          <article class="prep-note">
-            <p class="prep-note-meta">${escapeHtml(gameTitle(game))}${
-              note.author_label ? ` · ${escapeHtml(note.author_label)}` : ""
-            }</p>
-            <p class="prep-note-body">${escapeHtml(note.body)}</p>
-            ${tags ? `<p class="prep-note-tags">${tags}</p>` : ""}
-            <button type="button" class="btn btn-ghost prep-note-del" data-del-note="${escapeHtml(note.id)}">Delete</button>
-          </article>`;
-      })
-      .join("") || `<p class="muted">No notes on these games yet.</p>`;
+  let prepConfigModalBound = false;
+  function bindPrepConfigModalOnce() {
+    if (prepConfigModalBound) return;
+    const modal = $("#prep-config-modal");
+    if (!modal) return;
+    prepConfigModalBound = true;
+    modal.addEventListener("click", (e) => {
+      if (e.target.closest("[data-close-prep-config]")) {
+        e.preventDefault();
+        closePrepConfig();
+      }
+    });
+  }
 
-    const suggestBtns = suggestions
-      .map((t) => `<button type="button" class="prep-tag-suggest" data-prep-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`)
-      .join("");
-
-    root().innerHTML = `
-      <div class="shots-admin shots-prep">
-        ${trackerNav()}
-        <h1>Prep</h1>
-        ${prepTabsMarkup("opponent")}
-        <p class="muted">Tactical pitch: Brighton attack up, opponent attack down. Selected games overlay. Totals are counted here; Gemini interprets them.</p>
-        ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+  function fillPrepConfigModal(oppTeams, gameChecks) {
+    const body = $("#prep-config-body");
+    if (body) {
+      body.innerHTML = `
         <div class="prep-scope shots-form">
           <label class="shots-field">Opponent
             <select id="prep-opponent" ${st.prep.lockedGameId ? "disabled" : ""}>
@@ -5834,130 +6265,253 @@
             <p class="prep-game-set-label">Games</p>
             ${gameChecks}
           </div>
-        </div>
-        ${
-          st.prep.loading
-            ? `<p class="explore-loading">Loading shots…</p>`
-            : st.prep.opponentId
-            ? `
-        <section class="prep-stats">
-          <h2>Totals</h2>
-          <div class="shot-map-stats">
-            <div>
-              <p class="shot-map-stat-split muted">${escapeHtml(ourTeamName())}</p>
-              <div class="tracker-summary">${summaryPills(aggregates.us)}</div>
-            </div>
-            <div>
-              <p class="shot-map-stat-split muted">${escapeHtml(
-                oppTeams.find((t) => t.id === st.prep.opponentId)?.name || "Opponent"
-              )}</p>
-              <div class="tracker-summary">${summaryPills(aggregates.opp)}</div>
-            </div>
-          </div>
-        </section>
-        <section class="prep-pitch-section">
-          <h2>Tactical pitch</h2>
-          <div class="plays-filters" role="group" aria-label="Pitch filters">
-            <div class="plays-filter-row">
-              <span class="plays-filter-label">Team</span>
-              <div class="plays-filter-btns">
-                ${prepFilterChip("teamFilter", "both", st.prep.teamFilter, "Both")}
-                ${prepFilterChip("teamFilter", "us", st.prep.teamFilter, ourTeamName())}
-                ${prepFilterChip("teamFilter", "opp", st.prep.teamFilter, "Opp")}
-              </div>
-            </div>
-            <div class="plays-filter-row">
-              <span class="plays-filter-label">Result</span>
-              <div class="plays-filter-btns">
-                ${prepFilterChip("resultFilter", "all", st.prep.resultFilter, "All")}
-                ${prepFilterChip("resultFilter", "goals", st.prep.resultFilter, "Goals")}
-                ${prepFilterChip("resultFilter", "on-frame", st.prep.resultFilter, "On frame")}
-              </div>
-            </div>
-            <div class="plays-filter-row">
-              <span class="plays-filter-label">Period</span>
-              <div class="plays-filter-btns">
-                ${prepFilterChip("periodFilter", "all", st.prep.periodFilter, "All")}
-                ${prepFilterChip("periodFilter", "1", st.prep.periodFilter, "1st")}
-                ${prepFilterChip("periodFilter", "2", st.prep.periodFilter, "2nd")}
-                ${prepFilterChip("periodFilter", "ET1", st.prep.periodFilter, "ET1")}
-                ${prepFilterChip("periodFilter", "ET2", st.prep.periodFilter, "ET2")}
-              </div>
-            </div>
-          </div>
-          <div class="prep-pitch-wrap">${tacticalPitchMarkup(visible, st.prep.selectedShotId)}</div>
-          ${shotDetail}
-          <p class="muted">Triangles: Brighton ▲ up · opponent ▼ down. Gold = goal · White = on target · Orange = blocked · Hollow = missed · Blue = assist. ${
-            visible.length
-          } play${visible.length === 1 ? "" : "s"} shown.</p>
-        </section>
-        <section class="prep-gemini">
-          <h2>Gemini briefing</h2>
-          <p class="muted">Uses the filtered shots and the totals above. Does not guess lineup.</p>
-          <button type="button" class="btn btn-primary" id="prep-gemini-run" ${
-            visible.length && !st.prep.gemini.loading ? "" : "disabled"
-          }>${st.prep.gemini.loading ? "Summarizing…" : "Summarize with Gemini"}</button>
-          ${st.prep.gemini.error ? `<p class="shots-error">${escapeHtml(st.prep.gemini.error)}</p>` : ""}
-          ${
-            st.prep.gemini.text
-              ? `<div class="prep-gemini-answer">${markdownLite(st.prep.gemini.text)}</div>`
-              : ""
-          }
-        </section>
-        <section class="prep-notes">
-          <h2>Notes</h2>
-          <p class="muted">Each note is attached to one game. Tags are loose (players, themes).</p>
-          <form id="prep-note-form" class="shots-form">
-            <label class="shots-field">Game
-              <select id="prep-note-game" ${st.prep.lockedGameId ? "disabled" : ""}>
-                ${noteGameChoices
-                  .map(
-                    (g) =>
-                      `<option value="${g.id}" ${g.id === st.prep.noteGameId ? "selected" : ""}>${escapeHtml(
-                        gameTitle(g)
-                      )}</option>`
-                  )
-                  .join("")}
-              </select>
-            </label>
-            <label class="shots-field">Note
-              <textarea id="prep-note-body" class="explore-input" rows="3" maxlength="4000" placeholder="They overload our left after 30'">${escapeHtml(
-                st.prep.noteBody
-              )}</textarea>
-            </label>
-            <label class="shots-field">Tags
-              <input type="text" id="prep-note-tags" value="${escapeHtml(st.prep.noteTags)}" placeholder="pip, #9, press" />
-            </label>
-            <div class="prep-tag-row">${suggestBtns}</div>
-            <label class="shots-field">Your name (optional)
-              <input type="text" id="prep-note-author" maxlength="40" value="${escapeHtml(st.prep.noteAuthor)}" />
-            </label>
-            <button type="submit" class="btn btn-secondary" ${noteGameChoices.length ? "" : "disabled"}>Save note</button>
-          </form>
-          <div class="prep-note-list">${notesList}</div>
-        </section>`
-            : `<p class="muted">Pick an opponent to overlay meetings on one pitch.</p>`
-        }
-      </div>`;
+        </div>`;
+    }
+    const modal = $("#prep-config-modal");
+    if (modal) modal.hidden = !st.prep.showConfig;
+    bindPrepConfigModalOnce();
+    bindPrepConfigFields();
+  }
 
+  function prepSessionMarkup(lockedGame, selectedIds) {
+    const oppName = prepOpponentName();
+    if (!st.prep.opponentId && !st.prep.lockedGameId) {
+      return `
+        <div class="prep-empty">
+          <p class="prep-empty-title">Set up this prep session</p>
+          <p class="muted">Choose an opponent and which games to overlay. Filters, stats, and notes stay one tap away after that.</p>
+          <button type="button" class="btn btn-primary" id="prep-config-open">Choose opponent</button>
+        </div>`;
+    }
+    let meta;
+    if (st.prep.lockedGameId) {
+      meta = `This game only · ${escapeHtml(gameTitle(lockedGame))}`;
+    } else {
+      const season = st.seasons.find((s) => s.id === st.prep.seasonId);
+      const n = selectedIds.length;
+      const bits = [
+        season?.label || (st.prep.seasonId ? "Season" : "All seasons"),
+        `${n} game${n === 1 ? "" : "s"}`,
+      ];
+      if (st.prep.includeFriendly) bits.push("friendlies on");
+      meta = escapeHtml(bits.join(" · "));
+    }
+    return `
+      <div class="prep-session${st.prep.lockedGameId ? " prep-locked-banner" : ""}">
+        <div class="prep-session-copy">
+          <p class="prep-session-opp">${escapeHtml(oppName)}</p>
+          <p class="prep-session-meta">${meta}</p>
+        </div>
+        <button type="button" class="btn btn-ghost prep-session-setup" id="prep-config-open">Setup</button>
+      </div>`;
+  }
+
+  function prepPitchToolbarMarkup() {
+    const filterN = prepActiveFilterCount();
+    return `
+      <div class="prep-pitch-toolbar">
+        <button type="button" class="prep-pitch-tool${st.prep.showFilters ? " is-on" : ""}${
+          filterN ? " is-filtered" : ""
+        }" id="prep-filter-toggle" aria-expanded="${st.prep.showFilters ? "true" : "false"}" aria-controls="prep-filter-panel">
+          Filter${filterN ? `<span class="prep-tool-badge">${filterN}</span>` : ""}
+        </button>
+        <button type="button" class="prep-pitch-tool${st.prep.showStats ? " is-on" : ""}" id="prep-stats-toggle" aria-expanded="${
+          st.prep.showStats ? "true" : "false"
+        }" aria-controls="prep-stats-panel">
+          Stats
+        </button>
+      </div>`;
+  }
+
+  function prepFilterPanelMarkup() {
+    if (!st.prep.showFilters) return "";
+    return `
+      <div class="prep-pitch-panel" id="prep-filter-panel" role="dialog" aria-label="Shot filters">
+        <div class="plays-filters">
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Team</span>
+            <div class="plays-filter-btns">
+              ${prepFilterChip("teamFilter", "both", st.prep.teamFilter, "Both")}
+              ${prepFilterChip("teamFilter", "us", st.prep.teamFilter, ourTeamName())}
+              ${prepFilterChip("teamFilter", "opp", st.prep.teamFilter, "Opp")}
+            </div>
+          </div>
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Result</span>
+            <div class="plays-filter-btns">
+              ${prepFilterChip("resultFilter", "all", st.prep.resultFilter, "All")}
+              ${prepFilterChip("resultFilter", "goals", st.prep.resultFilter, "Goals")}
+              ${prepFilterChip("resultFilter", "on-frame", st.prep.resultFilter, "On frame")}
+            </div>
+          </div>
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Period</span>
+            <div class="plays-filter-btns">
+              ${prepFilterChip("periodFilter", "all", st.prep.periodFilter, "All")}
+              ${prepFilterChip("periodFilter", "1", st.prep.periodFilter, "1st")}
+              ${prepFilterChip("periodFilter", "2", st.prep.periodFilter, "2nd")}
+              ${prepFilterChip("periodFilter", "ET1", st.prep.periodFilter, "ET1")}
+              ${prepFilterChip("periodFilter", "ET2", st.prep.periodFilter, "ET2")}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function prepStatsPanelMarkup(aggregates) {
+    if (!st.prep.showStats) return "";
+    return `
+      <div class="prep-pitch-panel prep-stats-panel" id="prep-stats-panel" role="dialog" aria-label="Shot totals">
+        <div class="prep-stats-grid">
+          <div>
+            <p class="prep-stat-split">${escapeHtml(ourTeamName())}</p>
+            <div class="tracker-summary">${summaryPills(aggregates.us)}</div>
+          </div>
+          <div>
+            <p class="prep-stat-split">${escapeHtml(prepOpponentName())}</p>
+            <div class="tracker-summary">${summaryPills(aggregates.opp)}</div>
+          </div>
+        </div>
+        <p class="prep-legend">Orange goal · White on target · Purple blocked · Hollow missed. Blue square assist · Lavender 2nd assist.</p>
+      </div>`;
+  }
+
+  function prepGeminiMarkup(visible) {
+    const g = st.prep.gemini;
+    const msgs = g.messages || [];
+    const transcript = msgs
+      .map((m) =>
+        m.role === "user"
+          ? `<div class="explore-msg is-user"><p>${escapeHtml(m.content)}</p></div>`
+          : `<div class="explore-msg is-assistant"><div class="prep-gemini-answer">${markdownLite(m.content)}</div></div>`
+      )
+      .join("");
+    const started = msgs.length > 0;
+    const last = msgs[msgs.length - 1];
+    const showFollowups = started && !g.loading && last?.role === "assistant";
+    const typing = !!String(g.draft || "").trim();
+    const chips = showFollowups
+      ? `<div class="prep-followups" id="prep-followups" role="group" aria-label="Further analysis" ${
+          typing ? "hidden" : ""
+        }>${PREP_FOLLOWUPS.map(
+          (item) =>
+            `<button type="button" class="prep-followup" data-prep-followup="${escapeHtml(item.q)}" ${
+              g.loading ? "disabled" : ""
+            }>${escapeHtml(item.label)}</button>`
+        ).join("")}</div>`
+      : "";
+    return `
+      <section class="prep-gemini">
+        <div class="prep-gemini-head">
+          <p class="prep-gemini-kicker">Analysis</p>
+          <h2>Gemini</h2>
+        </div>
+        <p class="prep-gemini-lede">${
+          started
+            ? "Follow-ups use the shots currently on the pitch."
+            : "A briefing from the shots on the pitch — not lineup guesses."
+        }</p>
+        ${
+          started
+            ? `<div class="explore-transcript prep-gemini-transcript" id="prep-gemini-transcript">${transcript}${
+                g.loading ? `<p class="explore-loading">Working…</p>` : ""
+              }</div>`
+            : ""
+        }
+        ${g.error ? `<p class="shots-error">${escapeHtml(g.error)}</p>` : ""}
+        ${chips}
+        ${
+          started
+            ? `<form id="prep-gemini-form" class="explore-form">
+          <label class="sr-only" for="prep-gemini-input">Follow-up</label>
+          <textarea id="prep-gemini-input" class="explore-input" rows="2" maxlength="2000" placeholder="Ask a follow-up…" ${
+            g.loading ? "disabled" : ""
+          }>${escapeHtml(g.draft || "")}</textarea>
+          <div class="explore-form-actions">
+            <button type="submit" class="btn btn-primary" ${g.loading ? "disabled" : ""}>Ask</button>
+            <button type="button" class="btn btn-ghost" id="prep-gemini-clear" ${g.loading ? "disabled" : ""}>New briefing</button>
+          </div>
+        </form>`
+            : `<button type="button" class="btn btn-primary" id="prep-gemini-run" ${
+                visible.length && !g.loading ? "" : "disabled"
+              }>${g.loading ? "Summarizing…" : "Start briefing"}</button>`
+        }
+      </section>`;
+  }
+
+  function prepNotesMarkup(notesList, noteGameChoices, suggestBtns) {
+    const open = st.prep.showNoteForm;
+    return `
+      <section class="prep-notes">
+        <div class="prep-section-head">
+          <h2>Notes</h2>
+        </div>
+        <button type="button" class="btn btn-ghost prep-note-add-btn" id="prep-note-add">${
+          open ? "Cancel" : "Add note"
+        }</button>
+        <div class="prep-note-list">${notesList}</div>
+        ${
+          open
+            ? `<form id="prep-note-form" class="shots-form prep-note-form">
+          <label class="shots-field">Game
+            <select id="prep-note-game" ${st.prep.lockedGameId ? "disabled" : ""}>
+              ${noteGameChoices
+                .map(
+                  (g) =>
+                    `<option value="${g.id}" ${g.id === st.prep.noteGameId ? "selected" : ""}>${escapeHtml(
+                      gameTitle(g)
+                    )}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+          <label class="shots-field">Note
+            <textarea id="prep-note-body" class="explore-input" rows="3" maxlength="4000" placeholder="They overload our left after 30'">${escapeHtml(
+              st.prep.noteBody
+            )}</textarea>
+          </label>
+          <label class="shots-field">Tags
+            <input type="text" id="prep-note-tags" value="${escapeHtml(st.prep.noteTags)}" placeholder="pip, #9, press" />
+          </label>
+          <div class="prep-tag-row">${suggestBtns}</div>
+          <label class="shots-field">Your name (optional)
+            <input type="text" id="prep-note-author" maxlength="40" value="${escapeHtml(st.prep.noteAuthor)}" />
+          </label>
+          <button type="submit" class="btn btn-secondary" ${noteGameChoices.length ? "" : "disabled"}>Save note</button>
+        </form>`
+            : ""
+        }
+      </section>`;
+  }
+
+  function bindPrepConfigFields() {
+    $("#prep-config-open")?.addEventListener("click", () => openPrepConfig());
     $("#prep-opponent")?.addEventListener("change", (e) => {
       st.prep.opponentId = e.target.value;
       st.prep.loadKey = "";
-      st.prep.gemini = { loading: false, text: "", error: "" };
+      st.prep.gemini = emptyPrepGemini();
       st.prep.rows = null;
       st.prep.notes = [];
+      st.prep.showFilters = false;
+      st.prep.showStats = false;
       fillPrepSelectionFromCandidates();
       draw();
     });
     $("#prep-season")?.addEventListener("change", (e) => {
       st.prep.seasonId = e.target.value;
       st.prep.loadKey = "";
+      st.prep.gemini = emptyPrepGemini();
+      st.prep.showFilters = false;
+      st.prep.showStats = false;
       fillPrepSelectionFromCandidates();
       draw();
     });
     $("#prep-friendly")?.addEventListener("change", (e) => {
       st.prep.includeFriendly = !!e.target.checked;
       st.prep.loadKey = "";
+      st.prep.gemini = emptyPrepGemini();
+      st.prep.showFilters = false;
+      st.prep.showStats = false;
       fillPrepSelectionFromCandidates();
       draw();
     });
@@ -5965,10 +6519,126 @@
       box.addEventListener("change", () => {
         st.prep.selectedGameIds = $$("[data-prep-game]:checked").map((el) => el.getAttribute("data-prep-game"));
         st.prep.loadKey = "";
-        st.prep.gemini = { loading: false, text: "", error: "" };
+        st.prep.gemini = emptyPrepGemini();
+        st.prep.showFilters = false;
+        st.prep.showStats = false;
         draw();
       });
     });
+  }
+
+  function renderPrep() {
+    applyPrepHash();
+    if (st.prep.tab === "explore") {
+      closePrepConfig();
+      renderExplore();
+      return;
+    }
+    renderOpponentPrep();
+  }
+
+  function renderOpponentPrep() {
+    if (!st.prep.seasonId && st.seasonId) st.prep.seasonId = st.seasonId;
+    const candidates = prepCandidateGames();
+    const key = prepLoadKey();
+    if ((st.prep.opponentId || st.prep.lockedGameId) && key !== st.prep.loadKey && !st.prep.loading) {
+      loadPrepData();
+    }
+    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const selectedIds = prepSelectedIds();
+    const visible = prepVisibleRows();
+    const aggregates = prepAggregates(visible);
+    const lockedGame = st.prep.lockedGameId ? st.games.find((g) => g.id === st.prep.lockedGameId) : null;
+    const selectedShot = visible.find((e) => e.id === st.prep.selectedShotId) || null;
+    const suggestions = prepTagSuggestions(visible);
+    const noteGameChoices = st.prep.lockedGameId
+      ? candidates
+      : candidates.filter((g) => selectedIds.includes(g.id));
+    if (!st.prep.noteGameId && noteGameChoices.length) st.prep.noteGameId = noteGameChoices[0].id;
+    const hasSession = !!(st.prep.opponentId || st.prep.lockedGameId);
+
+    const gameChecks = st.prep.lockedGameId
+      ? `<p class="muted">This game only · ${escapeHtml(gameTitle(lockedGame))} · recorded periods so far.</p>`
+      : candidates
+          .map(
+            (g) => `
+            <label class="prep-game-check">
+              <input type="checkbox" data-prep-game="${escapeHtml(g.id)}" ${
+                selectedIds.includes(g.id) ? "checked" : ""
+              } />
+              <span>${escapeHtml(String(g.date || "").slice(0, 10))} · ${escapeHtml(g.game_type || "")}</span>
+            </label>`
+          )
+          .join("") || `<p class="muted">No games match this opponent and season filter.</p>`;
+
+    const notesList =
+      (st.prep.notes || [])
+        .map((note) => {
+          const game = st.games.find((g) => g.id === note.game_id);
+          const tags = (note.tags || []).map((t) => `<span class="prep-tag">${escapeHtml(t)}</span>`).join("");
+          return `
+          <article class="prep-note">
+            <p class="prep-note-meta">${escapeHtml(gameTitle(game))}${
+              note.author_label ? ` · ${escapeHtml(note.author_label)}` : ""
+            }</p>
+            <p class="prep-note-body">${escapeHtml(note.body)}</p>
+            ${tags ? `<p class="prep-note-tags">${tags}</p>` : ""}
+            <button type="button" class="btn btn-ghost prep-note-del" data-del-note="${escapeHtml(note.id)}">Delete</button>
+          </article>`;
+        })
+        .join("") || `<p class="muted">No notes on these games yet.</p>`;
+
+    const suggestBtns = suggestions
+      .map((t) => `<button type="button" class="prep-tag-suggest" data-prep-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`)
+      .join("");
+
+    const board = st.prep.loading
+      ? `<p class="explore-loading">Loading shots…</p>`
+      : hasSession
+        ? `
+        <div class="prep-board">
+          <section class="prep-pitch-section">
+            <div class="prep-pitch-wrap">
+              ${prepPitchToolbarMarkup()}
+              ${prepFilterPanelMarkup()}
+              ${prepStatsPanelMarkup(aggregates)}
+              <div class="prep-pitch-field">${tacticalPitchMarkup(visible, st.prep.selectedShotId)}</div>
+              ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
+            </div>
+            <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · Brighton attack up${
+              selectedShot ? "" : " · tap a shot"
+            }</p>
+          </section>
+          ${prepGeminiMarkup(visible)}
+          ${prepNotesMarkup(notesList, noteGameChoices, suggestBtns)}
+        </div>`
+        : "";
+
+    root().innerHTML = `
+      <div class="shots-admin shots-prep">
+        ${trackerNav()}
+        <h1>Prep</h1>
+        ${prepTabsMarkup("opponent")}
+        ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+        ${prepSessionMarkup(lockedGame, selectedIds)}
+        ${board}
+      </div>`;
+
+    fillPrepConfigModal(oppTeams, gameChecks);
+    $("#prep-filter-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.prep.showFilters = !st.prep.showFilters;
+      if (st.prep.showFilters) st.prep.showStats = false;
+      draw({ keepScroll: true });
+    });
+    $("#prep-stats-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.prep.showStats = !st.prep.showStats;
+      if (st.prep.showStats) st.prep.showFilters = false;
+      draw({ keepScroll: true });
+    });
+    $("#prep-filter-panel")?.addEventListener("click", (e) => e.stopPropagation());
+    $("#prep-stats-panel")?.addEventListener("click", (e) => e.stopPropagation());
     $$("[data-prep-filter]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const name = btn.getAttribute("data-prep-filter");
@@ -5982,11 +6652,61 @@
     $$("[data-prep-shot]").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.preventDefault();
-        st.prep.selectedShotId = el.getAttribute("data-prep-shot") || "";
+        e.stopPropagation();
+        const id = el.getAttribute("data-prep-shot") || "";
+        st.prep.selectedShotId = st.prep.selectedShotId === id ? "" : id;
+        st.prep.showFilters = false;
+        st.prep.showStats = false;
         draw({ keepScroll: true });
       });
     });
+    $(".prep-pitch-svg")?.addEventListener("click", () => {
+      let changed = false;
+      if (st.prep.selectedShotId) {
+        st.prep.selectedShotId = "";
+        changed = true;
+      }
+      if (st.prep.showFilters || st.prep.showStats) {
+        st.prep.showFilters = false;
+        st.prep.showStats = false;
+        changed = true;
+      }
+      if (changed) draw({ keepScroll: true });
+    });
+    $("#prep-shot-popup-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      st.prep.selectedShotId = "";
+      draw({ keepScroll: true });
+    });
+    $("#prep-shot-popup")?.addEventListener("click", (e) => e.stopPropagation());
     $("#prep-gemini-run")?.addEventListener("click", () => runPrepGemini());
+    $$("[data-prep-followup]").forEach((btn) => {
+      btn.addEventListener("click", () => runPrepGemini(btn.getAttribute("data-prep-followup") || ""));
+    });
+    $("#prep-gemini-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      runPrepGemini($("#prep-gemini-input")?.value || "");
+    });
+    $("#prep-gemini-input")?.addEventListener("input", (e) => {
+      st.prep.gemini.draft = e.target.value;
+      const chips = $("#prep-followups");
+      if (chips) chips.hidden = !!e.target.value.trim();
+    });
+    $("#prep-gemini-clear")?.addEventListener("click", () => {
+      st.prep.gemini = emptyPrepGemini();
+      draw({ keepScroll: true });
+    });
+    const prepTranscript = $("#prep-gemini-transcript");
+    if (prepTranscript) prepTranscript.scrollTop = prepTranscript.scrollHeight;
+    $("#prep-note-add")?.addEventListener("click", () => {
+      st.prep.showNoteForm = !st.prep.showNoteForm;
+      draw({ keepScroll: true });
+      if (st.prep.showNoteForm) {
+        $("#prep-note-form")?.scrollIntoView({ block: "center", behavior: "smooth" });
+        $("#prep-note-body")?.focus();
+      }
+    });
     $("#prep-note-body")?.addEventListener("input", (e) => {
       st.prep.noteBody = e.target.value;
     });
@@ -6029,6 +6749,7 @@
         });
         st.prep.noteBody = "";
         st.prep.noteTags = "";
+        st.prep.showNoteForm = false;
         st.prep.loadKey = "";
         showToast("Note saved");
         await loadPrepData();
@@ -6084,6 +6805,7 @@
         x: Number(r.x ?? r.assist_x),
         y: Number(r.y ?? r.assist_y),
         result: r.result || "",
+        fromAssist: r.x == null && r.assist_x != null,
         label: r.jersey_number_at_time || r.jersey || r.short_name || r.name || "",
       }))
       .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
@@ -6094,7 +6816,10 @@
     const markers = points
       .map((p) => {
         const fill = resultFill(p.result || "missed");
-        let html = `<circle cx="${p.x}" cy="${p.y}" r="1.5" fill="${fill}" stroke="#0b1f33" stroke-width="0.25" />`;
+        const square = p.fromAssist || isSquareEvent(p.result);
+        let html = square
+          ? svgSquare(p.x, p.y, 2.8, `fill="${fill}" stroke="#0b1f33" stroke-width="0.25"`)
+          : `<circle cx="${p.x}" cy="${p.y}" r="1.5" fill="${fill}" stroke="#0b1f33" stroke-width="0.25" />`;
         if (p.label) {
           html += `<text x="${p.x}" y="${p.y}" fill="#0b1f33" font-size="1.1" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(String(p.label))}</text>`;
         }
@@ -6718,6 +7443,7 @@
       renderHistory();
       return;
     }
+    if (view !== "shots-prep") closePrepConfig();
     if (view === "shots-prep") {
       renderPrep();
       if (opts.keepScroll) window.scrollTo(0, scrollY);

@@ -70,6 +70,35 @@ test.describe("Shot tracker smoke", () => {
     await page.goto("/#shots-prep");
     await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
     await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");
+    await expect(page.locator("#prep-config-open")).toBeVisible();
+    await expect(page.locator(".prep-empty")).toBeVisible();
+    await expect(page.locator(".prep-gemini")).toHaveCount(0);
+    await page.locator("#prep-config-open").click();
+    await expect(page.locator("#prep-config-modal")).toBeVisible();
+    const opp = page.locator("#prep-opponent");
+    await expect(opp).toBeVisible();
+    const values = await opp.locator("option").evaluateAll((opts) =>
+      opts.map((o) => o.value).filter(Boolean)
+    );
+    if (values.length) {
+      await opp.selectOption(values[0]);
+      await page.locator("#prep-config-modal .btn-primary").click();
+      await expect(page.locator("#prep-config-modal")).toBeHidden();
+      await expect(page.locator(".prep-pitch-wrap")).toBeVisible({ timeout: 20000 });
+      await expect(page.locator(".prep-gemini")).toBeVisible();
+      await expect(page.locator(".prep-notes")).toBeVisible();
+      await expect(page.locator("#prep-note-form")).toHaveCount(0);
+      await page.locator("#prep-filter-toggle").click();
+      await expect(page.locator("#prep-filter-panel")).toBeVisible();
+      await page.locator("#prep-stats-toggle").click();
+      await expect(page.locator("#prep-stats-panel")).toBeVisible();
+      await expect(page.locator("#prep-filter-panel")).toHaveCount(0);
+      await page.locator("#prep-note-add").click();
+      await expect(page.locator("#prep-note-form")).toBeVisible();
+    } else {
+      await page.locator("#prep-config-modal .btn-primary").click();
+      await expect(page.locator("#prep-config-modal")).toBeHidden();
+    }
     await page.locator(".prep-tab", { hasText: "Explore" }).click();
     await expect(page.locator(".prep-tab.is-on")).toHaveText("Explore");
     await expect(page.locator("#explore-form")).toBeVisible();

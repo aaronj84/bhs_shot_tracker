@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20260912a" />
+  <link rel="stylesheet" href="styles.css?v=20260912g" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -241,10 +241,22 @@
     </div>
   </div>
 
+  <div class="modal" id="prep-config-modal" hidden role="dialog" aria-modal="true" aria-labelledby="prep-config-title">
+    <div class="modal-backdrop" data-close-prep-config></div>
+    <div class="modal-panel prep-config-panel">
+      <h2 id="prep-config-title">Prep setup</h2>
+      <p class="muted">Opponent and games for this session. You can reopen this anytime from Setup.</p>
+      <div id="prep-config-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" data-close-prep-config>Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
   <script src="shots-api.js?v=20260912c"></script>
-  <script src="shots.js?v=20260912b"></script>
+  <script src="shots.js?v=20260912g"></script>
   <script src="app.js?v=20260912a"></script>
 </body>
 </html>

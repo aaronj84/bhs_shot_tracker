@@ -48,7 +48,7 @@ GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/
 | `#shots` | Record |
 | `#shots-games` | Games / schedule |
 | `#shots-history` | Cross-game history |
-| `#shots-prep` | Opponent Prep (Gemini briefing + notes) |
+| `#shots-prep` | Opponent Prep (Gemini chat + notes) |
 | `#shots-prep?tab=explore` | Explore (LLM Q&A; `#shots-explore` still redirects here) |
 | `#shots-map` | Full-field shot map |
 

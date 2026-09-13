@@ -1,6 +1,6 @@
 /**
  * Opponent Prep briefing via Gemini.
- * Secrets: GEMINI_API_KEY (required). Optional: PREP_GEMINI_MODEL (default gemini-2.5-flash).
+ * Secrets: GEMINI_API_KEY (required). Optional: PREP_GEMINI_MODEL (default gemini-3.6-flash).
  * Auto: SUPABASE_URL, SUPABASE_ANON_KEY
  *
  * Client sends already-filtered shots plus pre-aggregated totals.
@@ -15,19 +15,28 @@ const corsHeaders: Record<string, string> = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are a high-school varsity soccer coach writing a short Opponent Prep briefing.
+const SYSTEM_PROMPT = `You are a high-school varsity soccer coach in a live Opponent Prep chat.
 
-Rules:
-- Use ONLY the shot list and the provided totals. Never invent counts, names, or clock times.
+Data rules:
+- Use ONLY the shot list and totals in the data message. Never invent counts, names, clock times, or lineups.
 - If in_progress is true, this is a live/partial report (halftime or pre-ET). Say so in the first sentence. Do not write as if the match is over.
-- Cite specific plays as Player 12' zone (e.g. Pip 12' C-6Y).
-- Brighton always attacks toward the top of the tactical pitch; the opponent attacks toward the bottom. Patterns should be described that way (our final third vs their final third).
-- Do not discuss starting lineups or who was on the field unless a shot's position slot is present; even then, that is the shooter's slot, not the XI.
-- Skip empty sections. Keep the whole briefing under ~400 words.
-- Write markdown with these headings when there is something to say:
-  ## Brighton
-  ## Opponent
-  ## Players
+- Cite specific plays as Player 12' zone (e.g. Pip 12' C-6Y) when a follow-up needs examples.
+- Brighton always attacks toward the top of the tactical pitch; the opponent attacks toward the bottom. Describe patterns that way (our final third vs their final third).
+- Do not guess who was on the field. A shot's position slot is the shooter, not the XI.
+
+Opening briefing (first reply only):
+- Team and pattern level only. No player-by-player recap, no ## Players section.
+- Cover chance quality, where shots come from, period shape, and what the opponent is doing to us / we to them.
+- Under ~280 words.
+- After the briefing, ask 3–4 short follow-up questions the coach might want next. Always include variants of:
+  1) which parts of the field are yielding better chances
+  2) which players are having the biggest impact
+  plus 1–2 more that fit this selection (period swing, set pieces/crosses, what to take into the next half or next meeting).
+
+Later replies:
+- Answer the coach's question with analysis, not another generic summary.
+- Player-level analysis is allowed when they ask for it.
+- Stay under ~350 words. Skip empty headings. Markdown is fine.
 `;
 
 type PrepShot = Record<string, unknown>;
@@ -40,6 +49,8 @@ type PrepBody = {
   games?: { date?: string; game_type?: string }[];
   aggregates?: Record<string, unknown>;
   shots?: PrepShot[];
+  question?: string;
+  history?: { role?: string; content?: string }[];
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -58,7 +69,7 @@ Deno.serve(async (req) => {
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
-    const model = Deno.env.get("PREP_GEMINI_MODEL") || "gemini-2.5-flash";
+    const model = Deno.env.get("PREP_GEMINI_MODEL") || "gemini-3.6-flash";
 
     if (!geminiKey) {
       return jsonResponse(
@@ -97,17 +108,40 @@ Deno.serve(async (req) => {
       shots,
     };
 
+    const question = String(body.question || "").trim();
+    const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
+    const starting = !history.length && !question;
+
     const provider = createGeminiProvider(geminiKey);
+    const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Filtered shot data (source of truth for every reply):\n\n${JSON.stringify(userPayload)}`,
+      },
+    ];
+    if (starting) {
+      messages.push({
+        role: "user",
+        content:
+          "Write the opening briefing: team and pattern level only, then offer follow-up analyses as questions.",
+      });
+    } else {
+      history.forEach((m) => {
+        const role = m?.role === "assistant" ? "assistant" : "user";
+        const content = String(m?.content || "").trim();
+        if (content) messages.push({ role, content });
+      });
+      messages.push({
+        role: "user",
+        content: question || "Continue the analysis from the data.",
+      });
+    }
+
     const result = await provider.complete({
       model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Write the briefing for this filtered set.\n\n${JSON.stringify(userPayload)}`,
-        },
-      ],
+      temperature: starting ? 0.25 : 0.35,
+      messages,
     });
 
     return jsonResponse({
