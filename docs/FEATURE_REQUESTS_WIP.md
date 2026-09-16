@@ -17,7 +17,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 | 7 | Lineup syncs every time synchronization happens | done | games.lineup jsonb; Sync pushes then pull; per-game local cache |
 | 8 | Swap 1st/2nd half shots for Olympus 2026-09-15 | done | Script committed. Prod preview: P1 BRI 5 / OLY 12, P2 BRI 10 / OLY 7, ET1 1+2. Prod write was not applied from here — run the SQL in prod. |
 | 9 | Default to first half; confirm if tracking 2nd before 1st | done | Games with no 1st-half plays load on 1st; recording later asks to switch |
-| 10 | Bulk edit to change half on a bunch of shots | pending | |
+| 10 | Bulk edit to change half on a bunch of shots | done | Checkboxes + Move selected; Move all to on each half heading |
 | 11 | Swap player when entering who committed the foul | pending | |
 | 12 | Set game to “final” — scoreboard + data archival | pending | |
 
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#9 done. Next: #10 bulk edit to change shot half.
+#10 done. Next: #11 swap fouler player during infringement entry.

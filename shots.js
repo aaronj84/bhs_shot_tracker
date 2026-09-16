@@ -1486,6 +1486,7 @@
 
   /** Ephemeral lineup editor gestures (not persisted). */
   let lineupGesture = null;
+  const selectedShotIds = new Set();
 
   function clearLineupGesture() {
     lineupGesture = null;
@@ -4619,7 +4620,8 @@
   function shotTableRows(events, opts = {}) {
     if (!events.length) {
       const empty = opts.emptyLabel || "No plays yet.";
-      return `<tr><td colspan="12" class="empty-state" style="padding:1.25rem">${escapeHtml(empty)}</td></tr>`;
+      const cols = opts.colspan || (opts.bulkHalf ? 13 : 12);
+      return `<tr><td colspan="${cols}" class="empty-state" style="padding:1.25rem">${escapeHtml(empty)}</td></tr>`;
     }
     return events
       .map((ev) => {
@@ -4668,6 +4670,11 @@
         }
         return `
           <tr class="${ev.saveFailed ? "is-unsaved" : ""}">
+            ${
+              opts.bulkHalf
+                ? `<td class="tracker-select-cell"><input type="checkbox" data-select-shot="${escapeHtml(ev.id)}" ${selectedShotIds.has(ev.id) ? "checked" : ""} aria-label="Select play" /></td>`
+                : ""
+            }
             <td class="tracker-edit-cell">
               <button type="button" class="icon-btn tracker-edit" data-edit-shot="${escapeHtml(ev.id)}" aria-label="Edit play">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -4735,6 +4742,79 @@
       </div>`;
   }
 
+  function pruneSelectedShotIds() {
+    const live = new Set((st.shots || []).map((ev) => ev.id));
+    for (const id of Array.from(selectedShotIds)) {
+      if (!live.has(id)) selectedShotIds.delete(id);
+    }
+  }
+
+  function playsBulkBarMarkup() {
+    pruneSelectedShotIds();
+    const n = selectedShotIds.size;
+    const destOpts = ["1", "2", "ET1", "ET2"]
+      .map((p) => `<option value="${p}">${escapeHtml(periodLabel(p))}</option>`)
+      .join("");
+    return `
+      <div class="plays-bulk-bar ${n ? "is-active" : ""}" ${n ? "" : "hidden"}>
+        <span class="plays-bulk-count">${n} selected</span>
+        <label class="plays-bulk-dest">Move to
+          <select id="plays-bulk-period" aria-label="Move selected plays to period">
+            ${destOpts}
+          </select>
+        </label>
+        <button type="button" class="btn btn-primary plays-bulk-apply" data-bulk-period-apply>Move selected</button>
+        <button type="button" class="btn btn-ghost" data-bulk-period-clear>Clear</button>
+      </div>`;
+  }
+
+  async function moveShotsToPeriod(ids, period) {
+    const p = normalizePeriod(period);
+    const unique = Array.from(new Set((ids || []).filter(Boolean)));
+    if (!unique.length) {
+      showToast("Select plays first");
+      return;
+    }
+    if (
+      !confirm(
+        unique.length === 1
+          ? `Move this play to ${periodLabel(p)}?`
+          : `Move ${unique.length} plays to ${periodLabel(p)}?`
+      )
+    ) {
+      return;
+    }
+    let ok = 0;
+    let fail = 0;
+    for (const id of unique) {
+      const ev = (st.shots || []).find((s) => s.id === id);
+      if (!ev) continue;
+      if (eventPeriod(ev) === p) {
+        ok += 1;
+        continue;
+      }
+      if (ev.saveFailed && ev.pendingPayload) {
+        ev.pendingPayload.period = p;
+        ev.period = p;
+        ok += 1;
+        continue;
+      }
+      const saved = await API.updateShot(id, { period: p });
+      if (!saved.ok) {
+        fail += 1;
+        continue;
+      }
+      const mapped = mapShot(saved.data);
+      const idx = st.shots.findIndex((s) => s.id === id);
+      if (idx >= 0) st.shots[idx] = mapped;
+      ok += 1;
+    }
+    selectedShotIds.clear();
+    draw({ keepScroll: true });
+    if (fail) showToast(`Moved ${ok} · ${fail} not saved`);
+    else showToast(`Moved ${ok} to ${periodLabel(p)}`);
+  }
+
   function bindPlaysFilters() {
     $$("[data-log-team]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -4754,13 +4834,38 @@
   }
 
   function shotTableMarkup(title, events, opts = {}) {
+    const period = opts.period || "";
+    const bulk = !!opts.bulkHalf;
+    const ids = events.map((ev) => ev.id).filter(Boolean);
+    const allOn = ids.length && ids.every((id) => selectedShotIds.has(id));
+    const moveOpts = ["1", "2", "ET1", "ET2"]
+      .filter((p) => p !== period)
+      .map((p) => `<option value="${p}">${escapeHtml(periodLabel(p))}</option>`)
+      .join("");
+    const bulkHead = bulk
+      ? `<th class="tracker-select-cell"><input type="checkbox" data-select-half="${escapeHtml(period)}" ${allOn ? "checked" : ""} aria-label="Select ${escapeHtml(title)}" /></th>`
+      : "";
+    const moveAll =
+      bulk && events.length
+        ? `<label class="plays-move-half">Move all to
+            <select data-move-half-from="${escapeHtml(period)}" aria-label="Move all ${escapeHtml(title)} plays">
+              <option value="">—</option>
+              ${moveOpts}
+            </select>
+          </label>`
+        : "";
+    const cols = bulk ? 13 : 12;
     return `
-      <h3 class="tracker-half-heading">${escapeHtml(title)}</h3>
+      <div class="tracker-half-head">
+        <h3 class="tracker-half-heading">${escapeHtml(title)}</h3>
+        ${moveAll}
+      </div>
       <div class="tracker-summary">${summaryPills(trackerSummary(events))}</div>
       <div class="tracker-table-wrap">
-        <table class="tracker-table">
+        <table class="tracker-table${bulk ? " is-bulk-select" : ""}">
           <thead>
             <tr>
+              ${bulkHead}
               <th class="tracker-edit-cell"><span class="sr-only">Edit</span></th>
               <th>Gameclock</th>
               <th>Team</th>
@@ -4775,7 +4880,7 @@
               <th class="tracker-delete-cell"><span class="sr-only">Delete</span></th>
             </tr>
           </thead>
-          <tbody>${shotTableRows(events, { emptyLabel: opts.emptyLabel, editClock: opts.editClock !== false })}</tbody>
+          <tbody>${shotTableRows(events, { emptyLabel: opts.emptyLabel, editClock: opts.editClock !== false, bulkHalf: bulk, colspan: cols })}</tbody>
         </table>
       </div>`;
   }
@@ -4873,6 +4978,49 @@
         clockInput.select();
       });
     }
+    $$("[data-select-shot]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const id = box.getAttribute("data-select-shot");
+        if (!id) return;
+        if (box.checked) selectedShotIds.add(id);
+        else selectedShotIds.delete(id);
+        draw({ keepScroll: true });
+      });
+    });
+    $$("[data-select-half]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const period = normalizePeriod(box.getAttribute("data-select-half"));
+        const ids = (st.shots || [])
+          .filter((ev) => eventPeriod(ev) === period && eventMatchesLogFilter(ev))
+          .map((ev) => ev.id)
+          .filter(Boolean);
+        if (box.checked) ids.forEach((id) => selectedShotIds.add(id));
+        else ids.forEach((id) => selectedShotIds.delete(id));
+        draw({ keepScroll: true });
+      });
+    });
+    $$("[data-move-half-from]").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const dest = sel.value;
+        const from = normalizePeriod(sel.getAttribute("data-move-half-from"));
+        sel.value = "";
+        if (!dest) return;
+        const ids = (st.shots || [])
+          .filter((ev) => eventPeriod(ev) === from && eventMatchesLogFilter(ev))
+          .map((ev) => ev.id)
+          .filter(Boolean);
+        moveShotsToPeriod(ids, dest);
+      });
+    });
+    $("[data-bulk-period-apply]")?.addEventListener("click", () => {
+      const dest = $("#plays-bulk-period")?.value;
+      if (!dest) return;
+      moveShotsToPeriod(Array.from(selectedShotIds), dest);
+    });
+    $("[data-bulk-period-clear]")?.addEventListener("click", () => {
+      selectedShotIds.clear();
+      draw({ keepScroll: true });
+    });
   }
 
   function fillFoulerEditOptions(ev, teamOverride) {
@@ -5637,10 +5785,11 @@
         <section class="tracker-log" id="tracker-log">
           <h2>Recorded plays</h2>
           ${playsFilterMarkup()}
+          ${playsBulkBarMarkup()}
           ${logCount}
-          ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty })}
-          ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty })}
-          ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty }) : ""}
+          ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty, period: "1", bulkHalf: true })}
+          ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty, period: "2", bulkHalf: true })}
+          ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty, period: "ET1", bulkHalf: true }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty, period: "ET2", bulkHalf: true }) : ""}
         </section>
         ${stampOffsetMarkup()}
         <p class="prep-game-link">

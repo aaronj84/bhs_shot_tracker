@@ -640,6 +640,68 @@ body.tracker-view .brand-sub {
   font-size: 1rem;
 }
 
+.tracker-half-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.85rem;
+  margin: 1.15rem 0 0.45rem;
+}
+
+.tracker-half-head .tracker-half-heading {
+  margin: 0;
+}
+
+.plays-move-half {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.plays-move-half select,
+.plays-bulk-dest select {
+  min-height: 34px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  font-weight: 700;
+}
+
+.plays-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  background: rgba(26, 86, 168, 0.08);
+}
+
+.plays-bulk-count {
+  font-weight: 750;
+  font-size: 0.85rem;
+}
+
+.plays-bulk-dest {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.plays-bulk-apply {
+  min-height: 34px;
+  padding: 0.25rem 0.7rem;
+}
+
 .tracker-toolbar .btn {
   min-height: 44px;
   padding: 0.5rem 0.75rem;
@@ -1731,6 +1793,22 @@ button.formation-card.is-empty {
   background: rgba(232, 238, 245, 0.45);
 }
 
+.tracker-table .tracker-select-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 2.1rem;
+  padding-left: 0.45rem;
+  padding-right: 0.2rem;
+  background: var(--bg-panel);
+  vertical-align: middle;
+}
+
+.tracker-table .tracker-select-cell input {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 .tracker-table .tracker-edit-cell {
   position: sticky;
   left: 0;
@@ -1740,6 +1818,19 @@ button.formation-card.is-empty {
   padding-right: 0.25rem;
   background: var(--bg-panel);
   box-shadow: 8px 0 8px -8px rgba(11, 31, 51, 0.18);
+}
+
+.tracker-table.is-bulk-select .tracker-edit-cell {
+  left: 2.1rem;
+}
+
+.tracker-table thead .tracker-select-cell {
+  background: var(--bg-soft);
+  z-index: 2;
+}
+
+.tracker-table tbody tr:nth-child(even) .tracker-select-cell {
+  background: #eef3f8;
 }
 
 .tracker-table thead .tracker-edit-cell {
