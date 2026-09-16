@@ -508,6 +508,10 @@
     if (st.view === "shots") draw({ keepScroll: true });
   }
 
+  function gameIsFinal(game) {
+    return (game || st.game)?.status === "final";
+  }
+
   function eventPeriod(ev) {
     return normalizePeriod(ev && ev.period);
   }
@@ -676,18 +680,22 @@
   }
 
   function paintClockFaces() {
-    const text = formatClockSecs(displayClockSeconds());
+    const text = gameIsFinal() ? "FINAL" : formatClockSecs(displayClockSeconds());
     $$("[data-clock-face]").forEach((el) => {
       el.textContent = text;
     });
     $$("[data-clock-toggle]").forEach((btn) => {
-      btn.textContent = clockIsRunning() ? "Stop" : "Start";
+      btn.textContent = gameIsFinal() ? "Final" : clockIsRunning() ? "Stop" : "Start";
     });
-    if (clockIsRunning()) startClockTick();
+    if (clockIsRunning() && !gameIsFinal()) startClockTick();
     else stopClockTick();
   }
 
   function startClock() {
+    if (gameIsFinal()) {
+      showToast("Game is final — reopen it to run the clock");
+      return;
+    }
     if (!clockEnabled()) return;
     autoPauseIfExpired();
     const s = clockPeriodState();
@@ -769,18 +777,29 @@
     ensureClockMem();
     const elapsed = Number(game.clock_elapsed_sec);
     const startedAt = game.clock_started_at ? Date.parse(game.clock_started_at) : NaN;
+    const running = !!game.clock_running && !gameIsFinal(game);
     clockMem.periods[period] = {
       elapsed: Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0,
-      running: !!game.clock_running,
-      startedAt: game.clock_running && Number.isFinite(startedAt) ? startedAt : null,
+      running,
+      startedAt: running && Number.isFinite(startedAt) ? startedAt : null,
     };
     persistClockMem();
     if (clockIsRunning()) startClockTick();
     else stopClockTick();
   }
 
+  function patchCachedGame(gameOrPatch) {
+    const next = gameOrPatch && gameOrPatch.id ? gameOrPatch : Object.assign({}, st.game, gameOrPatch);
+    if (!next || !next.id) return;
+    st.game = Object.assign({}, st.game, next);
+    const merge = (g) => (g && g.id === next.id ? Object.assign({}, g, next) : g);
+    st.games = (st.games || []).map(merge);
+    st.allGames = (st.allGames || []).map(merge);
+  }
+
   async function persistGameClockPatch(patch, opts = {}) {
     if (!st.gameId) return;
+    if (gameIsFinal() && patch.clock_running) patch.clock_running = false;
     st.game = Object.assign({}, st.game, patch);
     try {
       const saved = await API.updateGame(st.gameId, patch);
@@ -793,6 +812,86 @@
       } else {
         showToast(msg || "Could not save clock setting");
       }
+    }
+  }
+
+  function archiveShotRow(ev) {
+    return {
+      id: ev.id,
+      period: eventPeriod(ev),
+      team: eventTeam(ev),
+      result: ev.result,
+      position: ev.position || null,
+      miss: ev.missDirection || null,
+      shooter: ev.shooterNumber || null,
+      shooterName: ev.shooterName || ev.shooterShort || null,
+      fouler: ev.foulerNumber || null,
+      clock: ev.gameClockSeconds ?? ev.game_clock_seconds ?? null,
+      shot: ev.shot
+        ? { x: ev.shot.x, y: ev.shot.y, zoneId: ev.shot.zoneId || ev.shot.zone_id, zoneLabel: ev.shot.zoneLabel || ev.shot.zone_label }
+        : null,
+      assist: ev.assist || null,
+      secondAssist: ev.secondAssist || null,
+    };
+  }
+
+  async function markGameFinal() {
+    if (!st.gameId) return;
+    if (gameIsFinal()) {
+      showToast("Already final");
+      return;
+    }
+    if (!confirm("Mark this game final? The scoreboard will show FINAL and a snapshot of every play will be archived.")) {
+      return;
+    }
+    const s = clockPeriodState();
+    s.elapsed = currentElapsed();
+    s.running = false;
+    s.startedAt = null;
+    persistClockMem();
+    stopClockTick();
+    const score = gameScore(st.shots);
+    const now = new Date().toISOString();
+    const patch = {
+      status: "final",
+      finalized_at: now,
+      clock_running: false,
+      clock_started_at: null,
+      clock_period: normalizePeriod(st.period),
+      clock_elapsed_sec: Math.max(0, Math.floor(Number(s.elapsed) || 0)),
+      lineup: serializeLineup(),
+    };
+    try {
+      const saved = await API.updateGame(st.gameId, patch);
+      patchCachedGame(saved || patch);
+      await API.insertGameArchive(st.gameId, {
+        score_us: score.us,
+        score_opp: score.opp,
+        payload: {
+          score,
+          lineup: serializeLineup(),
+          period: st.period,
+          clock_elapsed_sec: patch.clock_elapsed_sec,
+          shots: (st.shots || []).map(archiveShotRow),
+        },
+      });
+      showToast("Game final — snapshot archived");
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast((err && err.message) || "Could not mark final");
+    }
+  }
+
+  async function reopenGame() {
+    if (!st.gameId || !gameIsFinal()) return;
+    if (!confirm("Reopen this game? The scoreboard will show the clock again.")) return;
+    try {
+      const saved = await API.updateGame(st.gameId, { status: "live" });
+      patchCachedGame(saved || { status: "live" });
+      showToast("Game reopened");
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast((err && err.message) || "Could not reopen");
     }
   }
 
@@ -822,19 +921,20 @@
     const large = size === "large";
     const score = gameScore(st.shots);
     const opp = opponentOf(st.game)?.name || "Opponent";
-    const face = formatClockSecs(displayClockSeconds());
-    const running = clockIsRunning();
+    const isFinal = gameIsFinal();
+    const face = isFinal ? "FINAL" : formatClockSecs(displayClockSeconds());
+    const running = !isFinal && clockIsRunning();
     const clockBlock = large
-      ? `<button type="button" class="scoreboard-clock-face" data-clock-face data-scoreboard-sync aria-label="Refresh scoreboard">${escapeHtml(face)}</button>`
-      : `<button type="button" class="score-clock-face" data-clock-face data-open-clock-setup aria-label="Set game clock">${escapeHtml(face)}</button>`;
+      ? `<button type="button" class="scoreboard-clock-face" data-clock-face data-scoreboard-sync aria-label="${isFinal ? "Final" : "Refresh scoreboard"}">${escapeHtml(face)}</button>`
+      : `<button type="button" class="score-clock-face" data-clock-face data-open-clock-setup aria-label="${isFinal ? "Final" : "Set game clock"}">${escapeHtml(face)}</button>`;
     const periodBlock = large
-      ? `<button type="button" class="scoreboard-period" data-open-clock-setup aria-label="Set period and clock">${escapeHtml(periodLabel(st.period))}</button>`
+      ? `<button type="button" class="scoreboard-period" data-open-clock-setup ${isFinal ? "disabled" : ""} aria-label="${isFinal ? "Final" : "Set period and clock"}">${isFinal ? "Final" : escapeHtml(periodLabel(st.period))}</button>`
       : "";
     const pollLine = large
       ? `<div class="scoreboard-poll-line" data-scoreboard-poll-line aria-hidden="true"><span class="scoreboard-poll-line-fill"></span></div>`
       : "";
     const board = `
-      <div class="${large ? "scoreboard-board" : "score-strip"}">
+      <div class="${large ? "scoreboard-board" : "score-strip"}${isFinal ? " is-final" : ""}">
         <div class="${large ? "scoreboard-team is-us" : "score-strip-team is-us"}">
           <span class="score-name">${escapeHtml(ourTeamName())}</span>
           <span class="score-num">${score.us}</span>
@@ -870,10 +970,15 @@
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="swap">Switch Sides</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="csv" ${(st.shots || []).length ? "" : "disabled"}>CSV</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="zones">${st.showGrid ? "Hide zones" : "Zones"}</button>
+              ${
+                isFinal
+                  ? `<button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="reopen">Reopen game</button>`
+                  : `<button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="final">Mark final</button>`
+              }
             </div>
           </div>
-          <button type="button" class="btn score-strip-btn" data-clock-toggle>${running ? "Stop" : "Start"}</button>
-          <button type="button" class="btn score-strip-btn" data-open-clock-setup>${escapeHtml(periodLabel(st.period))}</button>
+          <button type="button" class="btn score-strip-btn" data-clock-toggle ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : running ? "Stop" : "Start"}</button>
+          <button type="button" class="btn score-strip-btn" data-open-clock-setup ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : escapeHtml(periodLabel(st.period))}</button>
           <a class="score-strip-goto" href="#shots-scoreboard" aria-label="Open scoreboard">${miniScoreboardIconMarkup(score, face)}</a>
         </div>`
         }
@@ -911,6 +1016,10 @@
   }
 
   function openClockSetup() {
+    if (gameIsFinal()) {
+      showToast("Game is final — reopen it to change the clock");
+      return;
+    }
     const modal = $("#clock-setup-modal");
     if (!modal) return;
     $$("#clock-setup-modal [data-clock-setup-period]").forEach((btn) => {
@@ -1007,7 +1116,7 @@
       saveStampOffset(e.target.value);
       e.target.value = String(st.stampOffset);
     });
-    if (clockIsRunning()) startClockTick();
+    if (clockIsRunning() && !gameIsFinal()) startClockTick();
     else paintClockFaces();
   }
 
@@ -2036,8 +2145,12 @@
       st.showGrid = !st.showGrid;
       saveUi();
       draw({ keepScroll: true });
-    } else if (action === "csv") {
+    }     else if (action === "csv") {
       exportShotsCsv(st.shots || []);
+    } else if (action === "final") {
+      markGameFinal();
+    } else if (action === "reopen") {
+      reopenGame();
     }
   }
 
@@ -2443,7 +2556,7 @@
           <li class="shots-game-row${past ? " is-past" : ""}">
             <button type="button" class="shots-game-btn" data-open-game="${g.id}">
               <strong>${escapeHtml(date)}</strong>
-              <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}</span>
+              <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
             </button>
           </li>`;
       })
@@ -7949,6 +8062,11 @@
           </button>
           <div class="scoreboard-menu-pop" id="scoreboard-menu-pop" hidden role="menu">
             <a class="scoreboard-menu-item" href="#shots" role="menuitem">Track shots</a>
+            ${
+              gameIsFinal()
+                ? `<button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="reopen">Reopen game</button>`
+                : `<button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="final">Mark final</button>`
+            }
           </div>
         </div>
         <div class="scoreboard-hero-pin" data-scoreboard-hero-pin>
@@ -7974,6 +8092,13 @@
     btn?.addEventListener("click", (e) => {
       e.stopPropagation();
       setOpen(pop.hidden);
+    });
+    pop?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-tracker-action]");
+      if (!item) return;
+      e.stopPropagation();
+      setOpen(false);
+      runTrackerAction(item.getAttribute("data-tracker-action"));
     });
     $(".scoreboard-page")?.addEventListener("click", (e) => {
       if (e.target.closest(".scoreboard-menu")) return;

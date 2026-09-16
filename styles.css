@@ -3068,6 +3068,15 @@ tr.is-unsaved td {
   color: #fff;
 }
 
+.score-strip-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.score-strip.is-final .score-clock-face {
+  letter-spacing: 0.06em;
+}
+
 .score-strip-goto {
   display: flex;
   align-items: center;
@@ -3304,6 +3313,11 @@ body.scoreboard-view .half-toggle-btn.is-on {
   line-height: 1;
 }
 
+.scoreboard-board.is-final .scoreboard-clock-face {
+  font-size: clamp(1.7rem, 9vw, 3.8rem);
+  letter-spacing: 0.08em;
+}
+
 .scoreboard-clock-input {
   width: min(12rem, 70vw);
   font-size: clamp(2rem, 10vw, 4rem);
@@ -3467,11 +3481,17 @@ button.scoreboard-period:focus-visible {
 
 .scoreboard-menu-item {
   display: block;
+  width: 100%;
   padding: 0.7rem 0.85rem;
   color: #f4f7fb;
   text-decoration: none;
+  text-align: left;
+  font: inherit;
   font-weight: 700;
+  border: none;
   border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
 }
 
 .scoreboard-menu-item:hover {

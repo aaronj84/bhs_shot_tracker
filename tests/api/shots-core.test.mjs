@@ -271,6 +271,32 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(readErr).toBeNull();
     expect(tagged.note_tags?.map((t) => t.tag)).toContain("press");
   });
+
+  it("marks a game final and stores an archive snapshot", async () => {
+    const { data: game, error } = await sb
+      .from("games")
+      .update({ status: "final", finalized_at: new Date().toISOString() })
+      .eq("id", gameId)
+      .select("status, finalized_at")
+      .single();
+    expect(error).toBeNull();
+    expect(game.status).toBe("final");
+    expect(game.finalized_at).toBeTruthy();
+
+    const { data: archive, error: aErr } = await sb
+      .from("game_archives")
+      .insert({
+        game_id: gameId,
+        score_us: 1,
+        score_opp: 0,
+        payload: { score: { us: 1, opp: 0 }, shots: [{ result: "goal" }] },
+      })
+      .select()
+      .single();
+    expect(aErr).toBeNull();
+    expect(archive.score_us).toBe(1);
+    expect(archive.payload.shots[0].result).toBe("goal");
+  });
 });
 
 describe.skipIf(configured)("Shot tracker API (env missing)", () => {

@@ -19,7 +19,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 | 9 | Default to first half; confirm if tracking 2nd before 1st | done | Games with no 1st-half plays load on 1st; recording later asks to switch |
 | 10 | Bulk edit to change half on a bunch of shots | done | Checkboxes + Move selected; Move all to on each half heading |
 | 11 | Swap player when entering who committed the foul | done | Swap on fouler XI; Sub player in; Change fouler after tagging |
-| 12 | Set game to “final” — scoreboard + data archival | pending | |
+| 12 | Set game to “final” — scoreboard + data archival | done | games.status + game_archives snapshot; scoreboard shows FINAL |
 
 ## Resume instructions
 
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#11 done. Next: #12 set game to final — scoreboard + archival.
+All 12 features done. Olympus prod swap SQL still not applied (see #8). Leftover untracked backup/maxprep work was not committed.

@@ -162,6 +162,21 @@
       return data;
     },
 
+    async insertGameArchive(gameId, row) {
+      const { data, error } = await getClient()
+        .from("game_archives")
+        .insert({
+          game_id: gameId,
+          score_us: row.score_us || 0,
+          score_opp: row.score_opp || 0,
+          payload: row.payload || {},
+        })
+        .select("id, created_at")
+        .single();
+      throwIfError(error, "Could not archive game");
+      return data;
+    },
+
     async updateGame(id, patch) {
       const { data, error } = await getClient()
         .from("games")
