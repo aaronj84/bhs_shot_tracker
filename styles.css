@@ -931,6 +931,11 @@ body.is-recording-play .app-header {
   fill: #fff;
 }
 
+.tracker-shot-dot.on-target + .tracker-shot-num,
+.tracker-event.is-opp .tracker-shot-dot.on-target + .tracker-shot-num {
+  fill: #0b1f33;
+}
+
 .tracker-shot-num {
   fill: #0b1f33;
   font-size: 1.25px;

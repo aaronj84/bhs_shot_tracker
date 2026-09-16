@@ -5586,6 +5586,12 @@
     return "rgba(11,31,51,0.4)";
   }
 
+  function markerNumberFill(ev, team) {
+    if (ev.result === "on-target" || resultFill(ev.result) === "#ffffff") return "#0b1f33";
+    if (team === "opp" || ev.result === "missed" || ev.result === "pk-missed") return "#ffffff";
+    return "#0b1f33";
+  }
+
   function isSquareEvent(result) {
     return result === "foul" || result === "corner";
   }
@@ -5641,7 +5647,7 @@
         const team = eventTeam(ev);
         const shot = toFullFieldPoint(ev.shot, period, team);
         const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
-        const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const numFill = markerNumberFill(ev, team);
         let html = "";
         const ring = team === "opp" ? "#c0392b" : "#0b1f33";
         if (ev.secondAssist) {
@@ -6265,7 +6271,7 @@
         if (!shot) return "";
         const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
-        const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const numFill = markerNumberFill(ev, team);
         let html = "";
         if (ev.secondAssist) {
           const s = tacticalPoint(ev.secondAssist, team);
