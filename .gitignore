@@ -33,3 +33,6 @@ playwright-report/
 test-results/
 blob-report/
 _site/
+
+# macOS
+.DS_Store
