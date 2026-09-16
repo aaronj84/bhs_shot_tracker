@@ -15,7 +15,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 | 5 | Missed option for crossbar or post | done | Constraint + UI + edit form; e2e uses Crossbar/Post |
 | 6 | Team kicks: show prior shooter numbers above player selector | done | Chip bar of usedThisGameNumbers above taker/fouler pickers |
 | 7 | Lineup syncs every time synchronization happens | done | games.lineup jsonb; Sync pushes then pull; per-game local cache |
-| 8 | Swap 1st/2nd half shots for Olympus 2026-09-15 | pending | SQL already drafted in `supabase/fix_shots_olympus_2026-09-15_swap_halves.sql` |
+| 8 | Swap 1st/2nd half shots for Olympus 2026-09-15 | done | Script committed. Prod preview: P1 BRI 5 / OLY 12, P2 BRI 10 / OLY 7, ET1 1+2. Prod write was not applied from here — run the SQL in prod. |
 | 9 | Default to first half; confirm if tracking 2nd before 1st | pending | |
 | 10 | Bulk edit to change half on a bunch of shots | pending | |
 | 11 | Swap player when entering who committed the foul | pending | |
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#7 done. Next: #8 swap 1st/2nd half shots for Olympus 2026-09-15.
+#8: Olympus swap script is ready; prod UPDATE was not applied from this session. Next: #9 default to first half and confirm if tracking 2nd before 1st.
