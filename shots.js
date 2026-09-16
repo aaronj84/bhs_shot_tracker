@@ -490,6 +490,22 @@
     return normalizePeriod(period);
   }
 
+  function hasFirstHalfPlays() {
+    return (st.shots || []).some((ev) => eventPeriod(ev) === "1");
+  }
+
+  function offerFirstHalfIfNeeded() {
+    if (awaitingFollowUp()) return;
+    if (normalizePeriod(st.period) === "1") return;
+    if (hasFirstHalfPlays()) return;
+    const switchToFirst = window.confirm("No 1st-half plays yet. Switch to 1st half?");
+    if (!switchToFirst) return;
+    st.period = "1";
+    saveUi();
+    persistLiveClock();
+    if (st.view === "shots") draw({ keepScroll: true });
+  }
+
   function eventPeriod(ev) {
     return normalizePeriod(ev && ev.period);
   }
@@ -1929,6 +1945,7 @@
     seedDefaultLineupIfEmpty();
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
+    if (!hasFirstHalfPlays()) st.period = "1";
     saveUi();
     await ensureGameClockDefaults();
   }
@@ -3013,6 +3030,7 @@
   }
 
   function fillShotModal(step, location) {
+    offerFirstHalfIfNeeded();
     shotModalDraft.step = step;
     shotModalDraft.phase = "action";
     shotModalDraft.location = location;
