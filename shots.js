@@ -138,8 +138,10 @@
     short: "Short",
     "wide-left": "Wide left",
     "wide-right": "Wide right",
+    crossbar: "Crossbar",
+    post: "Post",
   };
-  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right"];
+  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right", "crossbar", "post"];
   const ASSIST_TYPE_LABELS = { pass: "Pass", gap: "Gap", cross: "Cross" };
   const TRACKER_ASSIST_ACTIONS = [
     { id: "assist-pass", label: "Assist — Pass", kind: "assist", type: "pass" },
@@ -4444,7 +4446,7 @@
       }
       if (ev.missDirection) {
         const who = eventPersonLabel("us", ev.shooterNumber, ev.shooterName, ev.shooterShort);
-        if (!missByPlayer[who]) missByPlayer[who] = { over: 0, short: 0, "wide-left": 0, "wide-right": 0 };
+        if (!missByPlayer[who]) missByPlayer[who] = { over: 0, short: 0, "wide-left": 0, "wide-right": 0, crossbar: 0, post: 0 };
         missByPlayer[who][ev.missDirection] = (missByPlayer[who][ev.missDirection] || 0) + 1;
       }
     });
@@ -4455,7 +4457,17 @@
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8);
     const missRows = Object.entries(missByPlayer)
-      .map(([who, dirs]) => ({ who, ...dirs, total: dirs.over + dirs.short + dirs["wide-left"] + dirs["wide-right"] }))
+      .map(([who, dirs]) => ({
+        who,
+        ...dirs,
+        total:
+          (dirs.over || 0) +
+          (dirs.short || 0) +
+          (dirs["wide-left"] || 0) +
+          (dirs["wide-right"] || 0) +
+          (dirs.crossbar || 0) +
+          (dirs.post || 0),
+      }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
     return { topPos, topPairs, missRows };
@@ -4487,7 +4499,7 @@
               missRows
                 .map(
                   (r) =>
-                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]}</span></li>`
+                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]} CB${r.crossbar || 0} P${r.post || 0}</span></li>`
                 )
                 .join("") || "<li class='muted'>No miss directions yet</li>"
             }

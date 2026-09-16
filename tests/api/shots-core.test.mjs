@@ -192,6 +192,34 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(away.sort()).toEqual(types.map((t) => t.result).sort());
   });
 
+  it("records missed shots off the crossbar or post", async () => {
+    const { data, error } = await sb
+      .from("shots")
+      .insert([
+        {
+          game_id: gameId,
+          period: "1",
+          team_id: brightonId,
+          x: 34,
+          y: 8,
+          result: "missed",
+          miss_direction: "crossbar",
+        },
+        {
+          game_id: gameId,
+          period: "1",
+          team_id: opponentId,
+          x: 34,
+          y: 8,
+          result: "missed",
+          miss_direction: "post",
+        },
+      ])
+      .select("miss_direction, team_id");
+    expect(error).toBeNull();
+    expect(data.map((r) => r.miss_direction).sort()).toEqual(["crossbar", "post"]);
+  });
+
   it("lists shots for the game", async () => {
     const { data, error } = await sb
       .from("shots")

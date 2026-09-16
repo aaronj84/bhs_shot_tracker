@@ -5,13 +5,13 @@ const SHOT_TYPES = [
   { actionId: "goal", log: /Goal/i },
   { actionId: "on-target", log: /Shot on Goal|On Goal/i },
   { actionId: "blocked", log: /Blocked/i },
-  { actionId: "missed", log: /Missed/i },
+  { actionId: "missed", missDir: "crossbar", log: /Crossbar/i },
   { actionId: "foul", restartResult: "foul", log: /Free Kick/i },
   { actionId: "foul", restartResult: "goal", log: /Goal/i, name: "free-kick-then-goal" },
   { actionId: "foul", restartResult: "missed", log: /Missed/i, name: "free-kick-then-missed" },
   { actionId: "corner", restartResult: "corner", log: /Corner/i },
   { actionId: "pk-goal", log: /PK Goal/i },
-  { actionId: "pk-missed", log: /PK Miss/i },
+  { actionId: "pk-missed", missDir: "post", log: /Post/i },
 ];
 
 test.describe("Shot types home and visitor", () => {
@@ -37,6 +37,7 @@ test.describe("Shot types home and visitor", () => {
           team,
           actionId: kind.actionId,
           restartResult: kind.restartResult,
+          missDir: kind.missDir,
         });
         await expect(page.locator("#tracker-log")).toContainText(kind.log, { timeout: 20000 });
       }
