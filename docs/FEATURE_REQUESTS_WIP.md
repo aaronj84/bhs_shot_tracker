@@ -8,8 +8,8 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 1 | Ignore `.DS_Store` in `.gitignore` | committing | Untrack existing `.DS_Store` files too |
-| 2 | Free kick + shot infinite loop; add every shot type to tests (home + visitor) | pending | |
+| 1 | Ignore `.DS_Store` in `.gitignore` | done | commit `4f26401` |
+| 2 | Free kick + shot infinite loop; add every shot type to tests (home + visitor) | done | Loop was afterTakerPicked re-entering fk-result and miss-dir requiring position |
 | 3 | Corners require shot location; add corner without tapping occupied spot | pending | |
 | 4 | White circle on shot map: jersey number cannot be white | pending | |
 | 5 | Missed option for crossbar or post | pending | |
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-Starting #1: gitignore `.DS_Store`.
+#2 done. Next: #3 corners require shot location; add without tapping occupied spot.

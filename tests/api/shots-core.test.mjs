@@ -157,6 +157,41 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(data.team_id).toBe(opponentId);
   });
 
+  it("inserts every shot type for home and visitor", async () => {
+    const types = [
+      { result: "goal" },
+      { result: "on-target" },
+      { result: "blocked" },
+      { result: "missed", miss_direction: "over" },
+      { result: "foul" },
+      { result: "corner" },
+      { result: "pk-goal" },
+      { result: "pk-missed", miss_direction: "wide-left" },
+    ];
+    const rows = [];
+    for (const teamId of [brightonId, opponentId]) {
+      for (const t of types) {
+        rows.push({
+          game_id: gameId,
+          period: "1",
+          team_id: teamId,
+          jersey_number_at_time: teamId === brightonId ? "7" : "9",
+          x: 30,
+          y: 18,
+          result: t.result,
+          miss_direction: t.miss_direction || null,
+        });
+      }
+    }
+    const { data, error } = await sb.from("shots").insert(rows).select("id, result, team_id");
+    expect(error).toBeNull();
+    expect(data?.length).toBe(types.length * 2);
+    const home = data.filter((r) => r.team_id === brightonId).map((r) => r.result);
+    const away = data.filter((r) => r.team_id === opponentId).map((r) => r.result);
+    expect(home.sort()).toEqual(types.map((t) => t.result).sort());
+    expect(away.sort()).toEqual(types.map((t) => t.result).sort());
+  });
+
   it("lists shots for the game", async () => {
     const { data, error } = await sb
       .from("shots")

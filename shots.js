@@ -3611,17 +3611,12 @@
   }
 
   async function afterTakerPicked() {
-    if (shotModalDraft.action?.result === "foul") {
-      shotModalDraft.fkOutcome = "";
+    const origin = shotModalDraft.action?.result;
+    // Only ask "what next?" once. Re-entering here after a shot is chosen
+    // (especially visitor missed, which has no position) wiped fkOutcome and looped.
+    if ((origin === "foul" || origin === "corner") && !shotModalDraft.fkOutcome) {
       shotModalDraft.missDirection = "";
-      shotModalDraft.phase = "fk-result";
-      renderShotModal();
-      return;
-    }
-    if (shotModalDraft.action?.result === "corner") {
-      shotModalDraft.fkOutcome = "";
-      shotModalDraft.missDirection = "";
-      shotModalDraft.phase = "corner-result";
+      shotModalDraft.phase = origin === "corner" ? "corner-result" : "fk-result";
       renderShotModal();
       return;
     }
@@ -3950,7 +3945,7 @@
       const missBtn = e.target.closest("[data-miss-dir]");
       if (missBtn) {
         shotModalDraft.missDirection = missBtn.getAttribute("data-miss-dir") || "";
-        if (shotModalDraft.fkOutcome && shotModalDraft.position) {
+        if (shotModalDraft.fkOutcome) {
           await completeShotModal();
           return;
         }
