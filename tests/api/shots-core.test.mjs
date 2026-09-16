@@ -297,6 +297,25 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(archive.score_us).toBe(1);
     expect(archive.payload.shots[0].result).toBe("goal");
   });
+
+  it("records a workflow breadcrumb on app_events", async () => {
+    const { data, error } = await sb
+      .from("app_events")
+      .insert({
+        session_id: `ci-${runId}`,
+        game_id: gameId,
+        view: "shots",
+        name: "control",
+        target: "sync",
+        detail: { source: "api-test" },
+      })
+      .select("id, name, target, session_id")
+      .single();
+    expect(error).toBeNull();
+    expect(data.name).toBe("control");
+    expect(data.target).toBe("sync");
+    expect(data.session_id).toBe(`ci-${runId}`);
+  });
 });
 
 describe.skipIf(configured)("Shot tracker API (env missing)", () => {

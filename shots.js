@@ -220,6 +220,124 @@
     el.classList.add("is-visible");
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => el.classList.remove("is-visible"), 2200);
+    trackErrorToast(text);
+  }
+
+  const APP_EVENT_NAMES = new Set(["view", "modal", "control", "play", "error"]);
+  const LS_APP_SESSION = "brighton-app-events-session";
+  const appEventQueue = [];
+  let appEventFlushTimer = null;
+  let appEventFlushing = false;
+  let appEventFlushBound = false;
+  let lastTrackedView = "";
+  let lastModalPhaseKey = "";
+
+  function appEventSessionId() {
+    try {
+      let id = sessionStorage.getItem(LS_APP_SESSION);
+      if (!id) {
+        id =
+          (global.crypto && crypto.randomUUID && crypto.randomUUID()) ||
+          `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        sessionStorage.setItem(LS_APP_SESSION, id);
+      }
+      return id;
+    } catch {
+      return `s-${Date.now()}`;
+    }
+  }
+
+  function compactEventDetail(detail) {
+    if (!detail || typeof detail !== "object") return {};
+    const out = {};
+    Object.keys(detail).forEach((k) => {
+      const v = detail[k];
+      if (v == null || v === "") return;
+      out[k] = v;
+    });
+    return out;
+  }
+
+  function trackAppEvent(name, target, detail) {
+    if (!APP_EVENT_NAMES.has(name)) return;
+    if (!st.session) return;
+    const gameId = st.gameId && String(st.gameId).length > 8 ? st.gameId : null;
+    appEventQueue.push({
+      session_id: appEventSessionId(),
+      game_id: gameId,
+      view: st.view || null,
+      name,
+      target: target ? String(target).slice(0, 80) : null,
+      detail: compactEventDetail(detail),
+    });
+    if (appEventQueue.length >= 8) {
+      flushAppEvents();
+      return;
+    }
+    if (!appEventFlushTimer) appEventFlushTimer = setTimeout(flushAppEvents, 4000);
+  }
+
+  async function flushAppEvents() {
+    if (appEventFlushTimer) {
+      clearTimeout(appEventFlushTimer);
+      appEventFlushTimer = null;
+    }
+    if (appEventFlushing || !appEventQueue.length) return;
+    if (!API || !API.insertAppEvents) {
+      appEventQueue.length = 0;
+      return;
+    }
+    const batch = appEventQueue.splice(0, 40);
+    appEventFlushing = true;
+    try {
+      await API.insertAppEvents(batch);
+    } catch {
+      /* usage log must never block recording */
+    } finally {
+      appEventFlushing = false;
+      if (appEventQueue.length) appEventFlushTimer = setTimeout(flushAppEvents, 4000);
+    }
+  }
+
+  function bindAppEventFlush() {
+    if (appEventFlushBound) return;
+    appEventFlushBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) flushAppEvents();
+    });
+    window.addEventListener("pagehide", () => {
+      flushAppEvents();
+    });
+  }
+
+  function trackViewIfChanged() {
+    const view = st.view || "";
+    if (!view || view === lastTrackedView) return;
+    const from = lastTrackedView || undefined;
+    lastTrackedView = view;
+    trackAppEvent("view", view, { from });
+  }
+
+  function trackOpenModalPhase() {
+    const phase = shotModalDraft.phase || "action";
+    const action = shotModalDraft.action?.result || shotModalDraft.action?.id || "";
+    const key = `${phase}|${action}|${shotModalDraft.step || ""}`;
+    if (key === lastModalPhaseKey) return;
+    lastModalPhaseKey = key;
+    trackAppEvent("modal", phase, { action: action || undefined, step: shotModalDraft.step || undefined });
+  }
+
+  function trackModalAbandoned() {
+    if (!lastModalPhaseKey) return;
+    const phase = lastModalPhaseKey.split("|")[0];
+    trackAppEvent("modal", "abandon", { phase });
+    lastModalPhaseKey = "";
+  }
+
+  function trackErrorToast(text) {
+    const t = String(text || "");
+    if (!/not saved|could not|failed|check connection|wrong pin/i.test(t)) return;
+    trackAppEvent("error", "toast", { message: t.slice(0, 120) });
   }
 
   function loadUi() {
@@ -2065,6 +2183,7 @@
   async function boot() {
     if (st.booting) return;
     st.booting = true;
+    bindAppEventFlush();
     try {
       if (!API || !API.isConfigured()) {
         st.booted = true;
@@ -2136,6 +2255,7 @@
   }
 
   function runTrackerAction(action) {
+    if (action) trackAppEvent("control", action);
     if (action === "sync") syncGameShots();
     else if (action === "swap") {
       st.swapSides = !st.swapSides;
@@ -2227,6 +2347,7 @@
         return;
       }
       st.session = result.session;
+      trackAppEvent("control", "sign_in");
       st.loading = true;
       draw();
       try {
@@ -2261,6 +2382,7 @@
   async function selectGame(id, mode) {
     closeGameOpenModal();
     st.gameId = id;
+    trackAppEvent("control", "open_game", { mode: mode === "scoreboard" ? "scoreboard" : "track" });
     st.loading = true;
     draw();
     try {
@@ -3128,6 +3250,7 @@
   }
 
   function closeShotModal() {
+    lastModalPhaseKey = "";
     if (shotModal) shotModal.hidden = true;
     shotModalDraft.player = null;
     shotModalDraft.fouler = null;
@@ -3145,6 +3268,7 @@
   }
 
   function dismissShotModal() {
+    trackModalAbandoned();
     closeShotModal();
     if (st.view === "shots") draw({ keepScroll: true });
   }
@@ -3337,6 +3461,7 @@
     const nudgeText = $("#shot-lineup-nudge-text");
     const posGrid = $("#shot-position-grid");
     if (!shotModal || !playerGrid || !actionGrid) return;
+    trackOpenModalPhase();
     if (actionLabel) actionLabel.hidden = true;
     playerGrid.classList.remove("is-formation");
 
@@ -4044,6 +4169,7 @@
       view.secondAssist.number = String(secondAssist.player.number || "");
     }
     st.shots = [view, ...st.shots];
+    trackAppEvent("play", result, { team, period: normalizePeriod(st.period) });
     closeShotModal();
     resetTrackerDraft();
     draw();
@@ -4195,7 +4321,7 @@
         if (lineupGesture?.mode === "swap" && lineupGesture.team === team && Number(lineupGesture.fromSlot) === slotId) {
           clearLineupGesture();
         } else if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
-          completeSwapGesture(slotId);
+          if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
         } else {
           startSwapGesture(team, slotId);
         }
@@ -4209,7 +4335,7 @@
         if (!lineupGesture || lineupGesture.mode !== "swap") return;
         const slotId = Number(hit.getAttribute("data-lineup-slot-hit"));
         if (Number(lineupGesture.fromSlot) === slotId) clearLineupGesture();
-        else completeSwapGesture(slotId);
+        else if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
         draw({ keepScroll: true });
         renderShotModal();
         return;
@@ -5022,6 +5148,7 @@
     ) {
       return;
     }
+    trackAppEvent("control", "move_half", { to: p, count: unique.length });
     let ok = 0;
     let fail = 0;
     for (const id of unique) {
@@ -5901,7 +6028,7 @@
           return;
         }
         if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
-          completeSwapGesture(slotId);
+          if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_lineup");
           draw({ keepScroll: true });
           return;
         }
@@ -5917,8 +6044,8 @@
         const slotId = Number(btn.getAttribute("data-lineup-slot-hit"));
         if (Number(lineupGesture.fromSlot) === slotId) {
           clearLineupGesture();
-        } else {
-          completeSwapGesture(slotId);
+        } else if (completeSwapGesture(slotId)) {
+          trackAppEvent("control", "swap_lineup");
         }
         draw({ keepScroll: true });
       });
@@ -8209,6 +8336,7 @@
       renderLoading("Loading…");
       return;
     }
+    trackViewIfChanged();
     const view = st.view;
     if (view !== "shots" && view !== "shots-scoreboard") stopClockTick();
     if (view !== "shots-scoreboard") stopScoreboardPollTick();

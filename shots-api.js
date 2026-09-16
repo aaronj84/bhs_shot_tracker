@@ -484,6 +484,14 @@
       }
       return { ok: true, data: boxed };
     },
+
+    async insertAppEvents(rows) {
+      const list = (rows || []).filter(Boolean);
+      if (!list.length) return { ok: true };
+      const { error } = await getClient().from("app_events").insert(list);
+      if (error) return { ok: false, error: error.message || "Could not record events" };
+      return { ok: true };
+    },
   };
 
   async function functionPayload(data, error) {
