@@ -268,28 +268,82 @@
     if (st.gameId) sessionStorage.setItem("shots-game-id", st.gameId);
   }
 
-  function loadLineupBag() {
+  function readLineupStore() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(LS_LINEUP) || "{}") || {};
-      return {
-        edit: "us",
-        us: parsed.us && typeof parsed.us === "object" ? parsed.us : {},
-        opp: {},
-      };
+      return JSON.parse(localStorage.getItem(LS_LINEUP) || "{}") || {};
     } catch {
-      return { edit: "us", us: {}, opp: {} };
+      return {};
     }
   }
 
+  function loadLineupBag(gameId) {
+    const store = readLineupStore();
+    const fromGame = gameId && store[gameId] && typeof store[gameId] === "object" ? store[gameId].us : null;
+    const fromLegacy = store.us && typeof store.us === "object" ? store.us : {};
+    return {
+      edit: "us",
+      us: fromGame && typeof fromGame === "object" ? fromGame : fromLegacy,
+      opp: {},
+    };
+  }
+
   function saveLineupBag() {
-    localStorage.setItem(
-      LS_LINEUP,
-      JSON.stringify({
-        edit: "us",
-        us: st.lineup.us,
-        opp: {},
-      })
-    );
+    const store = readLineupStore();
+    const us = st.lineup.us || {};
+    if (st.gameId) store[st.gameId] = { us };
+    store.us = us;
+    localStorage.setItem(LS_LINEUP, JSON.stringify(store));
+  }
+
+  function serializeLineup() {
+    const us = {};
+    Object.entries(st.lineup.us || {}).forEach(([slotId, p]) => {
+      if (!p) return;
+      us[String(slotId)] = {
+        player_id: p.id || p.player_id || null,
+        jersey_number: String(p.number ?? p.jersey_number ?? ""),
+      };
+    });
+    return { us };
+  }
+
+  function hydrateLineupUs(raw) {
+    const src = raw && typeof raw === "object" ? raw.us || raw : {};
+    const bag = {};
+    Object.entries(src).forEach(([slotId, row]) => {
+      if (!row) return;
+      const pid = row.player_id || row.id || "";
+      const num = row.jersey_number || row.number || "";
+      const fromRoster = playerFromRoster("us", pid, num);
+      bag[String(slotId)] = lineupPlayerPayload(
+        fromRoster || { id: pid, number: num, name: row.name || "", short: row.short || row.short_name || "" }
+      );
+    });
+    return bag;
+  }
+
+  function applyLineupFromGame(game) {
+    const remote = game && game.lineup && typeof game.lineup === "object" ? game.lineup : null;
+    const remoteUs = remote && remote.us && typeof remote.us === "object" ? remote.us : null;
+    if (remoteUs && Object.keys(remoteUs).length) {
+      st.lineup.us = hydrateLineupUs(remote);
+      saveLineupBag();
+      return;
+    }
+    st.lineup.us = loadLineupBag(st.gameId).us;
+  }
+
+  async function pushGameLineup() {
+    if (!st.gameId || !API || !API.isConfigured()) return { ok: true, skipped: true };
+    try {
+      const data = await API.updateGame(st.gameId, { lineup: serializeLineup() });
+      if (data) st.game = data;
+      return { ok: true };
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : "");
+      if (/lineup|schema cache|column/i.test(msg)) return { ok: false, skipped: true };
+      throw err;
+    }
   }
 
   function loadDefaultLineup() {
@@ -1871,6 +1925,7 @@
     const opp = opponentOf(st.game);
     st.ourRoster = b ? await API.roster(b.id, st.game.season_id) : [];
     st.oppRoster = opp ? await API.roster(opp.id, st.game.season_id) : [];
+    applyLineupFromGame(st.game);
     seedDefaultLineupIfEmpty();
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
@@ -3870,15 +3925,17 @@
     draw({ keepScroll: true });
     try {
       const push = await retryFailedShots();
+      const lineupPush = await pushGameLineup();
       const pendingKeep = st.shots.filter((s) => s.saveFailed && s.pendingPayload);
       await loadGameContext();
       const remoteIds = new Set(st.shots.map((s) => s.id));
       const orphans = pendingKeep.filter((s) => !remoteIds.has(s.id));
       if (orphans.length) st.shots = [...orphans, ...st.shots];
       const n = st.shots.length;
-      if (push.stillFailed) showToast(`Synced — ${n} shots · ${push.stillFailed} not saved`);
-      else if (push.saved) showToast(`Synced — ${n} shots · saved ${push.saved}`);
-      else showToast(`Synced — ${n} shots`);
+      const lineupBit = lineupPush.ok && !lineupPush.skipped ? " · lineup" : "";
+      if (push.stillFailed) showToast(`Synced — ${n} shots${lineupBit} · ${push.stillFailed} not saved`);
+      else if (push.saved) showToast(`Synced — ${n} shots${lineupBit} · saved ${push.saved}`);
+      else showToast(`Synced — ${n} shots${lineupBit}`);
     } catch (err) {
       showToast(err.message || "Sync failed — check connection");
     } finally {

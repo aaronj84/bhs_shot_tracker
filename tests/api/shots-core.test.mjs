@@ -87,6 +87,15 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     gameId = game.id;
   });
 
+  it("stores and reloads a game lineup", async () => {
+    const lineup = { us: { "10": { player_id: null, jersey_number: "13" }, "9": { player_id: null, jersey_number: "9" } } };
+    const { data, error } = await sb.from("games").update({ lineup }).eq("id", gameId).select("lineup").single();
+    expect(error).toBeNull();
+    expect(data.lineup.us["10"].jersey_number).toBe("13");
+    const { data: again } = await sb.from("games").select("lineup").eq("id", gameId).single();
+    expect(again.lineup.us["9"].jersey_number).toBe("9");
+  });
+
   it("ensures a roster player and inserts a shot", async () => {
     const jersey = "97";
     const { data: player, error: pErr } = await sb

@@ -14,7 +14,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 | 4 | White circle on shot map: jersey number cannot be white | done | Dark numbers on white on-target fills (tracker CSS + full-field/prep maps) |
 | 5 | Missed option for crossbar or post | done | Constraint + UI + edit form; e2e uses Crossbar/Post |
 | 6 | Team kicks: show prior shooter numbers above player selector | done | Chip bar of usedThisGameNumbers above taker/fouler pickers |
-| 7 | Lineup syncs every time synchronization happens | pending | |
+| 7 | Lineup syncs every time synchronization happens | done | games.lineup jsonb; Sync pushes then pull; per-game local cache |
 | 8 | Swap 1st/2nd half shots for Olympus 2026-09-15 | pending | SQL already drafted in `supabase/fix_shots_olympus_2026-09-15_swap_halves.sql` |
 | 9 | Default to first half; confirm if tracking 2nd before 1st | pending | |
 | 10 | Bulk edit to change half on a bunch of shots | pending | |
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#6 done. Next: #7 lineup should reload on every sync.
+#7 done. Next: #8 swap 1st/2nd half shots for Olympus 2026-09-15.

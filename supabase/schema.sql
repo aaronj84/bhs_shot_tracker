@@ -47,6 +47,7 @@ create table if not exists public.games (
   home_team_id uuid not null references public.teams (id),
   away_team_id uuid not null references public.teams (id),
   our_team_id uuid not null references public.teams (id),
+  lineup jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
