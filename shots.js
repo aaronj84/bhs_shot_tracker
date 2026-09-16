@@ -446,6 +446,8 @@
     missDirection: "",
     fkOutcome: "",
     subSlotId: null,
+    subReturnPhase: "",
+    subTeam: "",
     justAddedNumber: "",
   };
 
@@ -3007,6 +3009,8 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
   }
 
@@ -3022,6 +3026,8 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
   }
 
@@ -3045,6 +3051,8 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
     clearPitchInspect();
     renderShotModal();
@@ -3095,6 +3103,49 @@
       }
     });
     return [...nums].sort((a, b) => Number(a) - Number(b));
+  }
+
+  function subFlowTeam() {
+    return shotModalDraft.subTeam === "opp" || shotModalDraft.subTeam === "us"
+      ? shotModalDraft.subTeam
+      : recordingTeam();
+  }
+
+  function foulerUsCards() {
+    const gestureOn = lineupGesture?.mode === "swap" && lineupGesture.team === "us";
+    return FORMATION_LAYOUT.map((layout) => {
+      const p = slotPlayer("us", layout.id);
+      const isSwapFrom = gestureOn && Number(lineupGesture.fromSlot) === Number(layout.id);
+      const isSwapTarget = gestureOn && !!p && !isSwapFrom;
+      const cardClass = [
+        "formation-card",
+        "is-editor",
+        p ? "" : "is-empty",
+        isSwapFrom ? "is-swap-from" : "",
+        isSwapTarget ? "is-gesture-target" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const pick = p
+        ? `<button type="button" class="formation-card-pick" data-player-number="${escapeHtml(String(p.number))}" data-player-id="${escapeHtml(p.id || "")}" data-player-team="us" data-slot-code="${escapeHtml(layout.code)}" ${gestureOn ? "disabled" : ""}>
+            <span class="formation-card-name">${escapeHtml(playerDisplayName(p))}</span>
+          </button>`
+        : `<span class="formation-card-name">Empty</span>`;
+      const swapBtn = p
+        ? `<button type="button" class="btn btn-ghost lineup-swap ${isSwapFrom ? "is-on" : ""}" data-swap-slot="${layout.id}" data-swap-team="us" title="Swap with another on-field player">Swap</button>`
+        : "";
+      const hitOverlay =
+        gestureOn && (isSwapTarget || isSwapFrom)
+          ? `<button type="button" class="formation-card-hit" data-lineup-slot-hit="${layout.id}" aria-label="${isSwapFrom ? "Cancel swap" : "Swap with this player"}"></button>`
+          : "";
+      return `
+        <div class="${cardClass}" style="${formationCardStyle(layout)}">
+          ${pick}
+          <span class="formation-card-meta">${formationMeta(layout.code, p)}</span>
+          ${swapBtn}
+          ${hitOverlay}
+        </div>`;
+    }).join("");
   }
 
   function priorShotNumberBar(team) {
@@ -3348,8 +3399,8 @@
       return;
     }
 
-    if (phase === "sub-slot" && recordingTeam() !== "opp") {
-      const team = recordingTeam();
+    if (phase === "sub-slot" && subFlowTeam() === "us") {
+      const team = subFlowTeam();
       title.textContent = "Change which position?";
       locEl.textContent = "Pick the spot to fill or replace, then choose who comes in.";
       if (playerHeading) playerHeading.hidden = true;
@@ -3375,8 +3426,8 @@
       return;
     }
 
-    if (phase === "sub-pick" && recordingTeam() !== "opp") {
-      const team = recordingTeam();
+    if (phase === "sub-pick" && subFlowTeam() === "us") {
+      const team = subFlowTeam();
       const slot = POSITION_SLOTS.find((s) => s.id === Number(shotModalDraft.subSlotId));
       const group = slot?.group || "";
       const groupLabel = POSITION_GROUPS.find((g) => g.id === group)?.label || group;
@@ -3452,7 +3503,9 @@
     if (playerHeading) {
       playerHeading.hidden = false;
       playerHeading.textContent = pickingFouler
-        ? "Usually the other team. Unknown is fine."
+        ? team === "us"
+          ? "Tap who fouled, or Swap two on-field players first. Unknown is fine."
+          : "Usually the other team. Unknown is fine."
           : team === "opp"
           ? "Pick a name or number. Unknown is fine."
           : lockedPos
@@ -3487,7 +3540,12 @@
         ${posLockBar}
         <div class="shot-team-actions">
           ${
-            team === "us" && !pickingFouler
+            !pickingFouler && shotModalDraft.foulerPicked
+              ? `<button type="button" class="btn btn-ghost shot-bar-btn" data-change-fouler="1">Change fouler</button>`
+              : ""
+          }
+          ${
+            team === "us"
               ? `<button type="button" class="btn btn-ghost shot-bar-btn is-sub-in" data-sub-in="1">Sub player in</button>`
               : ""
           }
@@ -3570,11 +3628,16 @@
 
     let html = toolbar;
     html += priorShotNumberBar(team);
+    if (pickingFouler && team === "us" && lineupGesture?.mode === "swap") {
+      html += lineupGestureBanner();
+    }
     if (justAdded && team !== "opp") {
       html += `<div class="shot-quick-label">Just added</div>${playerBtn(justAdded, "new", true)}`;
     }
     if (team === "opp") {
       html += opponentPickerBody();
+    } else if (pickingFouler) {
+      html += formationPitchShell(foulerUsCards(), "", { team: "us" });
     } else if (showFormation) {
       html += formationPitchShell(formationPickCards(team), "", { team });
     } else {
@@ -4011,6 +4074,38 @@
       await applyShotPersonPick(team, playerId, number, "");
     });
     shotModal.addEventListener("click", async (e) => {
+      const swapBtn = e.target.closest("[data-swap-slot]");
+      if (swapBtn) {
+        e.preventDefault();
+        const slotId = Number(swapBtn.getAttribute("data-swap-slot"));
+        const team = swapBtn.getAttribute("data-swap-team") === "opp" ? "opp" : "us";
+        if (lineupGesture?.mode === "swap" && lineupGesture.team === team && Number(lineupGesture.fromSlot) === slotId) {
+          clearLineupGesture();
+        } else if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
+          completeSwapGesture(slotId);
+        } else {
+          startSwapGesture(team, slotId);
+        }
+        draw({ keepScroll: true });
+        renderShotModal();
+        return;
+      }
+      const hit = e.target.closest("[data-lineup-slot-hit]");
+      if (hit) {
+        e.preventDefault();
+        if (!lineupGesture || lineupGesture.mode !== "swap") return;
+        const slotId = Number(hit.getAttribute("data-lineup-slot-hit"));
+        if (Number(lineupGesture.fromSlot) === slotId) clearLineupGesture();
+        else completeSwapGesture(slotId);
+        draw({ keepScroll: true });
+        renderShotModal();
+        return;
+      }
+      if (e.target.closest("[data-lineup-gesture-cancel]")) {
+        clearLineupGesture();
+        renderShotModal();
+        return;
+      }
       const pickPos = e.target.closest("[data-pick-position]");
       if (pickPos) {
         const code = pickPos.getAttribute("data-pick-position") || "";
@@ -4069,8 +4164,19 @@
           st.team = "us";
           saveUi();
         }
+        shotModalDraft.subReturnPhase = "position";
+        shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
+        renderShotModal();
+        return;
+      }
+      if (e.target.closest("[data-change-fouler]")) {
+        shotModalDraft.phase = "fouler";
+        shotModalDraft.foulerPicked = false;
+        shotModalDraft.fouler = null;
+        shotModalDraft.justAddedNumber = "";
+        clearLineupGesture();
         renderShotModal();
         return;
       }
@@ -4153,6 +4259,8 @@
         return;
       }
       if (e.target.closest("[data-sub-in]")) {
+        shotModalDraft.subReturnPhase = shotModalDraft.phase === "fouler" ? "fouler" : "position";
+        shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
         renderShotModal();
@@ -4167,9 +4275,9 @@
       }
       const subPickBtn = e.target.closest("[data-sub-pick-number]");
       if (subPickBtn) {
-        const team = recordingTeam();
+        const team = subFlowTeam();
         const slotId = Number(shotModalDraft.subSlotId);
-        const slot = POSITION_SLOTS.find((s) => s.id === slotId);
+        const slot = POSITION_SLOTS.find((s) => s.id === Number(slotId));
         const number = subPickBtn.getAttribute("data-sub-pick-number");
         const playerId = subPickBtn.getAttribute("data-sub-pick-id");
         const player = playerFromRoster(team, playerId, number);
@@ -4178,11 +4286,21 @@
         const elsewhere = slotIdForNumber(team, payload.number);
         if (elsewhere && Number(elsewhere) !== Number(slotId)) assignSlot(team, elsewhere, null);
         assignSlot(team, slotId, payload);
-        shotModalDraft.position = slot.code;
-        shotModalDraft.player = Object.assign({ team }, player);
+        const returnPhase = shotModalDraft.subReturnPhase || "position";
         shotModalDraft.subSlotId = null;
+        shotModalDraft.subReturnPhase = "";
+        shotModalDraft.subTeam = "";
         shotModalDraft.justAddedNumber = "";
         showToast(`${playerDisplayName(player) || `#${player.number}`} in at ${slot.code}`);
+        if (returnPhase === "fouler") {
+          shotModalDraft.phase = "fouler";
+          shotModalDraft.foulerPickTeam = "us";
+          draw({ keepScroll: true });
+          renderShotModal();
+          return;
+        }
+        shotModalDraft.position = slot.code;
+        shotModalDraft.player = Object.assign({ team }, player);
         await afterTakerPicked();
         return;
       }
@@ -4233,6 +4351,11 @@
       }
     });
     $("#shot-modal-back")?.addEventListener("click", () => {
+      if (lineupGesture?.mode === "swap") {
+        clearLineupGesture();
+        renderShotModal();
+        return;
+      }
       if (shotModalDraft.phase === "sub-pick") {
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
@@ -4240,8 +4363,10 @@
         return;
       }
       if (shotModalDraft.phase === "sub-slot") {
-        shotModalDraft.phase = "position";
+        shotModalDraft.phase = shotModalDraft.subReturnPhase || "position";
         shotModalDraft.subSlotId = null;
+        shotModalDraft.subReturnPhase = "";
+        shotModalDraft.subTeam = "";
         renderShotModal();
         return;
       }
