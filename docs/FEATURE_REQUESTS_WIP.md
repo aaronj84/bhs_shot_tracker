@@ -10,7 +10,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 |---|---------|--------|-------|
 | 1 | Ignore `.DS_Store` in `.gitignore` | done | commit `4f26401` |
 | 2 | Free kick + shot infinite loop; add every shot type to tests (home + visitor) | done | Loop was afterTakerPicked re-entering fk-result and miss-dir requiring position |
-| 3 | Corners require shot location; add corner without tapping occupied spot | pending | |
+| 3 | Corners require shot location; add corner without tapping occupied spot | done | Corner then shot awaits a second tap; Left/Right corner buttons; inspect Add play here; double-tap works on marks |
 | 4 | White circle on shot map: jersey number cannot be white | pending | |
 | 5 | Missed option for crossbar or post | pending | |
 | 6 | Team kicks: show prior shooter numbers above player selector | pending | |
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#2 done. Next: #3 corners require shot location; add without tapping occupied spot.
+#3 done. Next: #4 white circle on shot map cannot have a white jersey number.

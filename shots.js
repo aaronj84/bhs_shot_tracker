@@ -2771,6 +2771,7 @@
         <p>${escapeHtml([clock, zone].filter(Boolean).join(" · "))}</p>
         ${extra}
         <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-edit="${escapeHtml(ev.id)}">Edit play</button>
+        <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-add="${escapeHtml(ev.id)}">Add play here</button>
       </div>`;
   }
 
@@ -2975,6 +2976,21 @@
     shotModal.hidden = false;
   }
 
+  function startCornerFromFlag(team, side) {
+    const loc = locatePitchPoint(side === "right" ? PW - 0.4 : 0.4, 0.4);
+    st.team = team === "opp" ? "opp" : "us";
+    st.mode = "idle";
+    st.pending = null;
+    saveUi();
+    fillShotModal("first", loc);
+    const action = TRACKER_OTHER_ACTIONS.find((a) => a.result === "corner");
+    if (!action) return;
+    shotModalDraft.action = action;
+    shotModalDraft.missDirection = "";
+    shotModalDraft.fkOutcome = "";
+    advanceAfterAction();
+  }
+
   function actionShortLabel(action) {
     if (!action) return "";
     if (action.kind === "assist") return ASSIST_TYPE_LABELS[action.type] || action.type;
@@ -3166,7 +3182,9 @@
       locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
-        playerHeading.textContent = "Shot from here, another pass, or just log the restart.";
+        playerHeading.textContent = isCorner
+          ? "A shot needs its own tap (header, volley, etc.). Or log the corner only."
+          : "Shot from here, another pass, or just log the restart.";
       }
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
@@ -3623,6 +3641,30 @@
     await completeShotModal();
   }
 
+  async function saveCornerThenAwaitFollowUp(followUp) {
+    const loc = shotModalDraft.location;
+    const player = shotModalDraft.player || null;
+    const position = shotModalDraft.position || "";
+    const team = recordingTeam();
+    const assist = st.pending?.assist || null;
+    const secondAssist = st.pending?.secondAssist || null;
+    shotModalDraft.fkOutcome = "corner";
+    shotModalDraft.missDirection = "";
+    await commitShotEvent("corner", player, assist, secondAssist);
+    st.team = team;
+    st.mode = "awaiting-shot-location";
+    if (followUp.kind === "assist") {
+      st.pending = {
+        assist: { player, type: followUp.type, location: loc, position },
+      };
+      showToast("Corner saved — tap the next pass or the shot");
+    } else {
+      st.pending = { restartShot: { result: followUp.result } };
+      showToast("Corner saved — tap where the shot was taken");
+    }
+    draw();
+  }
+
   function stashAssistAndWait(player) {
     const next = draftAssistFromModal(player);
     const foulerBag = {
@@ -3957,6 +3999,10 @@
         const type = restartAssistBtn.getAttribute("data-restart-assist");
         const action = TRACKER_ASSIST_ACTIONS.find((a) => a.type === type);
         if (!action) return;
+        if (shotModalDraft.action?.result === "corner") {
+          await saveCornerThenAwaitFollowUp({ kind: "assist", type });
+          return;
+        }
         shotModalDraft.action = action;
         shotModalDraft.fkOutcome = "";
         shotModalDraft.missDirection = "";
@@ -3965,10 +4011,15 @@
       }
       const restartResultBtn = e.target.closest("[data-restart-result], [data-fk-result]");
       if (restartResultBtn) {
-        shotModalDraft.fkOutcome =
+        const outcome =
           restartResultBtn.getAttribute("data-restart-result") ||
           restartResultBtn.getAttribute("data-fk-result") ||
           "foul";
+        if (shotModalDraft.action?.result === "corner" && outcome !== "corner") {
+          await saveCornerThenAwaitFollowUp({ kind: "shot", result: outcome });
+          return;
+        }
+        shotModalDraft.fkOutcome = outcome;
         shotModalDraft.missDirection = "";
         if (RESULTS_NEEDING_MISS_DIR.has(shotModalDraft.fkOutcome)) {
           shotModalDraft.phase = "miss-dir";
@@ -4252,6 +4303,26 @@
             return;
           }
           fillShotModal(canChainAssist() ? "follow" : "shot", loc);
+          if (st.pending?.restartShot) {
+            const action = TRACKER_SHOT_ACTIONS.find((a) => a.result === st.pending.restartShot.result);
+            if (action) {
+              shotModalDraft.action = action;
+              shotModalDraft.missDirection = "";
+              shotModalDraft.fkOutcome = "";
+              advanceAfterAction();
+            }
+          }
+          draw({ keepScroll: true });
+          return;
+        }
+
+        if (isDouble) {
+          clearPitchInspect();
+          st.team = team === "opp" ? "opp" : "us";
+          st.mode = "idle";
+          st.pending = null;
+          saveUi();
+          fillShotModal("first", loc);
           draw({ keepScroll: true });
           return;
         }
@@ -4279,14 +4350,6 @@
           draw({ keepScroll: true });
           return;
         }
-
-        if (!isDouble) return;
-        st.team = team === "opp" ? "opp" : "us";
-        st.mode = "idle";
-        st.pending = null;
-        saveUi();
-        fillShotModal("first", loc);
-        draw({ keepScroll: true });
       };
       svg.addEventListener("pointerdown", onPointerDown);
       svg.addEventListener("pointerup", onTap);
@@ -4304,6 +4367,25 @@
       clearPitchInspect();
       draw({ keepScroll: true });
       if (id) openEditShot(id);
+    });
+    $("[data-inspect-add]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute("data-inspect-add");
+      const ev = (st.shots || []).find((s) => s.id === id);
+      const loc = locFromPlay(ev?.shot || ev);
+      const team = ev ? eventTeam(ev) : recordingTeam();
+      clearPitchInspect();
+      if (!loc) {
+        draw({ keepScroll: true });
+        return;
+      }
+      st.team = team === "opp" ? "opp" : "us";
+      st.mode = "idle";
+      st.pending = null;
+      saveUi();
+      fillShotModal("first", loc);
+      draw({ keepScroll: true });
     });
     $("#pitch-inspect-popup")?.addEventListener("click", (e) => e.stopPropagation());
   }
@@ -5375,7 +5457,7 @@
     const oppSwapped = !usSwapped;
     const pitchOpts = { showGrid: st.showGrid, period };
     const goalSide = usSwapped ? "left" : "right";
-    let status = `Tap a shot or assist for who did what. Double-tap empty grass to start a play. ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
+    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
       const a = st.pending?.assist;
       const s2 = st.pending?.secondAssist;
@@ -5395,13 +5477,20 @@
       ? usActive
         ? "Brighton · tap next pass or shot"
         : "Brighton"
-      : "Brighton · double-tap empty grass to record";
+      : "Brighton · double-tap to record";
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const oppCaption = awaitingShot
       ? !usActive
         ? `${oppName} · tap next pass or shot`
         : oppName
-      : `${oppName} · double-tap empty grass to record`;
+      : `${oppName} · double-tap to record`;
+    const cornerBtns = (team) =>
+      awaitingShot
+        ? ""
+        : `<div class="tracker-corner-btns">
+            <button type="button" class="btn btn-ghost shot-bar-btn" data-record-corner="left" data-record-team="${team}">Left corner</button>
+            <button type="button" class="btn btn-ghost shot-bar-btn" data-record-corner="right" data-record-team="${team}">Right corner</button>
+          </div>`;
 
     root().innerHTML = `
       <div class="tracker-page${awaitingShot ? " is-recording-play" : ""}">
@@ -5423,10 +5512,12 @@
           <div class="tracker-pitches">
             <div class="tracker-pitch-block ${usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(usCaption)}</p>
+              ${cornerBtns("us")}
               <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-us">${trackerPitchFieldMarkup("us", events, usSwapped, pitchOpts)}</div>
             </div>
             <div class="tracker-pitch-block is-opp ${!usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(oppCaption)}</p>
+              ${cornerBtns("opp")}
               <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-opp">${trackerPitchFieldMarkup("opp", events, oppSwapped, pitchOpts)}</div>
             </div>
           </div>
@@ -5455,6 +5546,13 @@
       closeShotModal();
       resetTrackerDraft();
       draw();
+    });
+    $$("[data-record-corner]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const team = btn.getAttribute("data-record-team") === "opp" ? "opp" : "us";
+        const side = btn.getAttribute("data-record-corner") === "right" ? "right" : "left";
+        startCornerFromFlag(team, side);
+      });
     });
     bindClockUi();
     bindScoreStripMenu();

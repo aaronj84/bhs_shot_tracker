@@ -1048,6 +1048,10 @@ body.is-recording-play .app-header {
   border-color: rgba(244, 247, 251, 0.55);
 }
 
+.pitch-inspect-popup .pitch-inspect-edit + .pitch-inspect-edit {
+  margin-left: 0.4rem;
+}
+
 .tracker-pending {
   fill: none;
   stroke: var(--accent);
@@ -2634,6 +2638,19 @@ button.formation-card.is-empty {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+.tracker-corner-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.4rem 0.15rem;
+}
+
+.tracker-corner-btns .shot-bar-btn {
+  min-height: 32px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
 }
 
 @media (min-width: 720px) {

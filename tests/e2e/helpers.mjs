@@ -61,8 +61,45 @@ export async function doubleTapPitch(page, team = "us", fracX = 0.55, fracY = 0.
   throw lastErr;
 }
 
-export async function doubleTapUsPitch(page) {
-  await doubleTapPitch(page, "us");
+export async function singleTapPitch(page, team = "us", fracX = 0.48, fracY = 0.32) {
+  const sel = team === "opp" ? "#tracker-pitch-opp .pitch-svg" : "#tracker-pitch-us .pitch-svg";
+  let lastErr;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const svg = page.locator(sel);
+    try {
+      await expect(svg).toBeVisible({ timeout: 15000 });
+      await svg.scrollIntoViewIfNeeded();
+      const box = await svg.boundingBox();
+      expect(box).toBeTruthy();
+      const clientX = box.x + box.width * fracX;
+      const clientY = box.y + box.height * fracY;
+      const pointerEvent = (type) =>
+        svg.dispatchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+        });
+      await pointerEvent("pointerdown");
+      await pointerEvent("pointerup");
+      return;
+    } catch (err) {
+      lastErr = err;
+      await page.waitForTimeout(250);
+    }
+  }
+  throw lastErr;
+}
+
+export async function startCornerFromFlag(page, team, side = "left") {
+  const btn = page.locator(`[data-record-corner="${side}"][data-record-team="${team}"]`);
+  await expect(btn).toBeVisible({ timeout: 10000 });
+  await btn.click();
+  const modal = page.locator("#shot-event-modal");
+  await expect(modal).toBeVisible({ timeout: 10000 });
 }
 
 export async function createFriendlyAndOpenTracker(page) {
@@ -115,7 +152,7 @@ export async function openRecordModal(page, team) {
   throw new Error(`Could not open record modal on ${team} pitch`);
 }
 
-async function finishTaker(page, team) {
+export async function finishTaker(page, team) {
   const modal = page.locator("#shot-event-modal");
   if (team === "us") {
     await expect(page.locator("#shot-modal-title")).toHaveText("Which position?", { timeout: 10000 });
