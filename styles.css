@@ -1608,6 +1608,7 @@ button.formation-card.is-empty {
 .shot-player-grid .shot-empty-roster,
 .shot-player-grid .shot-quick-label,
 .shot-player-grid .shot-opp-select,
+.shot-player-grid .shot-recent-nums,
 .shot-player-grid .shot-dual-pitches,
 .shot-player-grid .shot-dual-pitch-block,
 .shot-player-grid .shot-dual-actions {
@@ -2746,6 +2747,35 @@ button.formation-card.is-empty {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+.shot-recent-nums {
+  grid-column: 1 / -1;
+  margin: 0 0 0.15rem;
+}
+
+.shot-recent-num-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.shot-recent-num {
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
+.shot-recent-num:hover,
+.shot-recent-num:focus-visible {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .linkish {

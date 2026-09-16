@@ -3023,6 +3023,24 @@
     return [...nums].sort((a, b) => Number(a) - Number(b));
   }
 
+  function priorShotNumberBar(team) {
+    const nums = usedThisGameNumbers(team);
+    if (!nums.length) return "";
+    const chips = nums
+      .map((n) => {
+        const p = playerFromRoster(team, "", n);
+        const slot = p?.slotCode || "";
+        const id = p?.id || "";
+        return `<button type="button" class="shot-recent-num" data-player-number="${escapeHtml(n)}" data-player-id="${escapeHtml(id)}" data-player-team="${team}" data-slot-code="${escapeHtml(slot)}">#${escapeHtml(n)}</button>`;
+      })
+      .join("");
+    return `
+      <div class="shot-recent-nums">
+        <p class="shot-quick-label">Already shot</p>
+        <div class="shot-recent-num-row">${chips}</div>
+      </div>`;
+  }
+
   function recordingNeedsPosition() {
     return recordingTeam() !== "opp";
   }
@@ -3245,6 +3263,7 @@
       playerGrid.hidden = false;
       playerGrid.classList.add("is-formation");
       playerGrid.innerHTML = `
+        ${priorShotNumberBar(team)}
         <div class="shot-dual-pitch-block">
           <div class="shot-dual-pitch-head">
             <p class="tracker-pitch-caption">${escapeHtml(teamCaption)}</p>
@@ -3476,6 +3495,7 @@
     };
 
     let html = toolbar;
+    html += priorShotNumberBar(team);
     if (justAdded && team !== "opp") {
       html += `<div class="shot-quick-label">Just added</div>${playerBtn(justAdded, "new", true)}`;
     }

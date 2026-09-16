@@ -13,7 +13,7 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 | 3 | Corners require shot location; add corner without tapping occupied spot | done | Corner then shot awaits a second tap; Left/Right corner buttons; inspect Add play here; double-tap works on marks |
 | 4 | White circle on shot map: jersey number cannot be white | done | Dark numbers on white on-target fills (tracker CSS + full-field/prep maps) |
 | 5 | Missed option for crossbar or post | done | Constraint + UI + edit form; e2e uses Crossbar/Post |
-| 6 | Team kicks: show prior shooter numbers above player selector | pending | |
+| 6 | Team kicks: show prior shooter numbers above player selector | done | Chip bar of usedThisGameNumbers above taker/fouler pickers |
 | 7 | Lineup syncs every time synchronization happens | pending | |
 | 8 | Swap 1st/2nd half shots for Olympus 2026-09-15 | pending | SQL already drafted in `supabase/fix_shots_olympus_2026-09-15_swap_halves.sql` |
 | 9 | Default to first half; confirm if tracking 2nd before 1st | pending | |
@@ -31,4 +31,4 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 
 ## Current work
 
-#5 done. Next: #6 team kicks — prior shooter numbers above player selector.
+#6 done. Next: #7 lineup should reload on every sync.
