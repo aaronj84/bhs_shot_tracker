@@ -440,28 +440,120 @@
     return bag;
   }
 
-  function applyLineupFromGame(game) {
+  function applyLineupFromGame(game, opts = {}) {
+    if (opts.preserveDirty && lineupDirty) return false;
     const remote = game && game.lineup && typeof game.lineup === "object" ? game.lineup : null;
     const remoteUs = remote && remote.us && typeof remote.us === "object" ? remote.us : null;
     if (remoteUs && Object.keys(remoteUs).length) {
-      st.lineup.us = hydrateLineupUs(remote);
+      const next = hydrateLineupUs(remote);
+      const same = lineupFingerprint(next) === lineupFingerprint(st.lineup.us);
+      st.lineup.us = next;
       saveLineupBag();
-      return;
+      lineupDirty = false;
+      return !same;
     }
-    st.lineup.us = loadLineupBag(st.gameId).us;
+    if (!opts.preserveDirty) st.lineup.us = loadLineupBag(st.gameId).us;
+    return false;
+  }
+
+  let lineupDirty = false;
+  let lineupPushTimer = null;
+  let lineupLiveBound = false;
+  let lineupPullTimer = null;
+  const LINEUP_PUSH_MS = 400;
+  const LINEUP_PULL_MS = 5000;
+
+  function lineupFingerprint(us) {
+    return Object.keys(us || {})
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => {
+        const p = us[k] || {};
+        return `${k}:${p.id || p.player_id || ""}:${p.number || p.jersey_number || ""}`;
+      })
+      .join("|");
+  }
+
+  function markLineupDirty() {
+    lineupDirty = true;
+    scheduleLineupPush();
+  }
+
+  function scheduleLineupPush() {
+    if (lineupPushTimer) clearTimeout(lineupPushTimer);
+    lineupPushTimer = setTimeout(() => {
+      lineupPushTimer = null;
+      pushGameLineup();
+    }, LINEUP_PUSH_MS);
+  }
+
+  function flushLineupPush() {
+    if (lineupPushTimer) {
+      clearTimeout(lineupPushTimer);
+      lineupPushTimer = null;
+    }
+    if (lineupDirty) return pushGameLineup();
+    return Promise.resolve({ ok: true, skipped: true });
   }
 
   async function pushGameLineup() {
     if (!st.gameId || !API || !API.isConfigured()) return { ok: true, skipped: true };
+    const payload = serializeLineup();
+    const fp = lineupFingerprint(st.lineup.us);
     try {
-      const data = await API.updateGame(st.gameId, { lineup: serializeLineup() });
+      const data = await API.updateGame(st.gameId, { lineup: payload });
       if (data) st.game = data;
+      if (lineupFingerprint(st.lineup.us) === fp) lineupDirty = false;
       return { ok: true };
     } catch (err) {
       const msg = String(err && err.message ? err.message : "");
       if (/lineup|schema cache|column/i.test(msg)) return { ok: false, skipped: true };
       throw err;
     }
+  }
+
+  async function pullLiveLineup() {
+    if (!st.gameId || !API || !API.isConfigured() || lineupDirty) return false;
+    if (shotModal && !shotModal.hidden) return false;
+    try {
+      const game = await API.game(st.gameId);
+      if (!game || game.id !== st.gameId) return false;
+      st.game = game;
+      if (st.view === "shots-scoreboard") applyRemoteClock(game);
+      const changed = applyLineupFromGame(game, { preserveDirty: true });
+      if (changed && (st.view === "shots" || st.view === "shots-scoreboard")) {
+        draw({ keepScroll: true });
+      }
+      return changed;
+    } catch {
+      return false;
+    }
+  }
+
+  function stopLineupLivePull() {
+    if (!lineupPullTimer) return;
+    clearInterval(lineupPullTimer);
+    lineupPullTimer = null;
+  }
+
+  function ensureLineupLivePull() {
+    if (lineupPullTimer || !st.gameId) return;
+    lineupPullTimer = setInterval(() => {
+      if (document.hidden) return;
+      if (st.view !== "shots" && st.view !== "shots-scoreboard") return;
+      pullLiveLineup();
+    }, LINEUP_PULL_MS);
+  }
+
+  function bindLineupLive() {
+    if (lineupLiveBound) return;
+    lineupLiveBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        flushLineupPush();
+        return;
+      }
+      if (st.view === "shots" || st.view === "shots-scoreboard") pullLiveLineup();
+    });
   }
 
   function loadDefaultLineup() {
@@ -1711,6 +1803,7 @@
     if (!player) delete st.lineup[key][String(slotId)];
     else st.lineup[key][String(slotId)] = player;
     saveLineupBag();
+    markLineupDirty();
   }
 
   /** Ephemeral lineup editor gestures (not persisted). */
@@ -1761,6 +1854,7 @@
       st.lineup[key][k] = Object.assign({}, bag[k]);
     });
     saveLineupBag();
+    markLineupDirty();
   }
 
   function swapSlots(team, slotA, slotB) {
@@ -1852,6 +1946,7 @@
       st.lineup.us[k] = Object.assign({}, bag[k]);
     });
     saveLineupBag();
+    markLineupDirty();
     showToast("Restored default starting lineup");
     draw({ keepScroll: true });
   }
@@ -2221,6 +2316,7 @@
     if (st.booting) return;
     st.booting = true;
     bindAppEventFlush();
+    bindLineupLive();
     try {
       if (!API || !API.isConfigured()) {
         st.booted = true;
@@ -4384,7 +4480,7 @@
     draw({ keepScroll: true });
     try {
       const push = await retryFailedShots();
-      const lineupPush = await pushGameLineup();
+      const lineupPush = lineupDirty ? await flushLineupPush() : { ok: true, skipped: true };
       const pendingKeep = st.shots.filter((s) => s.saveFailed && s.pendingPayload);
       await loadGameContext();
       const remoteIds = new Set(st.shots.map((s) => s.id));
@@ -6322,6 +6418,7 @@
     bindLineupEditor();
     bindPlaysFilters();
     bindLogActions();
+    ensureLineupLivePull();
     if (opts.keepScroll) window.scrollTo(0, scrollY);
   }
 
@@ -8295,6 +8392,7 @@
       const orphans = pendingKeep.filter((s) => !remoteIds.has(s.id));
       if (orphans.length) st.shots = [...orphans, ...st.shots];
       applyRemoteClock(game);
+      applyLineupFromGame(game, { preserveDirty: true });
       scoreboardPoll.deadline = Date.now() + pollIntervalSec() * 1000;
       draw({ keepScroll: true });
     } catch {
@@ -8474,6 +8572,7 @@
     }
     if (st.loading) {
       stopScoreboardPollTick();
+      stopLineupLivePull();
       renderLoading("Loading…");
       return;
     }
@@ -8481,6 +8580,7 @@
     const view = st.view;
     if (view !== "shots" && view !== "shots-scoreboard") stopClockTick();
     if (view !== "shots-scoreboard") stopScoreboardPollTick();
+    if (view !== "shots" && view !== "shots-scoreboard") stopLineupLivePull();
     if (view === "shots-games") {
       renderGames();
       return;
@@ -8528,6 +8628,8 @@
       closeGameOpenModal();
       closeClockSetup();
       stopScoreboardPollTick();
+      stopLineupLivePull();
+      flushLineupPush();
       st.editingClockId = null;
       clearPitchInspect();
       const edit = $("#shot-edit-modal");

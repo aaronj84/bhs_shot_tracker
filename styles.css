@@ -44,18 +44,23 @@
 html {
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  width: 100%;
+  max-width: 100%;
   overflow-x: hidden;
+  overflow-x: clip;
   overscroll-behavior-x: none;
-  touch-action: pan-x pan-y;
+  touch-action: pan-y;
 }
 
 body {
   margin: 0;
   min-height: 100dvh;
+  width: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  overflow-x: clip;
   overscroll-behavior-x: none;
-  touch-action: pan-x pan-y;
+  touch-action: pan-y;
   font-family: var(--font-body);
   background:
     radial-gradient(ellipse 70% 40% at 50% -8%, rgba(26, 77, 124, 0.08), transparent 55%),
@@ -113,6 +118,7 @@ a {
   align-items: center;
   gap: 0.75rem;
   min-height: var(--header-h);
+  max-width: 100%;
   padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(10px);
@@ -305,13 +311,22 @@ a {
 .app-main {
   width: min(1100px, 100%);
   max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
   padding: 1.25rem 1rem calc(2.5rem + var(--safe-bottom));
+}
+
+#app-root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 body.tracker-view .app-main {
   width: 100%;
   max-width: 28rem;
+  overflow-x: hidden;
+  overflow-x: clip;
   padding: 0.35rem 0.55rem calc(1.25rem + var(--safe-bottom));
 }
 
@@ -533,6 +548,12 @@ body.tracker-view .brand-sub {
 
 
 @media (max-width: 719px) {
+  body.tracker-view .app-main {
+    max-width: none;
+    padding-left: max(0.45rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.45rem, env(safe-area-inset-right, 0px));
+  }
+
   body.tracker-view .tracker-pitch-wrap {
     width: 100%;
     max-width: none;
@@ -557,7 +578,9 @@ body.tracker-view .brand-sub {
 
 .pitch-svg {
   width: 100%;
+  max-width: 100%;
   height: auto;
+  overflow: hidden;
   border-radius: var(--radius);
   background: var(--pitch-grass);
   box-shadow: var(--shadow);
@@ -583,6 +606,14 @@ body.tracker-view .brand-sub {
   display: flex;
   flex-direction: column;
   gap: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tracker-page > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tracker-stage {
@@ -590,6 +621,8 @@ body.tracker-view .brand-sub {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tracker-toolbar {
@@ -828,7 +861,8 @@ body.is-recording-play .app-header {
 .tracker-pitch-wrap {
   flex: 1 1 auto;
   width: 100%;
-  max-width: none;
+  max-width: 100%;
+  min-width: 0;
   display: grid;
   grid-template-columns: 1.7rem minmax(0, 1fr) 1.7rem;
   align-items: stretch;
@@ -876,8 +910,12 @@ body.is-recording-play .app-header {
 
 .tracker-pitch-svg {
   cursor: inherit;
+  display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: auto;
+  overflow: hidden;
   max-height: min(46vh, 26rem);
   touch-action: pan-y;
 }
@@ -1129,6 +1167,8 @@ body.is-recording-play .app-header {
 .tracker-log {
   margin-top: 1.75rem;
   padding-top: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tracker-log h2 {
@@ -1749,8 +1789,13 @@ button.formation-card.is-empty {
 }
 
 .tracker-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2364,6 +2409,8 @@ button.formation-card.is-empty {
   font-size: 0.82rem;
   font-weight: 650;
   color: var(--text-muted);
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .shots-gate {
@@ -2478,14 +2525,6 @@ button.formation-card.is-empty {
 .edit-loc-pitch .tracker-pitch-svg {
   max-height: min(28vh, 14rem);
   cursor: crosshair;
-}
-  min-height: 44px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  font: inherit;
-  font-size: 1rem;
-  padding: 0 0.55rem;
 }
 
 .shots-game-list {
@@ -2711,12 +2750,15 @@ button.formation-card.is-empty {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tracker-pitch-block {
   border-radius: calc(var(--radius) + 2px);
   padding: 0.35rem 0.1rem 0.45rem;
   min-width: 0;
+  max-width: 100%;
 }
 
 .tracker-pitch-block.is-active {
@@ -2895,17 +2937,21 @@ tr.is-unsaved td {
   margin: 0 0 0.45rem;
   position: relative;
   z-index: 8;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .score-strip {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 0.15rem 0.45rem;
   align-items: center;
   background: #0b1f33;
   color: #f4f7fb;
   border-radius: var(--radius-sm);
   padding: 0.65rem 0.7rem 0.7rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .score-strip-team {
@@ -2988,12 +3034,13 @@ tr.is-unsaved td {
 .score-strip-controls {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: auto 1fr 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 0.35rem;
   margin-top: 0.45rem;
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
   align-items: stretch;
+  min-width: 0;
 }
 
 .score-strip-menu {
@@ -3057,7 +3104,9 @@ tr.is-unsaved td {
 }
 
 .score-strip-btn {
+  min-width: 0;
   min-height: 42px;
+  padding: 0.45rem 0.4rem;
   background: rgba(255, 255, 255, 0.1);
   color: #f4f7fb;
   border-color: rgba(255, 255, 255, 0.22);
