@@ -87,6 +87,15 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     gameId = game.id;
   });
 
+  it("stores and reloads a game lineup", async () => {
+    const lineup = { us: { "10": { player_id: null, jersey_number: "13" }, "9": { player_id: null, jersey_number: "9" } } };
+    const { data, error } = await sb.from("games").update({ lineup }).eq("id", gameId).select("lineup").single();
+    expect(error).toBeNull();
+    expect(data.lineup.us["10"].jersey_number).toBe("13");
+    const { data: again } = await sb.from("games").select("lineup").eq("id", gameId).single();
+    expect(again.lineup.us["9"].jersey_number).toBe("9");
+  });
+
   it("ensures a roster player and inserts a shot", async () => {
     const jersey = "97";
     const { data: player, error: pErr } = await sb
@@ -157,6 +166,69 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(data.team_id).toBe(opponentId);
   });
 
+  it("inserts every shot type for home and visitor", async () => {
+    const types = [
+      { result: "goal" },
+      { result: "on-target" },
+      { result: "blocked" },
+      { result: "missed", miss_direction: "over" },
+      { result: "foul" },
+      { result: "corner" },
+      { result: "pk-goal" },
+      { result: "pk-missed", miss_direction: "wide-left" },
+    ];
+    const rows = [];
+    for (const teamId of [brightonId, opponentId]) {
+      for (const t of types) {
+        rows.push({
+          game_id: gameId,
+          period: "1",
+          team_id: teamId,
+          jersey_number_at_time: teamId === brightonId ? "7" : "9",
+          x: 30,
+          y: 18,
+          result: t.result,
+          miss_direction: t.miss_direction || null,
+        });
+      }
+    }
+    const { data, error } = await sb.from("shots").insert(rows).select("id, result, team_id");
+    expect(error).toBeNull();
+    expect(data?.length).toBe(types.length * 2);
+    const home = data.filter((r) => r.team_id === brightonId).map((r) => r.result);
+    const away = data.filter((r) => r.team_id === opponentId).map((r) => r.result);
+    expect(home.sort()).toEqual(types.map((t) => t.result).sort());
+    expect(away.sort()).toEqual(types.map((t) => t.result).sort());
+  });
+
+  it("records missed shots off the crossbar or post", async () => {
+    const { data, error } = await sb
+      .from("shots")
+      .insert([
+        {
+          game_id: gameId,
+          period: "1",
+          team_id: brightonId,
+          x: 34,
+          y: 8,
+          result: "missed",
+          miss_direction: "crossbar",
+        },
+        {
+          game_id: gameId,
+          period: "1",
+          team_id: opponentId,
+          x: 34,
+          y: 8,
+          result: "missed",
+          miss_direction: "post",
+        },
+      ])
+      .select("miss_direction, team_id");
+    expect(error).toBeNull();
+    expect(data.map((r) => r.miss_direction).sort()).toEqual(["crossbar", "post"]);
+  });
+
   it("lists shots for the game", async () => {
     const { data, error } = await sb
       .from("shots")
@@ -198,6 +270,51 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
       .single();
     expect(readErr).toBeNull();
     expect(tagged.note_tags?.map((t) => t.tag)).toContain("press");
+  });
+
+  it("marks a game final and stores an archive snapshot", async () => {
+    const { data: game, error } = await sb
+      .from("games")
+      .update({ status: "final", finalized_at: new Date().toISOString() })
+      .eq("id", gameId)
+      .select("status, finalized_at")
+      .single();
+    expect(error).toBeNull();
+    expect(game.status).toBe("final");
+    expect(game.finalized_at).toBeTruthy();
+
+    const { data: archive, error: aErr } = await sb
+      .from("game_archives")
+      .insert({
+        game_id: gameId,
+        score_us: 1,
+        score_opp: 0,
+        payload: { score: { us: 1, opp: 0 }, shots: [{ result: "goal" }] },
+      })
+      .select()
+      .single();
+    expect(aErr).toBeNull();
+    expect(archive.score_us).toBe(1);
+    expect(archive.payload.shots[0].result).toBe("goal");
+  });
+
+  it("records a workflow breadcrumb on app_events", async () => {
+    const { data, error } = await sb
+      .from("app_events")
+      .insert({
+        session_id: `ci-${runId}`,
+        game_id: gameId,
+        view: "shots",
+        name: "control",
+        target: "sync",
+        detail: { source: "api-test" },
+      })
+      .select("id, name, target, session_id")
+      .single();
+    expect(error).toBeNull();
+    expect(data.name).toBe("control");
+    expect(data.target).toBe("sync");
+    expect(data.session_id).toBe(`ci-${runId}`);
   });
 });
 

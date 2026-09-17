@@ -1,53 +1,5 @@
 import { expect, test } from "@playwright/test";
-
-const pin = process.env.SHOTS_PIN || "KEPPA";
-
-async function signIn(page) {
-  await page.goto("/#shots");
-  await expect(page.locator("#shots-pin")).toBeVisible({ timeout: 15000 });
-  await page.fill("#shots-pin", pin);
-  await page.click('button:has-text("Open tracker")');
-  await expect(page.locator(".shots-admin h1, .tracker-page, .shots-gate h1").first()).toBeVisible({
-    timeout: 20000,
-  });
-}
-
-/** Swap is disabled until a slot has a player (DEV has no Brighton default XI). */
-async function assignTwoUsLineupPlayers(page) {
-  const sel = page.locator('select[data-lineup-team="us"][data-lineup-slot="10"]');
-  await expect(sel).toBeVisible({ timeout: 15000 });
-  const options = sel.locator('option[value]:not([value=""])');
-  await expect(options.first()).toBeAttached({ timeout: 20000 });
-  const values = await options.evaluateAll((opts) => opts.map((o) => o.value).filter(Boolean));
-  expect(values.length).toBeGreaterThanOrEqual(2);
-  await sel.selectOption(values[0]);
-  await page.locator('select[data-lineup-team="us"][data-lineup-slot="9"]').selectOption(values[1]);
-}
-
-/** Tracker records pointerdown, then treats a nearby pointerup as a tap (drag if moved > 14px). */
-async function doubleTapUsPitch(page) {
-  const svg = page.locator("#tracker-pitch-us .pitch-svg");
-  await svg.scrollIntoViewIfNeeded();
-  const box = await svg.boundingBox();
-  expect(box).toBeTruthy();
-  const clientX = box.x + box.width * 0.55;
-  const clientY = box.y + box.height * 0.4;
-  const pointerEvent = (type) =>
-    svg.dispatchEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX,
-      clientY,
-      pointerId: 1,
-      pointerType: "mouse",
-      isPrimary: true,
-    });
-  await pointerEvent("pointerdown");
-  await pointerEvent("pointerup");
-  await page.waitForTimeout(120);
-  await pointerEvent("pointerdown");
-  await pointerEvent("pointerup");
-}
+import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, doubleTapUsPitch, signIn } from "./helpers.mjs";
 
 test.describe("Shot tracker smoke", () => {
   test.beforeEach(async ({ page }) => {
@@ -126,30 +78,7 @@ test.describe("Shot tracker smoke", () => {
   test("add game, record shot, edit shot, lineup swap", async ({ page }) => {
     test.setTimeout(120000);
     await signIn(page);
-    await page.goto("/#shots-games");
-    await expect(page.locator("#new-game-form")).toBeVisible({ timeout: 15000 });
-
-    const away = page.locator("#new-game-away");
-    await expect(away).toBeVisible();
-    const values = await away.locator("option").evaluateAll((opts) =>
-      opts.map((o) => ({ value: o.value, text: (o.textContent || "").trim() }))
-    );
-    const existing = values.find(
-      (o) => o.value && o.value !== "__new__" && !/brighton/i.test(o.text) && o.text !== "Select…"
-    );
-    if (existing) {
-      await away.selectOption(existing.value);
-    } else {
-      await away.selectOption("__new__");
-      await expect(page.locator("#new-away-name")).toBeVisible();
-      await page.locator("#new-away-name").fill(`E2E Opp ${Date.now()}`);
-    }
-
-    await page.locator("#new-game-type").selectOption("friendly");
-    await page.locator("#new-game-form button[type=submit]").click();
-
-    await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
-    await expect(page.locator("#tracker-pitch-us .pitch-svg")).toBeVisible();
+    await createFriendlyAndOpenTracker(page);
 
     // Lineup swap control (needs two filled slots; DEV roster ≠ DEFAULT_XI_JERSEYS)
     await assignTwoUsLineupPlayers(page);
@@ -170,6 +99,8 @@ test.describe("Shot tracker smoke", () => {
     // Position phase: tapping a formation card completes the shot (player optional)
     await expect(page.locator("[data-pick-position]").first()).toBeVisible({ timeout: 10000 });
     await page.locator("[data-pick-position]").first().click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add an assist?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
 
     await expect(page.locator("#tracker-log")).toContainText(/Goal/i, { timeout: 20000 });
 

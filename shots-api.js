@@ -162,6 +162,21 @@
       return data;
     },
 
+    async insertGameArchive(gameId, row) {
+      const { data, error } = await getClient()
+        .from("game_archives")
+        .insert({
+          game_id: gameId,
+          score_us: row.score_us || 0,
+          score_opp: row.score_opp || 0,
+          payload: row.payload || {},
+        })
+        .select("id, created_at")
+        .single();
+      throwIfError(error, "Could not archive game");
+      return data;
+    },
+
     async updateGame(id, patch) {
       const { data, error } = await getClient()
         .from("games")
@@ -468,6 +483,14 @@
         };
       }
       return { ok: true, data: boxed };
+    },
+
+    async insertAppEvents(rows) {
+      const list = (rows || []).filter(Boolean);
+      if (!list.length) return { ok: true };
+      const { error } = await getClient().from("app_events").insert(list);
+      if (error) return { ok: false, error: error.message || "Could not record events" };
+      return { ok: true };
     },
   };
 

@@ -29,6 +29,7 @@ python3 -m http.server 8080
 | --- | --- |
 | [docs/dev-environment.md](docs/dev-environment.md) | Create DEV Supabase, CLI migrations, GitHub secrets, Pages |
 | [docs/git-workflow.md](docs/git-workflow.md) | `dev` branch → PR to `main` (prod); branch is not deleted |
+| [docs/backup.md](docs/backup.md) | On-demand + PR/merge PROD database dumps and restore |
 | [supabase/README.md](supabase/README.md) | Schema, migrations folder, Explore |
 
 ```bash
@@ -39,7 +40,12 @@ npm run test:api                     # Vitest vs DEV
 npm run test:e2e                     # Playwright smokes
 ```
 
-GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/migrations/` via `db push` (DEV on `dev`, PROD on `main`).
+GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/migrations/` via `db push` (DEV on `dev`, PROD on `main` after an encrypted PROD backup).
+
+```bash
+export SUPABASE_DB_PASSWORD_PROD='…'
+npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
+```
 
 ## Deep links
 
@@ -68,7 +74,7 @@ GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/
   supabase/migrations/    # Canonical schema migrations
   supabase/functions/     # Explore Edge Function
   benchmark/              # Explore LLM harness
-  scripts/                # Config writer, CSV helpers
+  scripts/                # Config writer, CSV helpers, DB backup
 ```
 
 ## Deploy

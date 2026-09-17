@@ -138,8 +138,10 @@
     short: "Short",
     "wide-left": "Wide left",
     "wide-right": "Wide right",
+    crossbar: "Crossbar",
+    post: "Post",
   };
-  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right"];
+  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right", "crossbar", "post"];
   const ASSIST_TYPE_LABELS = { pass: "Pass", gap: "Gap", cross: "Cross" };
   const TRACKER_ASSIST_ACTIONS = [
     { id: "assist-pass", label: "Assist — Pass", kind: "assist", type: "pass" },
@@ -218,6 +220,124 @@
     el.classList.add("is-visible");
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => el.classList.remove("is-visible"), 2200);
+    trackErrorToast(text);
+  }
+
+  const APP_EVENT_NAMES = new Set(["view", "modal", "control", "play", "error"]);
+  const LS_APP_SESSION = "brighton-app-events-session";
+  const appEventQueue = [];
+  let appEventFlushTimer = null;
+  let appEventFlushing = false;
+  let appEventFlushBound = false;
+  let lastTrackedView = "";
+  let lastModalPhaseKey = "";
+
+  function appEventSessionId() {
+    try {
+      let id = sessionStorage.getItem(LS_APP_SESSION);
+      if (!id) {
+        id =
+          (global.crypto && crypto.randomUUID && crypto.randomUUID()) ||
+          `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        sessionStorage.setItem(LS_APP_SESSION, id);
+      }
+      return id;
+    } catch {
+      return `s-${Date.now()}`;
+    }
+  }
+
+  function compactEventDetail(detail) {
+    if (!detail || typeof detail !== "object") return {};
+    const out = {};
+    Object.keys(detail).forEach((k) => {
+      const v = detail[k];
+      if (v == null || v === "") return;
+      out[k] = v;
+    });
+    return out;
+  }
+
+  function trackAppEvent(name, target, detail) {
+    if (!APP_EVENT_NAMES.has(name)) return;
+    if (!st.session) return;
+    const gameId = st.gameId && String(st.gameId).length > 8 ? st.gameId : null;
+    appEventQueue.push({
+      session_id: appEventSessionId(),
+      game_id: gameId,
+      view: st.view || null,
+      name,
+      target: target ? String(target).slice(0, 80) : null,
+      detail: compactEventDetail(detail),
+    });
+    if (appEventQueue.length >= 8) {
+      flushAppEvents();
+      return;
+    }
+    if (!appEventFlushTimer) appEventFlushTimer = setTimeout(flushAppEvents, 4000);
+  }
+
+  async function flushAppEvents() {
+    if (appEventFlushTimer) {
+      clearTimeout(appEventFlushTimer);
+      appEventFlushTimer = null;
+    }
+    if (appEventFlushing || !appEventQueue.length) return;
+    if (!API || !API.insertAppEvents) {
+      appEventQueue.length = 0;
+      return;
+    }
+    const batch = appEventQueue.splice(0, 40);
+    appEventFlushing = true;
+    try {
+      await API.insertAppEvents(batch);
+    } catch {
+      /* usage log must never block recording */
+    } finally {
+      appEventFlushing = false;
+      if (appEventQueue.length) appEventFlushTimer = setTimeout(flushAppEvents, 4000);
+    }
+  }
+
+  function bindAppEventFlush() {
+    if (appEventFlushBound) return;
+    appEventFlushBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) flushAppEvents();
+    });
+    window.addEventListener("pagehide", () => {
+      flushAppEvents();
+    });
+  }
+
+  function trackViewIfChanged() {
+    const view = st.view || "";
+    if (!view || view === lastTrackedView) return;
+    const from = lastTrackedView || undefined;
+    lastTrackedView = view;
+    trackAppEvent("view", view, { from });
+  }
+
+  function trackOpenModalPhase() {
+    const phase = shotModalDraft.phase || "action";
+    const action = shotModalDraft.action?.result || shotModalDraft.action?.id || "";
+    const key = `${phase}|${action}|${shotModalDraft.step || ""}`;
+    if (key === lastModalPhaseKey) return;
+    lastModalPhaseKey = key;
+    trackAppEvent("modal", phase, { action: action || undefined, step: shotModalDraft.step || undefined });
+  }
+
+  function trackModalAbandoned() {
+    if (!lastModalPhaseKey) return;
+    const phase = lastModalPhaseKey.split("|")[0];
+    trackAppEvent("modal", "abandon", { phase });
+    lastModalPhaseKey = "";
+  }
+
+  function trackErrorToast(text) {
+    const t = String(text || "");
+    if (!/not saved|could not|failed|check connection|wrong pin/i.test(t)) return;
+    trackAppEvent("error", "toast", { message: t.slice(0, 120) });
   }
 
   function loadUi() {
@@ -266,28 +386,82 @@
     if (st.gameId) sessionStorage.setItem("shots-game-id", st.gameId);
   }
 
-  function loadLineupBag() {
+  function readLineupStore() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(LS_LINEUP) || "{}") || {};
-      return {
-        edit: "us",
-        us: parsed.us && typeof parsed.us === "object" ? parsed.us : {},
-        opp: {},
-      };
+      return JSON.parse(localStorage.getItem(LS_LINEUP) || "{}") || {};
     } catch {
-      return { edit: "us", us: {}, opp: {} };
+      return {};
     }
   }
 
+  function loadLineupBag(gameId) {
+    const store = readLineupStore();
+    const fromGame = gameId && store[gameId] && typeof store[gameId] === "object" ? store[gameId].us : null;
+    const fromLegacy = store.us && typeof store.us === "object" ? store.us : {};
+    return {
+      edit: "us",
+      us: fromGame && typeof fromGame === "object" ? fromGame : fromLegacy,
+      opp: {},
+    };
+  }
+
   function saveLineupBag() {
-    localStorage.setItem(
-      LS_LINEUP,
-      JSON.stringify({
-        edit: "us",
-        us: st.lineup.us,
-        opp: {},
-      })
-    );
+    const store = readLineupStore();
+    const us = st.lineup.us || {};
+    if (st.gameId) store[st.gameId] = { us };
+    store.us = us;
+    localStorage.setItem(LS_LINEUP, JSON.stringify(store));
+  }
+
+  function serializeLineup() {
+    const us = {};
+    Object.entries(st.lineup.us || {}).forEach(([slotId, p]) => {
+      if (!p) return;
+      us[String(slotId)] = {
+        player_id: p.id || p.player_id || null,
+        jersey_number: String(p.number ?? p.jersey_number ?? ""),
+      };
+    });
+    return { us };
+  }
+
+  function hydrateLineupUs(raw) {
+    const src = raw && typeof raw === "object" ? raw.us || raw : {};
+    const bag = {};
+    Object.entries(src).forEach(([slotId, row]) => {
+      if (!row) return;
+      const pid = row.player_id || row.id || "";
+      const num = row.jersey_number || row.number || "";
+      const fromRoster = playerFromRoster("us", pid, num);
+      bag[String(slotId)] = lineupPlayerPayload(
+        fromRoster || { id: pid, number: num, name: row.name || "", short: row.short || row.short_name || "" }
+      );
+    });
+    return bag;
+  }
+
+  function applyLineupFromGame(game) {
+    const remote = game && game.lineup && typeof game.lineup === "object" ? game.lineup : null;
+    const remoteUs = remote && remote.us && typeof remote.us === "object" ? remote.us : null;
+    if (remoteUs && Object.keys(remoteUs).length) {
+      st.lineup.us = hydrateLineupUs(remote);
+      saveLineupBag();
+      return;
+    }
+    st.lineup.us = loadLineupBag(st.gameId).us;
+  }
+
+  async function pushGameLineup() {
+    if (!st.gameId || !API || !API.isConfigured()) return { ok: true, skipped: true };
+    try {
+      const data = await API.updateGame(st.gameId, { lineup: serializeLineup() });
+      if (data) st.game = data;
+      return { ok: true };
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : "");
+      if (/lineup|schema cache|column/i.test(msg)) return { ok: false, skipped: true };
+      throw err;
+    }
   }
 
   function loadDefaultLineup() {
@@ -390,6 +564,8 @@
     missDirection: "",
     fkOutcome: "",
     subSlotId: null,
+    subReturnPhase: "",
+    subTeam: "",
     justAddedNumber: "",
   };
 
@@ -432,6 +608,26 @@
 
   function periodCsv(period) {
     return normalizePeriod(period);
+  }
+
+  function hasFirstHalfPlays() {
+    return (st.shots || []).some((ev) => eventPeriod(ev) === "1");
+  }
+
+  function offerFirstHalfIfNeeded() {
+    if (awaitingFollowUp()) return;
+    if (normalizePeriod(st.period) === "1") return;
+    if (hasFirstHalfPlays()) return;
+    const switchToFirst = window.confirm("No 1st-half plays yet. Switch to 1st half?");
+    if (!switchToFirst) return;
+    st.period = "1";
+    saveUi();
+    persistLiveClock();
+    if (st.view === "shots") draw({ keepScroll: true });
+  }
+
+  function gameIsFinal(game) {
+    return (game || st.game)?.status === "final";
   }
 
   function eventPeriod(ev) {
@@ -602,18 +798,22 @@
   }
 
   function paintClockFaces() {
-    const text = formatClockSecs(displayClockSeconds());
+    const text = gameIsFinal() ? "FINAL" : formatClockSecs(displayClockSeconds());
     $$("[data-clock-face]").forEach((el) => {
       el.textContent = text;
     });
     $$("[data-clock-toggle]").forEach((btn) => {
-      btn.textContent = clockIsRunning() ? "Stop" : "Start";
+      btn.textContent = gameIsFinal() ? "Final" : clockIsRunning() ? "Stop" : "Start";
     });
-    if (clockIsRunning()) startClockTick();
+    if (clockIsRunning() && !gameIsFinal()) startClockTick();
     else stopClockTick();
   }
 
   function startClock() {
+    if (gameIsFinal()) {
+      showToast("Game is final — reopen it to run the clock");
+      return;
+    }
     if (!clockEnabled()) return;
     autoPauseIfExpired();
     const s = clockPeriodState();
@@ -695,18 +895,29 @@
     ensureClockMem();
     const elapsed = Number(game.clock_elapsed_sec);
     const startedAt = game.clock_started_at ? Date.parse(game.clock_started_at) : NaN;
+    const running = !!game.clock_running && !gameIsFinal(game);
     clockMem.periods[period] = {
       elapsed: Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0,
-      running: !!game.clock_running,
-      startedAt: game.clock_running && Number.isFinite(startedAt) ? startedAt : null,
+      running,
+      startedAt: running && Number.isFinite(startedAt) ? startedAt : null,
     };
     persistClockMem();
     if (clockIsRunning()) startClockTick();
     else stopClockTick();
   }
 
+  function patchCachedGame(gameOrPatch) {
+    const next = gameOrPatch && gameOrPatch.id ? gameOrPatch : Object.assign({}, st.game, gameOrPatch);
+    if (!next || !next.id) return;
+    st.game = Object.assign({}, st.game, next);
+    const merge = (g) => (g && g.id === next.id ? Object.assign({}, g, next) : g);
+    st.games = (st.games || []).map(merge);
+    st.allGames = (st.allGames || []).map(merge);
+  }
+
   async function persistGameClockPatch(patch, opts = {}) {
     if (!st.gameId) return;
+    if (gameIsFinal() && patch.clock_running) patch.clock_running = false;
     st.game = Object.assign({}, st.game, patch);
     try {
       const saved = await API.updateGame(st.gameId, patch);
@@ -719,6 +930,86 @@
       } else {
         showToast(msg || "Could not save clock setting");
       }
+    }
+  }
+
+  function archiveShotRow(ev) {
+    return {
+      id: ev.id,
+      period: eventPeriod(ev),
+      team: eventTeam(ev),
+      result: ev.result,
+      position: ev.position || null,
+      miss: ev.missDirection || null,
+      shooter: ev.shooterNumber || null,
+      shooterName: ev.shooterName || ev.shooterShort || null,
+      fouler: ev.foulerNumber || null,
+      clock: ev.gameClockSeconds ?? ev.game_clock_seconds ?? null,
+      shot: ev.shot
+        ? { x: ev.shot.x, y: ev.shot.y, zoneId: ev.shot.zoneId || ev.shot.zone_id, zoneLabel: ev.shot.zoneLabel || ev.shot.zone_label }
+        : null,
+      assist: ev.assist || null,
+      secondAssist: ev.secondAssist || null,
+    };
+  }
+
+  async function markGameFinal() {
+    if (!st.gameId) return;
+    if (gameIsFinal()) {
+      showToast("Already final");
+      return;
+    }
+    if (!confirm("Mark this game final? The scoreboard will show FINAL and a snapshot of every play will be archived.")) {
+      return;
+    }
+    const s = clockPeriodState();
+    s.elapsed = currentElapsed();
+    s.running = false;
+    s.startedAt = null;
+    persistClockMem();
+    stopClockTick();
+    const score = gameScore(st.shots);
+    const now = new Date().toISOString();
+    const patch = {
+      status: "final",
+      finalized_at: now,
+      clock_running: false,
+      clock_started_at: null,
+      clock_period: normalizePeriod(st.period),
+      clock_elapsed_sec: Math.max(0, Math.floor(Number(s.elapsed) || 0)),
+      lineup: serializeLineup(),
+    };
+    try {
+      const saved = await API.updateGame(st.gameId, patch);
+      patchCachedGame(saved || patch);
+      await API.insertGameArchive(st.gameId, {
+        score_us: score.us,
+        score_opp: score.opp,
+        payload: {
+          score,
+          lineup: serializeLineup(),
+          period: st.period,
+          clock_elapsed_sec: patch.clock_elapsed_sec,
+          shots: (st.shots || []).map(archiveShotRow),
+        },
+      });
+      showToast("Game final — snapshot archived");
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast((err && err.message) || "Could not mark final");
+    }
+  }
+
+  async function reopenGame() {
+    if (!st.gameId || !gameIsFinal()) return;
+    if (!confirm("Reopen this game? The scoreboard will show the clock again.")) return;
+    try {
+      const saved = await API.updateGame(st.gameId, { status: "live" });
+      patchCachedGame(saved || { status: "live" });
+      showToast("Game reopened");
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast((err && err.message) || "Could not reopen");
     }
   }
 
@@ -748,19 +1039,20 @@
     const large = size === "large";
     const score = gameScore(st.shots);
     const opp = opponentOf(st.game)?.name || "Opponent";
-    const face = formatClockSecs(displayClockSeconds());
-    const running = clockIsRunning();
+    const isFinal = gameIsFinal();
+    const face = isFinal ? "FINAL" : formatClockSecs(displayClockSeconds());
+    const running = !isFinal && clockIsRunning();
     const clockBlock = large
-      ? `<button type="button" class="scoreboard-clock-face" data-clock-face data-scoreboard-sync aria-label="Refresh scoreboard">${escapeHtml(face)}</button>`
-      : `<button type="button" class="score-clock-face" data-clock-face data-open-clock-setup aria-label="Set game clock">${escapeHtml(face)}</button>`;
+      ? `<button type="button" class="scoreboard-clock-face" data-clock-face data-scoreboard-sync aria-label="${isFinal ? "Final" : "Refresh scoreboard"}">${escapeHtml(face)}</button>`
+      : `<button type="button" class="score-clock-face" data-clock-face data-open-clock-setup aria-label="${isFinal ? "Final" : "Set game clock"}">${escapeHtml(face)}</button>`;
     const periodBlock = large
-      ? `<button type="button" class="scoreboard-period" data-open-clock-setup aria-label="Set period and clock">${escapeHtml(periodLabel(st.period))}</button>`
+      ? `<button type="button" class="scoreboard-period" data-open-clock-setup ${isFinal ? "disabled" : ""} aria-label="${isFinal ? "Final" : "Set period and clock"}">${isFinal ? "Final" : escapeHtml(periodLabel(st.period))}</button>`
       : "";
     const pollLine = large
       ? `<div class="scoreboard-poll-line" data-scoreboard-poll-line aria-hidden="true"><span class="scoreboard-poll-line-fill"></span></div>`
       : "";
     const board = `
-      <div class="${large ? "scoreboard-board" : "score-strip"}">
+      <div class="${large ? "scoreboard-board" : "score-strip"}${isFinal ? " is-final" : ""}">
         <div class="${large ? "scoreboard-team is-us" : "score-strip-team is-us"}">
           <span class="score-name">${escapeHtml(ourTeamName())}</span>
           <span class="score-num">${score.us}</span>
@@ -796,10 +1088,15 @@
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="swap">Switch Sides</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="csv" ${(st.shots || []).length ? "" : "disabled"}>CSV</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="zones">${st.showGrid ? "Hide zones" : "Zones"}</button>
+              ${
+                isFinal
+                  ? `<button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="reopen">Reopen game</button>`
+                  : `<button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="final">Mark final</button>`
+              }
             </div>
           </div>
-          <button type="button" class="btn score-strip-btn" data-clock-toggle>${running ? "Stop" : "Start"}</button>
-          <button type="button" class="btn score-strip-btn" data-open-clock-setup>${escapeHtml(periodLabel(st.period))}</button>
+          <button type="button" class="btn score-strip-btn" data-clock-toggle ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : running ? "Stop" : "Start"}</button>
+          <button type="button" class="btn score-strip-btn" data-open-clock-setup ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : escapeHtml(periodLabel(st.period))}</button>
           <a class="score-strip-goto" href="#shots-scoreboard" aria-label="Open scoreboard">${miniScoreboardIconMarkup(score, face)}</a>
         </div>`
         }
@@ -837,6 +1134,10 @@
   }
 
   function openClockSetup() {
+    if (gameIsFinal()) {
+      showToast("Game is final — reopen it to change the clock");
+      return;
+    }
     const modal = $("#clock-setup-modal");
     if (!modal) return;
     $$("#clock-setup-modal [data-clock-setup-period]").forEach((btn) => {
@@ -933,7 +1234,7 @@
       saveStampOffset(e.target.value);
       e.target.value = String(st.stampOffset);
     });
-    if (clockIsRunning()) startClockTick();
+    if (clockIsRunning() && !gameIsFinal()) startClockTick();
     else paintClockFaces();
   }
 
@@ -1414,6 +1715,7 @@
 
   /** Ephemeral lineup editor gestures (not persisted). */
   let lineupGesture = null;
+  const selectedShotIds = new Set();
 
   function clearLineupGesture() {
     lineupGesture = null;
@@ -1572,12 +1874,49 @@
     return !!(action && (action.result === "foul" || RESULTS_NEEDING_FOULER.has(action.result)));
   }
 
-  function canChainAssist() {
-    return !!(st.pending?.assist && !st.pending?.secondAssist);
-  }
-
   function awaitingFollowUp() {
     return st.mode === "awaiting-shot-location";
+  }
+
+  function linkedPlayResult() {
+    return st.pending?.shotDraft?.result || effectiveShotResult() || "";
+  }
+
+  function linkedPlayIsGoal() {
+    return linkedPlayResult() === "goal";
+  }
+
+  function canOfferLinkedPlay(result) {
+    return result === "goal" || result === "on-target" || result === "blocked" || result === "missed";
+  }
+
+  function linkedPlayCopy(second = false) {
+    const goal = linkedPlayIsGoal();
+    if (second) {
+      return {
+        noun: goal ? "second assist" : "second setup pass",
+        title: goal ? "Add a second assist?" : "Add a second setup pass?",
+        skip: goal ? "No second assist" : "No second setup pass",
+        heading: goal ? "Second assist" : "Second setup pass",
+        tap: goal
+          ? "Tap where the second assist came from"
+          : "Tap where the second setup pass came from",
+      };
+    }
+    return {
+      noun: goal ? "assist" : "setup pass",
+      title: goal ? "Add an assist?" : "Add a setup pass?",
+      skip: goal ? "No assist — shot only" : "No setup pass — shot only",
+      heading: goal ? "Assist" : "Setup pass",
+      tap: goal ? "Tap where the assist came from" : "Tap where the setup pass came from",
+    };
+  }
+
+  function linkedPlayWord(play, { second = false } = {}) {
+    if (!play) return "";
+    const isGoal = play.result === "goal" || play.result === "pk-goal";
+    if (second) return isGoal ? "2nd assist" : "2nd setup pass";
+    return isGoal ? "assist" : "setup pass";
   }
 
   function draftAssistFromModal(player) {
@@ -1869,9 +2208,11 @@
     const opp = opponentOf(st.game);
     st.ourRoster = b ? await API.roster(b.id, st.game.season_id) : [];
     st.oppRoster = opp ? await API.roster(opp.id, st.game.season_id) : [];
+    applyLineupFromGame(st.game);
     seedDefaultLineupIfEmpty();
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
+    if (!hasFirstHalfPlays()) st.period = "1";
     saveUi();
     await ensureGameClockDefaults();
   }
@@ -1879,6 +2220,7 @@
   async function boot() {
     if (st.booting) return;
     st.booting = true;
+    bindAppEventFlush();
     try {
       if (!API || !API.isConfigured()) {
         st.booted = true;
@@ -1950,6 +2292,7 @@
   }
 
   function runTrackerAction(action) {
+    if (action) trackAppEvent("control", action);
     if (action === "sync") syncGameShots();
     else if (action === "swap") {
       st.swapSides = !st.swapSides;
@@ -1959,8 +2302,12 @@
       st.showGrid = !st.showGrid;
       saveUi();
       draw({ keepScroll: true });
-    } else if (action === "csv") {
+    }     else if (action === "csv") {
       exportShotsCsv(st.shots || []);
+    } else if (action === "final") {
+      markGameFinal();
+    } else if (action === "reopen") {
+      reopenGame();
     }
   }
 
@@ -2037,6 +2384,7 @@
         return;
       }
       st.session = result.session;
+      trackAppEvent("control", "sign_in");
       st.loading = true;
       draw();
       try {
@@ -2071,6 +2419,7 @@
   async function selectGame(id, mode) {
     closeGameOpenModal();
     st.gameId = id;
+    trackAppEvent("control", "open_game", { mode: mode === "scoreboard" ? "scoreboard" : "track" });
     st.loading = true;
     draw();
     try {
@@ -2366,7 +2715,7 @@
           <li class="shots-game-row${past ? " is-past" : ""}">
             <button type="button" class="shots-game-btn" data-open-game="${g.id}">
               <strong>${escapeHtml(date)}</strong>
-              <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}</span>
+              <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
             </button>
           </li>`;
       })
@@ -2750,17 +3099,24 @@
     const miss = ev.missDirection ? MISS_DIRECTION_LABELS[ev.missDirection] : "";
     const clock = formatEventClock(ev, ev.game || st.game);
     const zone = ev.shot?.zoneLabel || ev.shot?.zoneId || "";
-    const roleLabel = role === "secondAssist" ? "2nd assist" : role === "assist" ? "Assist" : "Shot";
+    const roleLabel =
+      role === "secondAssist"
+        ? linkedPlayWord(ev, { second: true }) || "2nd assist"
+        : role === "assist"
+          ? linkedPlayWord(ev) || "Assist"
+          : "Shot";
     let extra = "";
     if (ev.assist) {
       const who = eventPersonLabel(team, ev.assist.number, ev.assist.name, ev.assist.short);
       const kind = ASSIST_TYPE_LABELS[ev.assist.type] || ev.assist.type || "";
-      extra += `<p>Assist ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
+      const noun = linkedPlayWord(ev) || "Assist";
+      extra += `<p>${escapeHtml(noun)} ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
     }
     if (ev.secondAssist) {
       const who = eventPersonLabel(team, ev.secondAssist.number, ev.secondAssist.name, ev.secondAssist.short);
       const kind = ASSIST_TYPE_LABELS[ev.secondAssist.type] || ev.secondAssist.type || "";
-      extra += `<p>2nd ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
+      const noun = linkedPlayWord(ev, { second: true }) || "2nd";
+      extra += `<p>${escapeHtml(noun)} ${escapeHtml(who)}${kind ? ` · ${escapeHtml(kind)}` : ""}</p>`;
     }
     return `
       <div class="pitch-inspect-popup ${place.join(" ")}" id="pitch-inspect-popup" role="dialog" aria-label="Play details" style="--x:${left}%; --y:${top}%;">
@@ -2771,6 +3127,7 @@
         <p>${escapeHtml([clock, zone].filter(Boolean).join(" · "))}</p>
         ${extra}
         <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-edit="${escapeHtml(ev.id)}">Edit play</button>
+        <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-add="${escapeHtml(ev.id)}">Add play here</button>
       </div>`;
   }
 
@@ -2842,6 +3199,10 @@
     const modalLoc = shotModalDraft.location;
     const active = recordingTeam() === team;
     if (!opts.noPending) {
+      const shotLoc = pending?.shotDraft?.location;
+      if (active && shotLoc) {
+        pendingDots.push(`<circle class="tracker-pending" cx="${shotLoc.x}" cy="${shotLoc.y}" r="1.25" />`);
+      }
       if (active && pending?.secondAssist?.location) {
         const s = pending.secondAssist.location;
         pendingDots.push(svgSquare(s.x, s.y, 2.1, `class="tracker-pending second-assist"`));
@@ -2931,10 +3292,13 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
   }
 
   function closeShotModal() {
+    lastModalPhaseKey = "";
     if (shotModal) shotModal.hidden = true;
     shotModalDraft.player = null;
     shotModalDraft.fouler = null;
@@ -2946,15 +3310,23 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
   }
 
   function dismissShotModal() {
+    trackModalAbandoned();
+    if (st.pending?.shotDraft) {
+      commitPendingShotDraft();
+      return;
+    }
     closeShotModal();
     if (st.view === "shots") draw({ keepScroll: true });
   }
 
   function fillShotModal(step, location) {
+    offerFirstHalfIfNeeded();
     shotModalDraft.step = step;
     shotModalDraft.phase = "action";
     shotModalDraft.location = location;
@@ -2968,11 +3340,42 @@
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
     shotModalDraft.subSlotId = null;
+    shotModalDraft.subReturnPhase = "";
+    shotModalDraft.subTeam = "";
     shotModalDraft.justAddedNumber = "";
+    if (st.pending?.linkType) {
+      const action = TRACKER_ASSIST_ACTIONS.find((a) => a.type === st.pending.linkType);
+      if (action) {
+        shotModalDraft.action = action;
+        shotModalDraft.phase = takerPhaseFor(recordingTeam());
+      }
+    } else if (st.pending?.restartShot) {
+      const action = TRACKER_SHOT_ACTIONS.find((a) => a.result === st.pending.restartShot.result);
+      if (action) {
+        shotModalDraft.action = action;
+        if (needsMissDirection(action)) shotModalDraft.phase = "miss-dir";
+        else shotModalDraft.phase = takerPhaseFor(recordingTeam());
+      }
+    }
     clearPitchInspect();
     renderShotModal();
     shotModal.dataset.openedAt = String(Date.now());
     shotModal.hidden = false;
+  }
+
+  function startCornerFromFlag(team, side) {
+    const loc = locatePitchPoint(side === "right" ? PW - 0.4 : 0.4, 0.4);
+    st.team = team === "opp" ? "opp" : "us";
+    st.mode = "idle";
+    st.pending = null;
+    saveUi();
+    fillShotModal("first", loc);
+    const action = TRACKER_OTHER_ACTIONS.find((a) => a.result === "corner");
+    if (!action) return;
+    shotModalDraft.action = action;
+    shotModalDraft.missDirection = "";
+    shotModalDraft.fkOutcome = "";
+    advanceAfterAction();
   }
 
   function actionShortLabel(action) {
@@ -3003,6 +3406,67 @@
       }
     });
     return [...nums].sort((a, b) => Number(a) - Number(b));
+  }
+
+  function subFlowTeam() {
+    return shotModalDraft.subTeam === "opp" || shotModalDraft.subTeam === "us"
+      ? shotModalDraft.subTeam
+      : recordingTeam();
+  }
+
+  function foulerUsCards() {
+    const gestureOn = lineupGesture?.mode === "swap" && lineupGesture.team === "us";
+    return FORMATION_LAYOUT.map((layout) => {
+      const p = slotPlayer("us", layout.id);
+      const isSwapFrom = gestureOn && Number(lineupGesture.fromSlot) === Number(layout.id);
+      const isSwapTarget = gestureOn && !!p && !isSwapFrom;
+      const cardClass = [
+        "formation-card",
+        "is-editor",
+        p ? "" : "is-empty",
+        isSwapFrom ? "is-swap-from" : "",
+        isSwapTarget ? "is-gesture-target" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const pick = p
+        ? `<button type="button" class="formation-card-pick" data-player-number="${escapeHtml(String(p.number))}" data-player-id="${escapeHtml(p.id || "")}" data-player-team="us" data-slot-code="${escapeHtml(layout.code)}" ${gestureOn ? "disabled" : ""}>
+            <span class="formation-card-name">${escapeHtml(playerDisplayName(p))}</span>
+          </button>`
+        : `<span class="formation-card-name">Empty</span>`;
+      const swapBtn = p
+        ? `<button type="button" class="btn btn-ghost lineup-swap ${isSwapFrom ? "is-on" : ""}" data-swap-slot="${layout.id}" data-swap-team="us" title="Swap with another on-field player">Swap</button>`
+        : "";
+      const hitOverlay =
+        gestureOn && (isSwapTarget || isSwapFrom)
+          ? `<button type="button" class="formation-card-hit" data-lineup-slot-hit="${layout.id}" aria-label="${isSwapFrom ? "Cancel swap" : "Swap with this player"}"></button>`
+          : "";
+      return `
+        <div class="${cardClass}" style="${formationCardStyle(layout)}">
+          ${pick}
+          <span class="formation-card-meta">${formationMeta(layout.code, p)}</span>
+          ${swapBtn}
+          ${hitOverlay}
+        </div>`;
+    }).join("");
+  }
+
+  function priorShotNumberBar(team) {
+    const nums = usedThisGameNumbers(team);
+    if (!nums.length) return "";
+    const chips = nums
+      .map((n) => {
+        const p = playerFromRoster(team, "", n);
+        const slot = p?.slotCode || "";
+        const id = p?.id || "";
+        return `<button type="button" class="shot-recent-num" data-player-number="${escapeHtml(n)}" data-player-id="${escapeHtml(id)}" data-player-team="${team}" data-slot-code="${escapeHtml(slot)}">#${escapeHtml(n)}</button>`;
+      })
+      .join("");
+    return `
+      <div class="shot-recent-nums">
+        <p class="shot-quick-label">Already shot</p>
+        <div class="shot-recent-num-row">${chips}</div>
+      </div>`;
   }
 
   function recordingNeedsPosition() {
@@ -3063,6 +3527,7 @@
     const nudgeText = $("#shot-lineup-nudge-text");
     const posGrid = $("#shot-position-grid");
     if (!shotModal || !playerGrid || !actionGrid) return;
+    trackOpenModalPhase();
     if (actionLabel) actionLabel.hidden = true;
     playerGrid.classList.remove("is-formation");
 
@@ -3080,6 +3545,8 @@
           phase === "miss-dir" ||
           phase === "fk-result" ||
           phase === "corner-result" ||
+          phase === "offer-assist" ||
+          phase === "offer-second-assist" ||
           inSubFlow
       );
     }
@@ -3095,42 +3562,60 @@
     }
 
     if (phase === "action") {
-      const follow = step === "follow";
-      title.textContent = step === "shot" ? "Shot result?" : "What happened?";
+      const shotBtns = TRACKER_SHOT_ACTIONS.map(
+        (a) =>
+          `<button type="button" class="shot-action-btn is-${a.result}" data-action-id="${escapeHtml(a.id)}">${escapeHtml(actionShortLabel(a))}</button>`
+      ).join("");
+      title.textContent = step === "shot" ? "Shot result?" : "Shot or free kick?";
       locEl.textContent = locText;
       if (playerHeading) playerHeading.hidden = true;
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
       actionGrid.hidden = false;
-      const shotBtns = TRACKER_SHOT_ACTIONS.map(
-        (a) =>
-          `<button type="button" class="shot-action-btn is-${a.result}" data-action-id="${escapeHtml(a.id)}">${escapeHtml(actionShortLabel(a))}</button>`
-      ).join("");
-      const assistBtns = TRACKER_ASSIST_ACTIONS.map(
-        (a) =>
-          `<button type="button" class="shot-action-btn is-assist" data-action-id="${escapeHtml(a.id)}">${escapeHtml(ASSIST_TYPE_LABELS[a.type])}</button>`
-      ).join("");
       if (step === "shot") {
         actionGrid.innerHTML = `<div class="shot-action-row shot-action-row-fill">${shotBtns}</div>`;
-      } else if (follow) {
-        actionGrid.innerHTML = `
-          <p class="shot-action-heading">Assist</p>
-          <div class="shot-action-row shot-action-row-3">${assistBtns}</div>
-          <p class="shot-action-heading">Shot</p>
-          <div class="shot-action-row shot-action-row-fill">${shotBtns}</div>`;
       } else {
         const otherBtns = TRACKER_OTHER_ACTIONS.map(
           (a) =>
             `<button type="button" class="shot-action-btn is-${a.result}" data-action-id="${escapeHtml(a.id)}">${escapeHtml(actionShortLabel(a))}</button>`
         ).join("");
         actionGrid.innerHTML = `
-          <p class="shot-action-heading">Assist</p>
-          <div class="shot-action-row shot-action-row-3">${assistBtns}</div>
           <p class="shot-action-heading">Shot</p>
           <div class="shot-action-row shot-action-row-fill">${shotBtns}</div>
           <p class="shot-action-heading">Set piece</p>
           <div class="shot-action-row shot-action-row-fill">${otherBtns}</div>`;
       }
+      return;
+    }
+
+    if (phase === "offer-assist" || phase === "offer-second-assist") {
+      const second = phase === "offer-second-assist";
+      const copy = linkedPlayCopy(second);
+      const chosen = st.pending?.shotDraft?.action || shotModalDraft.action;
+      const result = linkedPlayResult();
+      title.textContent = copy.title;
+      locEl.textContent = chosen
+        ? `${SHOT_RESULT_LABELS[result] || actionShortLabel(chosen)}  ·  ${locText}`
+        : locText;
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent = second
+          ? "Optional. The pass before that one."
+          : "Optional. Tap the pitch next for where the pass came from.";
+      }
+      if (nudge) nudge.hidden = true;
+      playerGrid.hidden = true;
+      actionGrid.hidden = false;
+      const assistBtns = TRACKER_ASSIST_ACTIONS.map(
+        (a) =>
+          `<button type="button" class="shot-action-btn is-assist" data-offer-link="${escapeHtml(a.type)}">${escapeHtml(ASSIST_TYPE_LABELS[a.type])}</button>`
+      ).join("");
+      actionGrid.innerHTML = `
+        <p class="shot-action-heading">${escapeHtml(copy.heading)}</p>
+        <div class="shot-action-row shot-action-row-3">${assistBtns}</div>
+        <div class="shot-action-row shot-action-row-fill" style="margin-top:0.55rem">
+          <button type="button" class="shot-action-btn is-corner" data-offer-skip="1">${escapeHtml(copy.skip)}</button>
+        </div>`;
       return;
     }
 
@@ -3166,7 +3651,9 @@
       locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
-        playerHeading.textContent = "Shot from here, another pass, or just log the restart.";
+        playerHeading.textContent = isCorner
+          ? "A shot needs its own tap (header, volley, etc.). Or log the corner only."
+          : "Shot from here, or just log the free kick.";
       }
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
@@ -3175,15 +3662,9 @@
         (a) =>
           `<button type="button" class="shot-action-btn is-${a.result}" data-restart-result="${escapeHtml(a.result)}">${escapeHtml(actionShortLabel(a))}</button>`
       ).join("");
-      const assistBtns = TRACKER_ASSIST_ACTIONS.map(
-        (a) =>
-          `<button type="button" class="shot-action-btn is-assist" data-restart-assist="${escapeHtml(a.type)}">${escapeHtml(ASSIST_TYPE_LABELS[a.type])}</button>`
-      ).join("");
       const keepResult = isCorner ? "corner" : "foul";
       const keepLabel = isCorner ? "No shot — corner only" : "No shot — free kick only";
       actionGrid.innerHTML = `
-        <p class="shot-action-heading">Assist</p>
-        <div class="shot-action-row shot-action-row-3">${assistBtns}</div>
         <p class="shot-action-heading">Shot</p>
         <div class="shot-action-row shot-action-row-fill">${shotBtns}</div>
         <div class="shot-action-row shot-action-row-fill" style="margin-top:0.55rem">
@@ -3204,7 +3685,7 @@
       const teamCaption = ourTeamName();
       title.textContent = "Which position?";
       locEl.textContent = chosen
-        ? `${actionShortLabel(chosen)}${chosen.kind === "assist" ? " assist" : ""}${missBit}${foulerBit}  ·  ${locText}`
+        ? `${actionShortLabel(chosen)}${chosen.kind === "assist" ? ` ${linkedPlayCopy(!!st.pending?.assist).noun}` : ""}${missBit}${foulerBit}  ·  ${locText}`
         : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
@@ -3213,7 +3694,7 @@
             ? "Who took the free kick? Tap Empty for unknown at that spot."
             : chosen?.kind === "assist"
               ? "Who passed? Tap Empty for unknown at that spot."
-              : "Tap a player to save. Tap Empty for unknown at that spot.";
+              : "Tap a player. Tap Empty for unknown at that spot.";
       }
       if (nudge) {
         nudge.hidden = !(team === "us" && !lineupHasXi("us"));
@@ -3225,6 +3706,7 @@
       playerGrid.hidden = false;
       playerGrid.classList.add("is-formation");
       playerGrid.innerHTML = `
+        ${priorShotNumberBar(team)}
         <div class="shot-dual-pitch-block">
           <div class="shot-dual-pitch-head">
             <p class="tracker-pitch-caption">${escapeHtml(teamCaption)}</p>
@@ -3235,8 +3717,8 @@
       return;
     }
 
-    if (phase === "sub-slot" && recordingTeam() !== "opp") {
-      const team = recordingTeam();
+    if (phase === "sub-slot" && subFlowTeam() === "us") {
+      const team = subFlowTeam();
       title.textContent = "Change which position?";
       locEl.textContent = "Pick the spot to fill or replace, then choose who comes in.";
       if (playerHeading) playerHeading.hidden = true;
@@ -3262,8 +3744,8 @@
       return;
     }
 
-    if (phase === "sub-pick" && recordingTeam() !== "opp") {
-      const team = recordingTeam();
+    if (phase === "sub-pick" && subFlowTeam() === "us") {
+      const team = subFlowTeam();
       const slot = POSITION_SLOTS.find((s) => s.id === Number(shotModalDraft.subSlotId));
       const group = slot?.group || "";
       const groupLabel = POSITION_GROUPS.find((g) => g.id === group)?.label || group;
@@ -3331,7 +3813,7 @@
         ? ` · foul: ${playerLabel(shotModalDraft.fouler ? Object.assign({ team: shotModalDraft.fouler.team || oppositeTeam(recordingTeam()) }, shotModalDraft.fouler) : null)}`
         : "";
     locEl.textContent = chosen
-      ? `${actionShortLabel(chosen)}${chosen.kind === "assist" ? " assist" : ""}${missBit}${foulerBit}  ·  ${locText}`
+      ? `${actionShortLabel(chosen)}${chosen.kind === "assist" ? ` ${linkedPlayCopy(!!st.pending?.assist).noun}` : ""}${missBit}${foulerBit}  ·  ${locText}`
       : locText;
     const onField = team === "opp" ? [] : onFieldPlayers(team);
     const showFormation = team !== "opp" && onField.length > 0;
@@ -3339,7 +3821,9 @@
     if (playerHeading) {
       playerHeading.hidden = false;
       playerHeading.textContent = pickingFouler
-        ? "Usually the other team. Unknown is fine."
+        ? team === "us"
+          ? "Tap who fouled, or Swap two on-field players first. Unknown is fine."
+          : "Usually the other team. Unknown is fine."
           : team === "opp"
           ? "Pick a name or number. Unknown is fine."
           : lockedPos
@@ -3374,7 +3858,12 @@
         ${posLockBar}
         <div class="shot-team-actions">
           ${
-            team === "us" && !pickingFouler
+            !pickingFouler && shotModalDraft.foulerPicked
+              ? `<button type="button" class="btn btn-ghost shot-bar-btn" data-change-fouler="1">Change fouler</button>`
+              : ""
+          }
+          ${
+            team === "us"
               ? `<button type="button" class="btn btn-ghost shot-bar-btn is-sub-in" data-sub-in="1">Sub player in</button>`
               : ""
           }
@@ -3456,11 +3945,17 @@
     };
 
     let html = toolbar;
+    html += priorShotNumberBar(team);
+    if (pickingFouler && team === "us" && lineupGesture?.mode === "swap") {
+      html += lineupGestureBanner();
+    }
     if (justAdded && team !== "opp") {
       html += `<div class="shot-quick-label">Just added</div>${playerBtn(justAdded, "new", true)}`;
     }
     if (team === "opp") {
       html += opponentPickerBody();
+    } else if (pickingFouler) {
+      html += formationPitchShell(foulerUsCards(), "", { team: "us" });
     } else if (showFormation) {
       html += formationPitchShell(formationPickCards(team), "", { team });
     } else {
@@ -3611,53 +4106,130 @@
   }
 
   async function afterTakerPicked() {
-    if (shotModalDraft.action?.result === "foul") {
-      shotModalDraft.fkOutcome = "";
-      shotModalDraft.missDirection = "";
-      shotModalDraft.phase = "fk-result";
+    if (shotModalDraft.action?.kind === "assist") {
+      if (!st.pending?.shotDraft) {
+        showToast("Record the shot first");
+        return;
+      }
+      const next = draftAssistFromModal(shotModalDraft.player);
+      if (st.pending.linkKind === "secondAssist" || st.pending.assist) {
+        st.pending.secondAssist = next;
+        await commitPendingShotDraft();
+        return;
+      }
+      st.pending.assist = next;
+      st.pending.linkKind = null;
+      st.pending.linkType = null;
+      shotModalDraft.phase = "offer-second-assist";
       renderShotModal();
       return;
     }
-    if (shotModalDraft.action?.result === "corner") {
-      shotModalDraft.fkOutcome = "";
+    const origin = shotModalDraft.action?.result;
+    // Only ask "what next?" once. Re-entering here after a shot is chosen
+    // (especially visitor missed, which has no position) wiped fkOutcome and looped.
+    if ((origin === "foul" || origin === "corner") && !shotModalDraft.fkOutcome) {
       shotModalDraft.missDirection = "";
-      shotModalDraft.phase = "corner-result";
+      shotModalDraft.phase = origin === "corner" ? "corner-result" : "fk-result";
+      renderShotModal();
+      return;
+    }
+    await afterShotReadyToSave();
+  }
+
+  function stashShotDraftForLink() {
+    const prev = st.pending || {};
+    st.pending = {
+      restartShot: prev.restartShot || null,
+      assist: prev.assist || null,
+      secondAssist: prev.secondAssist || null,
+      linkKind: prev.linkKind || null,
+      linkType: prev.linkType || null,
+      fouler: shotModalDraft.fouler,
+      foulerPicked: shotModalDraft.foulerPicked,
+      foulerPickTeam: shotModalDraft.foulerPickTeam,
+      shotDraft: {
+        result: effectiveShotResult() || shotModalDraft.action?.result,
+        shooter: shotModalDraft.player,
+        location: shotModalDraft.location,
+        position: shotModalDraft.position,
+        missDirection: shotModalDraft.missDirection,
+        action: shotModalDraft.action,
+        fkOutcome: shotModalDraft.fkOutcome,
+        fouler: shotModalDraft.fouler,
+        foulerPicked: shotModalDraft.foulerPicked,
+        foulerPickTeam: shotModalDraft.foulerPickTeam,
+        team: recordingTeam(),
+      },
+    };
+  }
+
+  async function afterShotReadyToSave() {
+    const result = effectiveShotResult() || shotModalDraft.action?.result;
+    if (canOfferLinkedPlay(result)) {
+      stashShotDraftForLink();
+      shotModalDraft.phase = "offer-assist";
       renderShotModal();
       return;
     }
     await completeShotModal();
   }
 
-  function stashAssistAndWait(player) {
-    const next = draftAssistFromModal(player);
-    const foulerBag = {
-      fouler: shotModalDraft.fouler,
-      foulerPicked: shotModalDraft.foulerPicked,
-      foulerPickTeam: shotModalDraft.foulerPickTeam,
-    };
-    if (st.pending?.assist && !st.pending?.secondAssist) {
-      st.pending = Object.assign({ secondAssist: st.pending.assist, assist: next }, foulerBag);
-      st.mode = "awaiting-shot-location";
-      closeShotModal();
-      shotModalDraft.location = null;
-      draw();
-      showToast("Tap where the shot was taken");
-      return;
-    }
-    st.pending = Object.assign({}, st.pending, { assist: next }, foulerBag);
+  function beginLinkedPlayTap(type, second) {
+    if (!st.pending?.shotDraft) stashShotDraftForLink();
+    st.pending.linkKind = second ? "secondAssist" : "assist";
+    st.pending.linkType = type;
     st.mode = "awaiting-shot-location";
     closeShotModal();
-    shotModalDraft.location = null;
     draw();
-    showToast("Tap the next pass or the shot");
+    showToast(linkedPlayCopy(second).tap);
+  }
+
+  async function commitPendingShotDraft() {
+    const draft = st.pending?.shotDraft;
+    const assist = st.pending?.assist || null;
+    const secondAssist = st.pending?.secondAssist || null;
+    if (!draft) {
+      closeShotModal();
+      resetTrackerDraft();
+      if (st.view === "shots") draw({ keepScroll: true });
+      return;
+    }
+    if (draft.team) st.team = draft.team;
+    shotModalDraft.location = draft.location;
+    shotModalDraft.position = draft.position || "";
+    shotModalDraft.missDirection = draft.missDirection || "";
+    shotModalDraft.action = draft.action;
+    shotModalDraft.fkOutcome = draft.fkOutcome || "";
+    shotModalDraft.fouler = draft.fouler;
+    shotModalDraft.foulerPicked = !!draft.foulerPicked;
+    shotModalDraft.foulerPickTeam = draft.foulerPickTeam || oppositeTeam(recordingTeam());
+    shotModalDraft.player = draft.shooter || null;
+    await commitShotEvent(draft.result, draft.shooter || null, assist, secondAssist);
+  }
+
+  async function saveCornerThenAwaitFollowUp(followUp) {
+    const player = shotModalDraft.player || null;
+    const team = recordingTeam();
+    shotModalDraft.fkOutcome = "corner";
+    shotModalDraft.missDirection = "";
+    await commitShotEvent("corner", player, null, null);
+    st.team = team;
+    st.mode = "awaiting-shot-location";
+    st.pending = { restartShot: { result: followUp.result } };
+    showToast("Corner saved — tap where the shot was taken");
+    draw();
   }
 
   async function completeShotModal() {
     const action = shotModalDraft.action;
     if (!action) return;
+    if (st.pending?.shotDraft) {
+      await commitPendingShotDraft();
+      return;
+    }
     const player = shotModalDraft.player || null;
     if (action.kind === "assist") {
-      stashAssistAndWait(player);
+      showToast("Record the shot first");
       return;
     }
     if (action.kind === "shot") {
@@ -3735,6 +4307,7 @@
       view.secondAssist.number = String(secondAssist.player.number || "");
     }
     st.shots = [view, ...st.shots];
+    trackAppEvent("play", result, { team, period: normalizePeriod(st.period) });
     closeShotModal();
     resetTrackerDraft();
     draw();
@@ -3743,9 +4316,9 @@
       ? ` · foul: ${eventPersonLabel(oppositeTeam(team), view.foulerNumber, view.foulerName, view.foulerShort)}`
       : "";
     const extra = view.assist
-      ? ` (assist: ${view.assist.number ? (team === "opp" ? `Opp #${view.assist.number}` : view.assist.short || firstName(view.assist.name) || `#${view.assist.number}`) : "untagged"}${
+      ? ` (${linkedPlayWord(view)}: ${view.assist.number ? (team === "opp" ? `Opp #${view.assist.number}` : view.assist.short || firstName(view.assist.name) || `#${view.assist.number}`) : "untagged"}${
           view.secondAssist
-            ? ` · 2nd: ${
+            ? ` · ${linkedPlayWord(view, { second: true })}: ${
                 view.secondAssist.number
                   ? team === "opp"
                     ? `Opp #${view.secondAssist.number}`
@@ -3811,15 +4384,17 @@
     draw({ keepScroll: true });
     try {
       const push = await retryFailedShots();
+      const lineupPush = await pushGameLineup();
       const pendingKeep = st.shots.filter((s) => s.saveFailed && s.pendingPayload);
       await loadGameContext();
       const remoteIds = new Set(st.shots.map((s) => s.id));
       const orphans = pendingKeep.filter((s) => !remoteIds.has(s.id));
       if (orphans.length) st.shots = [...orphans, ...st.shots];
       const n = st.shots.length;
-      if (push.stillFailed) showToast(`Synced — ${n} shots · ${push.stillFailed} not saved`);
-      else if (push.saved) showToast(`Synced — ${n} shots · saved ${push.saved}`);
-      else showToast(`Synced — ${n} shots`);
+      const lineupBit = lineupPush.ok && !lineupPush.skipped ? " · lineup" : "";
+      if (push.stillFailed) showToast(`Synced — ${n} shots${lineupBit} · ${push.stillFailed} not saved`);
+      else if (push.saved) showToast(`Synced — ${n} shots${lineupBit} · saved ${push.saved}`);
+      else showToast(`Synced — ${n} shots${lineupBit}`);
     } catch (err) {
       showToast(err.message || "Sync failed — check connection");
     } finally {
@@ -3876,6 +4451,38 @@
       await applyShotPersonPick(team, playerId, number, "");
     });
     shotModal.addEventListener("click", async (e) => {
+      const swapBtn = e.target.closest("[data-swap-slot]");
+      if (swapBtn) {
+        e.preventDefault();
+        const slotId = Number(swapBtn.getAttribute("data-swap-slot"));
+        const team = swapBtn.getAttribute("data-swap-team") === "opp" ? "opp" : "us";
+        if (lineupGesture?.mode === "swap" && lineupGesture.team === team && Number(lineupGesture.fromSlot) === slotId) {
+          clearLineupGesture();
+        } else if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
+          if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
+        } else {
+          startSwapGesture(team, slotId);
+        }
+        draw({ keepScroll: true });
+        renderShotModal();
+        return;
+      }
+      const hit = e.target.closest("[data-lineup-slot-hit]");
+      if (hit) {
+        e.preventDefault();
+        if (!lineupGesture || lineupGesture.mode !== "swap") return;
+        const slotId = Number(hit.getAttribute("data-lineup-slot-hit"));
+        if (Number(lineupGesture.fromSlot) === slotId) clearLineupGesture();
+        else if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
+        draw({ keepScroll: true });
+        renderShotModal();
+        return;
+      }
+      if (e.target.closest("[data-lineup-gesture-cancel]")) {
+        clearLineupGesture();
+        renderShotModal();
+        return;
+      }
       const pickPos = e.target.closest("[data-pick-position]");
       if (pickPos) {
         const code = pickPos.getAttribute("data-pick-position") || "";
@@ -3934,8 +4541,19 @@
           st.team = "us";
           saveUi();
         }
+        shotModalDraft.subReturnPhase = "position";
+        shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
+        renderShotModal();
+        return;
+      }
+      if (e.target.closest("[data-change-fouler]")) {
+        shotModalDraft.phase = "fouler";
+        shotModalDraft.foulerPicked = false;
+        shotModalDraft.fouler = null;
+        shotModalDraft.justAddedNumber = "";
+        clearLineupGesture();
         renderShotModal();
         return;
       }
@@ -3950,37 +4568,42 @@
       const missBtn = e.target.closest("[data-miss-dir]");
       if (missBtn) {
         shotModalDraft.missDirection = missBtn.getAttribute("data-miss-dir") || "";
-        if (shotModalDraft.fkOutcome && shotModalDraft.position) {
-          await completeShotModal();
+        if (shotModalDraft.fkOutcome) {
+          await afterShotReadyToSave();
           return;
         }
         advanceAfterAction();
         return;
       }
-      const restartAssistBtn = e.target.closest("[data-restart-assist]");
-      if (restartAssistBtn) {
-        const type = restartAssistBtn.getAttribute("data-restart-assist");
-        const action = TRACKER_ASSIST_ACTIONS.find((a) => a.type === type);
-        if (!action) return;
-        shotModalDraft.action = action;
-        shotModalDraft.fkOutcome = "";
-        shotModalDraft.missDirection = "";
-        await completeShotModal();
+      const offerLinkBtn = e.target.closest("[data-offer-link]");
+      if (offerLinkBtn) {
+        const type = offerLinkBtn.getAttribute("data-offer-link");
+        if (!ASSIST_TYPE_LABELS[type]) return;
+        beginLinkedPlayTap(type, shotModalDraft.phase === "offer-second-assist");
+        return;
+      }
+      if (e.target.closest("[data-offer-skip]")) {
+        await commitPendingShotDraft();
         return;
       }
       const restartResultBtn = e.target.closest("[data-restart-result], [data-fk-result]");
       if (restartResultBtn) {
-        shotModalDraft.fkOutcome =
+        const outcome =
           restartResultBtn.getAttribute("data-restart-result") ||
           restartResultBtn.getAttribute("data-fk-result") ||
           "foul";
+        if (shotModalDraft.action?.result === "corner" && outcome !== "corner") {
+          await saveCornerThenAwaitFollowUp({ kind: "shot", result: outcome });
+          return;
+        }
+        shotModalDraft.fkOutcome = outcome;
         shotModalDraft.missDirection = "";
         if (RESULTS_NEEDING_MISS_DIR.has(shotModalDraft.fkOutcome)) {
           shotModalDraft.phase = "miss-dir";
           renderShotModal();
           return;
         }
-        await completeShotModal();
+        await afterShotReadyToSave();
         return;
       }
       const teamBtn = e.target.closest("[data-shot-team]");
@@ -4009,6 +4632,8 @@
         return;
       }
       if (e.target.closest("[data-sub-in]")) {
+        shotModalDraft.subReturnPhase = shotModalDraft.phase === "fouler" ? "fouler" : "position";
+        shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
         renderShotModal();
@@ -4023,9 +4648,9 @@
       }
       const subPickBtn = e.target.closest("[data-sub-pick-number]");
       if (subPickBtn) {
-        const team = recordingTeam();
+        const team = subFlowTeam();
         const slotId = Number(shotModalDraft.subSlotId);
-        const slot = POSITION_SLOTS.find((s) => s.id === slotId);
+        const slot = POSITION_SLOTS.find((s) => s.id === Number(slotId));
         const number = subPickBtn.getAttribute("data-sub-pick-number");
         const playerId = subPickBtn.getAttribute("data-sub-pick-id");
         const player = playerFromRoster(team, playerId, number);
@@ -4034,11 +4659,21 @@
         const elsewhere = slotIdForNumber(team, payload.number);
         if (elsewhere && Number(elsewhere) !== Number(slotId)) assignSlot(team, elsewhere, null);
         assignSlot(team, slotId, payload);
-        shotModalDraft.position = slot.code;
-        shotModalDraft.player = Object.assign({ team }, player);
+        const returnPhase = shotModalDraft.subReturnPhase || "position";
         shotModalDraft.subSlotId = null;
+        shotModalDraft.subReturnPhase = "";
+        shotModalDraft.subTeam = "";
         shotModalDraft.justAddedNumber = "";
         showToast(`${playerDisplayName(player) || `#${player.number}`} in at ${slot.code}`);
+        if (returnPhase === "fouler") {
+          shotModalDraft.phase = "fouler";
+          shotModalDraft.foulerPickTeam = "us";
+          draw({ keepScroll: true });
+          renderShotModal();
+          return;
+        }
+        shotModalDraft.position = slot.code;
+        shotModalDraft.player = Object.assign({ team }, player);
         await afterTakerPicked();
         return;
       }
@@ -4089,6 +4724,11 @@
       }
     });
     $("#shot-modal-back")?.addEventListener("click", () => {
+      if (lineupGesture?.mode === "swap") {
+        clearLineupGesture();
+        renderShotModal();
+        return;
+      }
       if (shotModalDraft.phase === "sub-pick") {
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
@@ -4096,8 +4736,10 @@
         return;
       }
       if (shotModalDraft.phase === "sub-slot") {
-        shotModalDraft.phase = "position";
+        shotModalDraft.phase = shotModalDraft.subReturnPhase || "position";
         shotModalDraft.subSlotId = null;
+        shotModalDraft.subReturnPhase = "";
+        shotModalDraft.subTeam = "";
         renderShotModal();
         return;
       }
@@ -4128,6 +4770,16 @@
         shotModalDraft.phase = "action";
         shotModalDraft.action = null;
         shotModalDraft.fkOutcome = "";
+        renderShotModal();
+        return;
+      }
+      if (shotModalDraft.phase === "offer-second-assist") {
+        commitPendingShotDraft();
+        return;
+      }
+      if (shotModalDraft.phase === "offer-assist") {
+        shotModalDraft.phase = takerPhaseFor(recordingTeam());
+        if (st.pending) st.pending.shotDraft = null;
         renderShotModal();
         return;
       }
@@ -4256,7 +4908,18 @@
             showToast("Finish this shot on the same team’s pitch");
             return;
           }
-          fillShotModal(canChainAssist() ? "follow" : "shot", loc);
+          fillShotModal(st.pending?.linkType ? "assist" : "shot", loc);
+          draw({ keepScroll: true });
+          return;
+        }
+
+        if (isDouble) {
+          clearPitchInspect();
+          st.team = team === "opp" ? "opp" : "us";
+          st.mode = "idle";
+          st.pending = null;
+          saveUi();
+          fillShotModal("first", loc);
           draw({ keepScroll: true });
           return;
         }
@@ -4284,14 +4947,6 @@
           draw({ keepScroll: true });
           return;
         }
-
-        if (!isDouble) return;
-        st.team = team === "opp" ? "opp" : "us";
-        st.mode = "idle";
-        st.pending = null;
-        saveUi();
-        fillShotModal("first", loc);
-        draw({ keepScroll: true });
       };
       svg.addEventListener("pointerdown", onPointerDown);
       svg.addEventListener("pointerup", onTap);
@@ -4309,6 +4964,25 @@
       clearPitchInspect();
       draw({ keepScroll: true });
       if (id) openEditShot(id);
+    });
+    $("[data-inspect-add]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute("data-inspect-add");
+      const ev = (st.shots || []).find((s) => s.id === id);
+      const loc = locFromPlay(ev?.shot || ev);
+      const team = ev ? eventTeam(ev) : recordingTeam();
+      clearPitchInspect();
+      if (!loc) {
+        draw({ keepScroll: true });
+        return;
+      }
+      st.team = team === "opp" ? "opp" : "us";
+      st.mode = "idle";
+      st.pending = null;
+      saveUi();
+      fillShotModal("first", loc);
+      draw({ keepScroll: true });
     });
     $("#pitch-inspect-popup")?.addEventListener("click", (e) => e.stopPropagation());
   }
@@ -4367,7 +5041,7 @@
       }
       if (ev.missDirection) {
         const who = eventPersonLabel("us", ev.shooterNumber, ev.shooterName, ev.shooterShort);
-        if (!missByPlayer[who]) missByPlayer[who] = { over: 0, short: 0, "wide-left": 0, "wide-right": 0 };
+        if (!missByPlayer[who]) missByPlayer[who] = { over: 0, short: 0, "wide-left": 0, "wide-right": 0, crossbar: 0, post: 0 };
         missByPlayer[who][ev.missDirection] = (missByPlayer[who][ev.missDirection] || 0) + 1;
       }
     });
@@ -4378,7 +5052,17 @@
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8);
     const missRows = Object.entries(missByPlayer)
-      .map(([who, dirs]) => ({ who, ...dirs, total: dirs.over + dirs.short + dirs["wide-left"] + dirs["wide-right"] }))
+      .map(([who, dirs]) => ({
+        who,
+        ...dirs,
+        total:
+          (dirs.over || 0) +
+          (dirs.short || 0) +
+          (dirs["wide-left"] || 0) +
+          (dirs["wide-right"] || 0) +
+          (dirs.crossbar || 0) +
+          (dirs.post || 0),
+      }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
     return { topPos, topPairs, missRows };
@@ -4410,7 +5094,7 @@
               missRows
                 .map(
                   (r) =>
-                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]}</span></li>`
+                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]} CB${r.crossbar || 0} P${r.post || 0}</span></li>`
                 )
                 .join("") || "<li class='muted'>No miss directions yet</li>"
             }
@@ -4435,7 +5119,8 @@
   function shotTableRows(events, opts = {}) {
     if (!events.length) {
       const empty = opts.emptyLabel || "No plays yet.";
-      return `<tr><td colspan="12" class="empty-state" style="padding:1.25rem">${escapeHtml(empty)}</td></tr>`;
+      const cols = opts.colspan || (opts.bulkHalf ? 13 : 12);
+      return `<tr><td colspan="${cols}" class="empty-state" style="padding:1.25rem">${escapeHtml(empty)}</td></tr>`;
     }
     return events
       .map((ev) => {
@@ -4484,6 +5169,11 @@
         }
         return `
           <tr class="${ev.saveFailed ? "is-unsaved" : ""}">
+            ${
+              opts.bulkHalf
+                ? `<td class="tracker-select-cell"><input type="checkbox" data-select-shot="${escapeHtml(ev.id)}" ${selectedShotIds.has(ev.id) ? "checked" : ""} aria-label="Select play" /></td>`
+                : ""
+            }
             <td class="tracker-edit-cell">
               <button type="button" class="icon-btn tracker-edit" data-edit-shot="${escapeHtml(ev.id)}" aria-label="Edit play">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -4551,6 +5241,80 @@
       </div>`;
   }
 
+  function pruneSelectedShotIds() {
+    const live = new Set((st.shots || []).map((ev) => ev.id));
+    for (const id of Array.from(selectedShotIds)) {
+      if (!live.has(id)) selectedShotIds.delete(id);
+    }
+  }
+
+  function playsBulkBarMarkup() {
+    pruneSelectedShotIds();
+    const n = selectedShotIds.size;
+    const destOpts = ["1", "2", "ET1", "ET2"]
+      .map((p) => `<option value="${p}">${escapeHtml(periodLabel(p))}</option>`)
+      .join("");
+    return `
+      <div class="plays-bulk-bar ${n ? "is-active" : ""}" ${n ? "" : "hidden"}>
+        <span class="plays-bulk-count">${n} selected</span>
+        <label class="plays-bulk-dest">Move to
+          <select id="plays-bulk-period" aria-label="Move selected plays to period">
+            ${destOpts}
+          </select>
+        </label>
+        <button type="button" class="btn btn-primary plays-bulk-apply" data-bulk-period-apply>Move selected</button>
+        <button type="button" class="btn btn-ghost" data-bulk-period-clear>Clear</button>
+      </div>`;
+  }
+
+  async function moveShotsToPeriod(ids, period) {
+    const p = normalizePeriod(period);
+    const unique = Array.from(new Set((ids || []).filter(Boolean)));
+    if (!unique.length) {
+      showToast("Select plays first");
+      return;
+    }
+    if (
+      !confirm(
+        unique.length === 1
+          ? `Move this play to ${periodLabel(p)}?`
+          : `Move ${unique.length} plays to ${periodLabel(p)}?`
+      )
+    ) {
+      return;
+    }
+    trackAppEvent("control", "move_half", { to: p, count: unique.length });
+    let ok = 0;
+    let fail = 0;
+    for (const id of unique) {
+      const ev = (st.shots || []).find((s) => s.id === id);
+      if (!ev) continue;
+      if (eventPeriod(ev) === p) {
+        ok += 1;
+        continue;
+      }
+      if (ev.saveFailed && ev.pendingPayload) {
+        ev.pendingPayload.period = p;
+        ev.period = p;
+        ok += 1;
+        continue;
+      }
+      const saved = await API.updateShot(id, { period: p });
+      if (!saved.ok) {
+        fail += 1;
+        continue;
+      }
+      const mapped = mapShot(saved.data);
+      const idx = st.shots.findIndex((s) => s.id === id);
+      if (idx >= 0) st.shots[idx] = mapped;
+      ok += 1;
+    }
+    selectedShotIds.clear();
+    draw({ keepScroll: true });
+    if (fail) showToast(`Moved ${ok} · ${fail} not saved`);
+    else showToast(`Moved ${ok} to ${periodLabel(p)}`);
+  }
+
   function bindPlaysFilters() {
     $$("[data-log-team]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -4570,13 +5334,38 @@
   }
 
   function shotTableMarkup(title, events, opts = {}) {
+    const period = opts.period || "";
+    const bulk = !!opts.bulkHalf;
+    const ids = events.map((ev) => ev.id).filter(Boolean);
+    const allOn = ids.length && ids.every((id) => selectedShotIds.has(id));
+    const moveOpts = ["1", "2", "ET1", "ET2"]
+      .filter((p) => p !== period)
+      .map((p) => `<option value="${p}">${escapeHtml(periodLabel(p))}</option>`)
+      .join("");
+    const bulkHead = bulk
+      ? `<th class="tracker-select-cell"><input type="checkbox" data-select-half="${escapeHtml(period)}" ${allOn ? "checked" : ""} aria-label="Select ${escapeHtml(title)}" /></th>`
+      : "";
+    const moveAll =
+      bulk && events.length
+        ? `<label class="plays-move-half">Move all to
+            <select data-move-half-from="${escapeHtml(period)}" aria-label="Move all ${escapeHtml(title)} plays">
+              <option value="">—</option>
+              ${moveOpts}
+            </select>
+          </label>`
+        : "";
+    const cols = bulk ? 13 : 12;
     return `
-      <h3 class="tracker-half-heading">${escapeHtml(title)}</h3>
+      <div class="tracker-half-head">
+        <h3 class="tracker-half-heading">${escapeHtml(title)}</h3>
+        ${moveAll}
+      </div>
       <div class="tracker-summary">${summaryPills(trackerSummary(events))}</div>
       <div class="tracker-table-wrap">
-        <table class="tracker-table">
+        <table class="tracker-table${bulk ? " is-bulk-select" : ""}">
           <thead>
             <tr>
+              ${bulkHead}
               <th class="tracker-edit-cell"><span class="sr-only">Edit</span></th>
               <th>Gameclock</th>
               <th>Team</th>
@@ -4591,7 +5380,7 @@
               <th class="tracker-delete-cell"><span class="sr-only">Delete</span></th>
             </tr>
           </thead>
-          <tbody>${shotTableRows(events, { emptyLabel: opts.emptyLabel, editClock: opts.editClock !== false })}</tbody>
+          <tbody>${shotTableRows(events, { emptyLabel: opts.emptyLabel, editClock: opts.editClock !== false, bulkHalf: bulk, colspan: cols })}</tbody>
         </table>
       </div>`;
   }
@@ -4689,6 +5478,49 @@
         clockInput.select();
       });
     }
+    $$("[data-select-shot]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const id = box.getAttribute("data-select-shot");
+        if (!id) return;
+        if (box.checked) selectedShotIds.add(id);
+        else selectedShotIds.delete(id);
+        draw({ keepScroll: true });
+      });
+    });
+    $$("[data-select-half]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const period = normalizePeriod(box.getAttribute("data-select-half"));
+        const ids = (st.shots || [])
+          .filter((ev) => eventPeriod(ev) === period && eventMatchesLogFilter(ev))
+          .map((ev) => ev.id)
+          .filter(Boolean);
+        if (box.checked) ids.forEach((id) => selectedShotIds.add(id));
+        else ids.forEach((id) => selectedShotIds.delete(id));
+        draw({ keepScroll: true });
+      });
+    });
+    $$("[data-move-half-from]").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const dest = sel.value;
+        const from = normalizePeriod(sel.getAttribute("data-move-half-from"));
+        sel.value = "";
+        if (!dest) return;
+        const ids = (st.shots || [])
+          .filter((ev) => eventPeriod(ev) === from && eventMatchesLogFilter(ev))
+          .map((ev) => ev.id)
+          .filter(Boolean);
+        moveShotsToPeriod(ids, dest);
+      });
+    });
+    $("[data-bulk-period-apply]")?.addEventListener("click", () => {
+      const dest = $("#plays-bulk-period")?.value;
+      if (!dest) return;
+      moveShotsToPeriod(Array.from(selectedShotIds), dest);
+    });
+    $("[data-bulk-period-clear]")?.addEventListener("click", () => {
+      selectedShotIds.clear();
+      draw({ keepScroll: true });
+    });
   }
 
   function fillFoulerEditOptions(ev, teamOverride) {
@@ -5331,7 +6163,7 @@
           return;
         }
         if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
-          completeSwapGesture(slotId);
+          if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_lineup");
           draw({ keepScroll: true });
           return;
         }
@@ -5347,8 +6179,8 @@
         const slotId = Number(btn.getAttribute("data-lineup-slot-hit"));
         if (Number(lineupGesture.fromSlot) === slotId) {
           clearLineupGesture();
-        } else {
-          completeSwapGesture(slotId);
+        } else if (completeSwapGesture(slotId)) {
+          trackAppEvent("control", "swap_lineup");
         }
         draw({ keepScroll: true });
       });
@@ -5380,33 +6212,42 @@
     const oppSwapped = !usSwapped;
     const pitchOpts = { showGrid: st.showGrid, period };
     const goalSide = usSwapped ? "left" : "right";
-    let status = `Tap a shot or assist for who did what. Double-tap empty grass to start a play. ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
+    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
-      const a = st.pending?.assist;
-      const s2 = st.pending?.secondAssist;
-      const who = (play) =>
-        playerLabel(play?.player ? Object.assign({ team: recordingTeam() }, play.player) : null);
-      if (s2 && a) {
-        status = `2nd: ${who(s2)} · Assist: ${who(a)} (${ASSIST_TYPE_LABELS[a.type]}). Tap the shot on the ${teamLabel(recordingTeam())} pitch.`;
-      } else if (a) {
-        status = `Assist: ${who(a)} (${ASSIST_TYPE_LABELS[a.type]}). Tap the next pass or the shot on the ${teamLabel(recordingTeam())} pitch.`;
+      const teamPitch = teamLabel(recordingTeam());
+      if (st.pending?.linkType) {
+        const second = st.pending.linkKind === "secondAssist" || !!st.pending.assist;
+        status = `${linkedPlayCopy(second).tap} on the ${teamPitch} pitch.`;
+      } else if (st.pending?.restartShot) {
+        status = `Tap where the shot was taken on the ${teamPitch} pitch.`;
       } else {
-        status = `Tap where the shot was taken on the ${teamLabel(recordingTeam())} pitch.`;
+        status = `Tap the next location on the ${teamPitch} pitch.`;
       }
     }
 
     document.body.classList.toggle("is-recording-play", awaitingShot);
     const usCaption = awaitingShot
       ? usActive
-        ? "Brighton · tap next pass or shot"
+        ? st.pending?.linkType
+          ? `Brighton · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
+          : "Brighton · tap the shot"
         : "Brighton"
-      : "Brighton · double-tap empty grass to record";
+      : "Brighton · double-tap to record";
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const oppCaption = awaitingShot
       ? !usActive
-        ? `${oppName} · tap next pass or shot`
+        ? st.pending?.linkType
+          ? `${oppName} · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
+          : `${oppName} · tap the shot`
         : oppName
-      : `${oppName} · double-tap empty grass to record`;
+      : `${oppName} · double-tap to record`;
+    const cornerBtns = (team) =>
+      awaitingShot
+        ? ""
+        : `<div class="tracker-corner-btns">
+            <button type="button" class="btn btn-ghost shot-bar-btn" data-record-corner="left" data-record-team="${team}">Left corner</button>
+            <button type="button" class="btn btn-ghost shot-bar-btn" data-record-corner="right" data-record-team="${team}">Right corner</button>
+          </div>`;
 
     root().innerHTML = `
       <div class="tracker-page${awaitingShot ? " is-recording-play" : ""}">
@@ -5428,10 +6269,12 @@
           <div class="tracker-pitches">
             <div class="tracker-pitch-block ${usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(usCaption)}</p>
+              ${cornerBtns("us")}
               <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-us">${trackerPitchFieldMarkup("us", events, usSwapped, pitchOpts)}</div>
             </div>
             <div class="tracker-pitch-block is-opp ${!usActive || !awaitingShot ? "is-active" : ""}">
               <p class="tracker-pitch-caption">${escapeHtml(oppCaption)}</p>
+              ${cornerBtns("opp")}
               <div class="pitch-wrap tracker-pitch-wrap" id="tracker-pitch-opp">${trackerPitchFieldMarkup("opp", events, oppSwapped, pitchOpts)}</div>
             </div>
           </div>
@@ -5444,10 +6287,11 @@
         <section class="tracker-log" id="tracker-log">
           <h2>Recorded plays</h2>
           ${playsFilterMarkup()}
+          ${playsBulkBarMarkup()}
           ${logCount}
-          ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty })}
-          ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty })}
-          ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty }) : ""}
+          ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty, period: "1", bulkHalf: true })}
+          ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty, period: "2", bulkHalf: true })}
+          ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty, period: "ET1", bulkHalf: true }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty, period: "ET2", bulkHalf: true }) : ""}
         </section>
         ${stampOffsetMarkup()}
         <p class="prep-game-link">
@@ -5457,9 +6301,20 @@
       </div>`;
 
     $("#tracker-cancel-record")?.addEventListener("click", () => {
+      if (st.pending?.shotDraft) {
+        commitPendingShotDraft();
+        return;
+      }
       closeShotModal();
       resetTrackerDraft();
       draw();
+    });
+    $$("[data-record-corner]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const team = btn.getAttribute("data-record-team") === "opp" ? "opp" : "us";
+        const side = btn.getAttribute("data-record-corner") === "right" ? "right" : "left";
+        startCornerFromFlag(team, side);
+      });
     });
     bindClockUi();
     bindScoreStripMenu();
@@ -5491,6 +6346,12 @@
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
     return "rgba(11,31,51,0.4)";
+  }
+
+  function markerNumberFill(ev, team) {
+    if (ev.result === "on-target" || resultFill(ev.result) === "#ffffff") return "#0b1f33";
+    if (team === "opp" || ev.result === "missed" || ev.result === "pk-missed") return "#ffffff";
+    return "#0b1f33";
   }
 
   function isSquareEvent(result) {
@@ -5548,7 +6409,7 @@
         const team = eventTeam(ev);
         const shot = toFullFieldPoint(ev.shot, period, team);
         const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
-        const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const numFill = markerNumberFill(ev, team);
         let html = "";
         const ring = team === "opp" ? "#c0392b" : "#0b1f33";
         if (ev.secondAssist) {
@@ -6172,7 +7033,7 @@
         if (!shot) return "";
         const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
-        const numFill = team === "opp" || ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        const numFill = markerNumberFill(ev, team);
         let html = "";
         if (ev.secondAssist) {
           const s = tacticalPoint(ev.secondAssist, team);
@@ -7469,6 +8330,11 @@
           </button>
           <div class="scoreboard-menu-pop" id="scoreboard-menu-pop" hidden role="menu">
             <a class="scoreboard-menu-item" href="#shots" role="menuitem">Track shots</a>
+            ${
+              gameIsFinal()
+                ? `<button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="reopen">Reopen game</button>`
+                : `<button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="final">Mark final</button>`
+            }
           </div>
         </div>
         <div class="scoreboard-hero-pin" data-scoreboard-hero-pin>
@@ -7494,6 +8360,13 @@
     btn?.addEventListener("click", (e) => {
       e.stopPropagation();
       setOpen(pop.hidden);
+    });
+    pop?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-tracker-action]");
+      if (!item) return;
+      e.stopPropagation();
+      setOpen(false);
+      runTrackerAction(item.getAttribute("data-tracker-action"));
     });
     $(".scoreboard-page")?.addEventListener("click", (e) => {
       if (e.target.closest(".scoreboard-menu")) return;
@@ -7604,6 +8477,7 @@
       renderLoading("Loading…");
       return;
     }
+    trackViewIfChanged();
     const view = st.view;
     if (view !== "shots" && view !== "shots-scoreboard") stopClockTick();
     if (view !== "shots-scoreboard") stopScoreboardPollTick();

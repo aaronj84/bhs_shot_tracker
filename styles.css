@@ -640,6 +640,68 @@ body.tracker-view .brand-sub {
   font-size: 1rem;
 }
 
+.tracker-half-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.85rem;
+  margin: 1.15rem 0 0.45rem;
+}
+
+.tracker-half-head .tracker-half-heading {
+  margin: 0;
+}
+
+.plays-move-half {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.plays-move-half select,
+.plays-bulk-dest select {
+  min-height: 34px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  font-weight: 700;
+}
+
+.plays-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  background: rgba(26, 86, 168, 0.08);
+}
+
+.plays-bulk-count {
+  font-weight: 750;
+  font-size: 0.85rem;
+}
+
+.plays-bulk-dest {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.plays-bulk-apply {
+  min-height: 34px;
+  padding: 0.25rem 0.7rem;
+}
+
 .tracker-toolbar .btn {
   min-height: 44px;
   padding: 0.5rem 0.75rem;
@@ -931,6 +993,11 @@ body.is-recording-play .app-header {
   fill: #fff;
 }
 
+.tracker-shot-dot.on-target + .tracker-shot-num,
+.tracker-event.is-opp .tracker-shot-dot.on-target + .tracker-shot-num {
+  fill: #0b1f33;
+}
+
 .tracker-shot-num {
   fill: #0b1f33;
   font-size: 1.25px;
@@ -1046,6 +1113,10 @@ body.is-recording-play .app-header {
 .pitch-inspect-edit:hover {
   color: #ffffff;
   border-color: rgba(244, 247, 251, 0.55);
+}
+
+.pitch-inspect-popup .pitch-inspect-edit + .pitch-inspect-edit {
+  margin-left: 0.4rem;
 }
 
 .tracker-pending {
@@ -1599,6 +1670,7 @@ button.formation-card.is-empty {
 .shot-player-grid .shot-empty-roster,
 .shot-player-grid .shot-quick-label,
 .shot-player-grid .shot-opp-select,
+.shot-player-grid .shot-recent-nums,
 .shot-player-grid .shot-dual-pitches,
 .shot-player-grid .shot-dual-pitch-block,
 .shot-player-grid .shot-dual-actions {
@@ -1721,6 +1793,22 @@ button.formation-card.is-empty {
   background: rgba(232, 238, 245, 0.45);
 }
 
+.tracker-table .tracker-select-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 2.1rem;
+  padding-left: 0.45rem;
+  padding-right: 0.2rem;
+  background: var(--bg-panel);
+  vertical-align: middle;
+}
+
+.tracker-table .tracker-select-cell input {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 .tracker-table .tracker-edit-cell {
   position: sticky;
   left: 0;
@@ -1730,6 +1818,19 @@ button.formation-card.is-empty {
   padding-right: 0.25rem;
   background: var(--bg-panel);
   box-shadow: 8px 0 8px -8px rgba(11, 31, 51, 0.18);
+}
+
+.tracker-table.is-bulk-select .tracker-edit-cell {
+  left: 2.1rem;
+}
+
+.tracker-table thead .tracker-select-cell {
+  background: var(--bg-soft);
+  z-index: 2;
+}
+
+.tracker-table tbody tr:nth-child(even) .tracker-select-cell {
+  background: #eef3f8;
 }
 
 .tracker-table thead .tracker-edit-cell {
@@ -2636,6 +2737,19 @@ button.formation-card.is-empty {
   color: var(--text-dim);
 }
 
+.tracker-corner-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.4rem 0.15rem;
+}
+
+.tracker-corner-btns .shot-bar-btn {
+  min-height: 32px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+
 @media (min-width: 720px) {
   .tracker-pitches {
     display: grid;
@@ -2724,6 +2838,35 @@ button.formation-card.is-empty {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+.shot-recent-nums {
+  grid-column: 1 / -1;
+  margin: 0 0 0.15rem;
+}
+
+.shot-recent-num-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.shot-recent-num {
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
+.shot-recent-num:hover,
+.shot-recent-num:focus-visible {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .linkish {
@@ -2923,6 +3066,15 @@ tr.is-unsaved td {
 .score-strip-btn:hover {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
+}
+
+.score-strip-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.score-strip.is-final .score-clock-face {
+  letter-spacing: 0.06em;
 }
 
 .score-strip-goto {
@@ -3161,6 +3313,11 @@ body.scoreboard-view .half-toggle-btn.is-on {
   line-height: 1;
 }
 
+.scoreboard-board.is-final .scoreboard-clock-face {
+  font-size: clamp(1.7rem, 9vw, 3.8rem);
+  letter-spacing: 0.08em;
+}
+
 .scoreboard-clock-input {
   width: min(12rem, 70vw);
   font-size: clamp(2rem, 10vw, 4rem);
@@ -3324,11 +3481,17 @@ button.scoreboard-period:focus-visible {
 
 .scoreboard-menu-item {
   display: block;
+  width: 100%;
   padding: 0.7rem 0.85rem;
   color: #f4f7fb;
   text-decoration: none;
+  text-align: left;
+  font: inherit;
   font-weight: 700;
+  border: none;
   border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
 }
 
 .scoreboard-menu-item:hover {

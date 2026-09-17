@@ -47,6 +47,7 @@ create table if not exists public.games (
   home_team_id uuid not null references public.teams (id),
   away_team_id uuid not null references public.teams (id),
   our_team_id uuid not null references public.teams (id),
+  lineup jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -188,7 +189,7 @@ begin
       add constraint shots_miss_direction_check
       check (
         miss_direction is null
-        or miss_direction in ('over', 'short', 'wide-left', 'wide-right')
+        or miss_direction in ('over', 'short', 'wide-left', 'wide-right', 'crossbar', 'post')
       );
 
     alter table public.shots drop constraint if exists shots_assist_type_check;

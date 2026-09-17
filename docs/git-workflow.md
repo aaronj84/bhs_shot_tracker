@@ -11,6 +11,7 @@ feature branch (optional)
         │  Pull Request
         ▼
       main  ── GitHub Pages (prod site)
+            ── encrypted PROD DB backup (artifact)
             ── migrations → PROD Supabase
 ```
 
@@ -28,7 +29,7 @@ git checkout -b dev
 git push -u origin dev
 ```
 
-3. Optional later: on GitHub → Settings → Branches → protect `main` so PRs require a green `CI` check.
+3. Optional later: on GitHub → Settings → Branches → protect `main` so PRs require a green `CI` check (and **Backup PROD** if you want a dump before merge).
 
 ---
 
@@ -55,11 +56,13 @@ Fix failures on `dev` before opening a PR.
 
 1. Open a PR: **base `main` ← compare `dev`**  
    (`gh pr create --base main --head dev` or the GitHub UI)
-2. Review the diff. Merge when green.
+2. Review the diff. Merge when green. Opening/updating the PR runs **Backup PROD** (encrypted dump artifact).
 3. After merge:
    - **Pages** workflow publishes the static site with **PROD** Supabase URL/anon
-   - **Supabase migrate** applies pending migrations to **PROD**
+   - If the PR included `supabase/migrations/`, **Supabase migrate** dumps PROD again, then `db push`
 4. Keep coding on `dev`. Do **not** delete `dev` when the PR asks; leave the branch.
+
+On-demand dump and restore: [backup.md](backup.md).
 
 That PR **is** the migrate-to-prod path for both frontend and schema.
 

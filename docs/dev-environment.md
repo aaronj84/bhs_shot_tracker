@@ -119,11 +119,13 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `SHOTS_SUPABASE_URL_PROD` | PROD Project URL (for GitHub Pages build) |
 | `SHOTS_SUPABASE_ANON_KEY_PROD` | PROD anon key |
 | `SHOTS_PIN` | Staff PIN (e.g. `KEPPA`) |
+| `BACKUP_ENCRYPTION_KEY` | Optional passphrase for CI database archives; falls back to `SUPABASE_DB_PASSWORD_PROD`. See [backup.md](backup.md). |
 
 After secrets exist:
 
 - Push to `dev` → migrations apply to **DEV**; CI runs API + Playwright against **DEV**
-- Merge to `main` → migrations apply to **PROD**; Pages deploys with **PROD** config
+- PR to `main` → encrypted **PROD** database backup (artifact)
+- Merge to `main` → backup PROD again, then migrations apply to **PROD**; Pages deploys with **PROD** config
 
 ---
 
