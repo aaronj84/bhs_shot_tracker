@@ -99,6 +99,8 @@ test.describe("Shot tracker smoke", () => {
     // Position phase: tapping a formation card completes the shot (player optional)
     await expect(page.locator("[data-pick-position]").first()).toBeVisible({ timeout: 10000 });
     await page.locator("[data-pick-position]").first().click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add an assist?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
 
     await expect(page.locator("#tracker-log")).toContainText(/Goal/i, { timeout: 20000 });
 

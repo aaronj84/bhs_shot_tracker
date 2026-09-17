@@ -61,6 +61,10 @@ export async function doubleTapPitch(page, team = "us", fracX = 0.55, fracY = 0.
   throw lastErr;
 }
 
+export async function doubleTapUsPitch(page, fracX = 0.55, fracY = 0.4) {
+  return doubleTapPitch(page, "us", fracX, fracY);
+}
+
 export async function singleTapPitch(page, team = "us", fracX = 0.48, fracY = 0.32) {
   const sel = team === "opp" ? "#tracker-pitch-opp .pitch-svg" : "#tracker-pitch-us .pitch-svg";
   let lastErr;
@@ -163,6 +167,18 @@ export async function finishTaker(page, team) {
   }
 }
 
+const LINK_SHOT_RESULTS = new Set(["goal", "on-target", "blocked", "missed"]);
+
+export async function skipLinkedPlayIfAsked(page) {
+  const title = page.locator("#shot-modal-title");
+  const modal = page.locator("#shot-event-modal");
+  await expect(modal).toBeVisible({ timeout: 10000 });
+  const text = (await title.textContent()) || "";
+  if (!/Add an assist|Add a setup pass|Add a second/i.test(text)) return false;
+  await page.locator("[data-offer-skip]").click();
+  return true;
+}
+
 /**
  * Record one play through the shot modal. `restartResult` is the follow-up after a
  * free kick or corner (`goal`, `missed`, `foul` for FK-only, etc.).
@@ -181,11 +197,11 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
   }
 
   const isRestart = actionId === "foul" || actionId === "corner";
+  const outcome = restartResult || actionId;
   if (isRestart) {
     await finishTaker(page, team);
     const heading = actionId === "corner" ? "Corner — what next?" : "Free kick — what next?";
     await expect(page.locator("#shot-modal-title")).toHaveText(heading, { timeout: 10000 });
-    const outcome = restartResult || actionId;
     await page.locator(`[data-restart-result="${outcome}"]`).click();
     if (outcome === "missed") {
       await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
@@ -197,6 +213,13 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
       await page.locator(`[data-miss-dir="${missDir}"]`).click();
     }
     await finishTaker(page, team);
+  }
+
+  const cornerThenShot = actionId === "corner" && restartResult && restartResult !== "corner";
+  if (!cornerThenShot && LINK_SHOT_RESULTS.has(outcome)) {
+    const expected = outcome === "goal" ? "Add an assist?" : "Add a setup pass?";
+    await expect(page.locator("#shot-modal-title")).toHaveText(expected, { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
   }
 
   await expect(modal).toBeHidden({ timeout: 15000 });

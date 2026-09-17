@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { createFriendlyAndOpenTracker, recordPlay, signIn } from "./helpers.mjs";
+import {
+  createFriendlyAndOpenTracker,
+  finishTaker,
+  openRecordModal,
+  recordPlay,
+  signIn,
+  singleTapPitch,
+} from "./helpers.mjs";
 
 const SHOT_TYPES = [
   { actionId: "goal", log: /Goal/i },
@@ -46,4 +53,43 @@ test.describe("Shot types home and visitor", () => {
       await expect(pills).toHaveCount(SHOT_TYPES.length);
     });
   }
+
+  test("shot then assist uses Assist after a goal and Setup pass otherwise", async ({ page }) => {
+    test.setTimeout(120000);
+    await signIn(page);
+    await createFriendlyAndOpenTracker(page);
+
+    await openRecordModal(page, "us");
+    await expect(page.locator("#shot-modal-title")).toHaveText("Shot or free kick?");
+    await expect(page.locator(".shot-action-heading", { hasText: "Shot" })).toBeVisible();
+    await expect(page.locator(".shot-action-heading", { hasText: "Set piece" })).toBeVisible();
+    await expect(page.locator(".shot-action-heading", { hasText: /^Assist$/ })).toHaveCount(0);
+    await page.locator('[data-action-id="goal"]').click();
+    await finishTaker(page, "us");
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add an assist?");
+    await page.locator('[data-offer-link="pass"]').click();
+    await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#tracker-status")).toContainText(/assist came from/i);
+
+    await singleTapPitch(page, "us", 0.35, 0.55);
+    await finishTaker(page, "us");
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add a second assist?");
+    await page.locator("[data-offer-skip]").click();
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+    await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
+  });
+
+  test("missed shot asks for a setup pass, not an assist", async ({ page }) => {
+    test.setTimeout(90000);
+    await signIn(page);
+    await createFriendlyAndOpenTracker(page);
+    await openRecordModal(page, "us");
+    await page.locator('[data-action-id="missed"]').click();
+    await page.locator('[data-miss-dir="over"]').click();
+    await finishTaker(page, "us");
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add a setup pass?");
+    await expect(page.locator(".shot-action-heading")).toHaveText("Setup pass");
+    await page.locator("[data-offer-skip]").click();
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+  });
 });

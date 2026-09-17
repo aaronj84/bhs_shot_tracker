@@ -54,6 +54,8 @@ test.describe("Corners", () => {
     await singleTapPitch(page, "us", 0.5, 0.3);
     await expect(page.locator("#shot-event-modal")).toBeVisible({ timeout: 10000 });
     await finishTaker(page, "us");
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add an assist?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);

@@ -24,6 +24,8 @@ test.describe("Shot map markers", () => {
     const value = await pick.locator("option[value]:not([value=''])").first().getAttribute("value");
     expect(value).toBeTruthy();
     await pick.selectOption(value);
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add a setup pass?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
 
     const num = page.locator("#tracker-pitch-opp .tracker-event.is-opp .tracker-shot-num");
@@ -43,6 +45,8 @@ test.describe("Shot map markers", () => {
     await expect(pick).toBeVisible({ timeout: 10000 });
     const value = await pick.locator("option[value]:not([value=''])").first().getAttribute("value");
     await pick.selectOption(value);
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add an assist?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
 
     await openRecordModal(page, "opp");
@@ -50,6 +54,8 @@ test.describe("Shot map markers", () => {
     const chip = page.locator(".shot-recent-num").first();
     await expect(chip).toBeVisible({ timeout: 10000 });
     await chip.click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Add a setup pass?", { timeout: 10000 });
+    await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.blocked")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
