@@ -40,7 +40,9 @@ supabase db push
 ```
 
 - Push to `dev` → GitHub Actions pushes migrations to **DEV**
-- Merge to `main` → Actions pushes migrations to **PROD**
+- Merge to `main` → Actions dumps PROD, then pushes migrations to **PROD**
+
+On-demand / PR backups: [`docs/backup.md`](../docs/backup.md).
 
 New change:
 

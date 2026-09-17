@@ -1,0 +1,50 @@
+# Logical backup of PROD Postgres.
+# On-demand: Actions → Backup PROD → Run workflow
+# Before merge: every PR targeting main
+# Before migrate: supabase-migrate.yml calls this via workflow_call
+#
+# Archives are encrypted (public repo). See docs/backup.md.
+
+name: Backup PROD
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: backup-prod-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF_PROD: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+      SUPABASE_DB_PASSWORD_PROD: ${{ secrets.SUPABASE_DB_PASSWORD_PROD }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump and encrypt PROD
+        id: dump
+        run: ./scripts/backup-db.sh --env prod --encrypt
+
+      - name: Upload encrypted archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-db-backup-${{ github.event_name }}-${{ github.run_id }}
+          path: backups/*.enc
+          if-no-files-found: error
+          retention-days: 90

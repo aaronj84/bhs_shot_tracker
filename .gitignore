@@ -27,6 +27,9 @@ benchmark-results/
 # Local / CI-generated Supabase client config (never commit)
 shots-config.js
 
+# Logical DB dumps (roster names — never commit)
+/backups/
+
 # Node / Playwright
 node_modules/
 playwright-report/

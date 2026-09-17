@@ -6,7 +6,9 @@
     "test": "npm run test:api && npm run test:e2e",
     "test:api": "vitest run --config vitest.config.mjs",
     "test:e2e": "playwright test",
-    "write-config": "node scripts/write-shots-config.js"
+    "write-config": "node scripts/write-shots-config.js",
+    "backup:prod": "./scripts/backup-db.sh --env prod",
+    "backup:dev": "./scripts/backup-db.sh --env dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

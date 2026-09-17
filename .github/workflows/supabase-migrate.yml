@@ -1,4 +1,5 @@
 # Deploy Supabase migrations
+# PROD: encrypted backup first (see backup-prod.yml), then db push.
 
 on:
   push:
@@ -9,8 +10,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  backup-prod:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/backup-prod.yml
+    secrets: inherit
+
   migrate:
     runs-on: ubuntu-latest
+    needs: [backup-prod]
+    if: |
+      always() && !cancelled() && (
+        github.ref == 'refs/heads/dev' ||
+        needs.backup-prod.result == 'success'
+      )
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:

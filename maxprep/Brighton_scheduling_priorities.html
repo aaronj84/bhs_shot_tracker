@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Brighton scheduling priorities — MaxPreps ranking</title>
+  <style>
+    @page { size: letter; margin: 0.7in 0.75in; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto;
+      max-width: 7.5in;
+      color: #1a2332;
+      font: 11.5pt/1.45 "Calibri", "Segoe UI", sans-serif;
+    }
+    header {
+      background: #0b1f33;
+      color: #f4f7fb;
+      padding: 18px 22px 16px;
+      margin: 0 0 18px;
+    }
+    header p.kicker {
+      margin: 0 0 4px;
+      font-size: 9pt;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #c5d4e4;
+    }
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 20pt;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header p.meta { margin: 0; font-size: 10.5pt; color: #d7e2ee; }
+    .problem {
+      background: #f7efe4;
+      border-left: 5px solid #c4782a;
+      padding: 12px 16px;
+      margin: 0 0 18px;
+    }
+    .problem strong.num { font-size: 16pt; color: #9a4e12; }
+    h2 {
+      font-size: 12.5pt;
+      margin: 20px 0 8px;
+      color: #0b1f33;
+      border-bottom: 1px solid #d5dde6;
+      padding-bottom: 4px;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 10.5pt; }
+    th {
+      text-align: left;
+      background: #0b1f33;
+      color: #f4f7fb;
+      padding: 6px 8px;
+      font-weight: 600;
+    }
+    td { padding: 5px 8px; border-bottom: 1px solid #e4eaf0; vertical-align: top; }
+    tr.brighton td { background: #f7efe4; font-weight: 600; }
+    .pri { margin: 0 0 12px; }
+    .pri h3 {
+      margin: 0 0 3px;
+      font-size: 11.5pt;
+      color: #0b1f33;
+    }
+    .pri h3 span {
+      display: inline-block;
+      width: 1.4em;
+      color: #c4782a;
+    }
+    .pri p { margin: 0; }
+    .split { width: 100%; }
+    .split td { width: 50%; border: 0; padding: 10px 12px; vertical-align: top; }
+    .help { background: #e8f0f7; }
+    .drag { background: #f7efe4; }
+    .help h3, .drag h3 { margin: 0 0 4px; font-size: 10.5pt; }
+    .onesent {
+      background: #0b1f33;
+      color: #f4f7fb;
+      padding: 14px 16px;
+      margin: 16px 0 12px;
+    }
+    .onesent p.kicker {
+      margin: 0 0 6px;
+      font-size: 8.5pt;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #c5d4e4;
+    }
+    .onesent p.body { margin: 0; font-size: 12.5pt; line-height: 1.4; }
+    .caveat { font-size: 9.5pt; color: #5a6675; margin: 8px 0 0; }
+    .swap {
+      border: 1px solid #d5dde6;
+      padding: 12px 14px;
+      margin: 16px 0 0;
+    }
+    .swap h2 { margin-top: 0; border: 0; padding: 0; }
+    ul { margin: 6px 0 0; padding-left: 1.2em; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="kicker">Brighton FS girls soccer · 5A · 13 September 2026</p>
+    <h1>Scheduling priorities to maximize final ranking</h1>
+    <p class="meta">For Ryan. Goal: raise MaxPreps ranking. Region schedule is locked.</p>
+  </header>
+
+  <div class="problem">
+    <p style="margin:0 0 6px"><strong>The actual problem, from today’s list</strong></p>
+    <p style="margin:0">We are 9–2 and ranked <strong>#9 statewide</strong> (rating 14.55). Our strength of schedule is <strong class="num">Str 3.8</strong> — the lowest of any team in the top 12. The record is not the problem. The rating thinks the wins were cheap.</p>
+  </div>
+
+  <h2>Proof sitting in the same list</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Team</th><th>Record</th><th>Rating</th><th>Str</th><th>What it shows</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>5</td><td>Lone Peak</td><td>8–3</td><td>17.87</td><td>13.5</td>
+        <td>Three losses, still above us — monster schedule.</td>
+      </tr>
+      <tr>
+        <td>3</td><td>Green Canyon</td><td>11–0</td><td>18.84</td><td>1.5</td>
+        <td>Undefeated did not buy #1. Soft schedule.</td>
+      </tr>
+      <tr>
+        <td>11 / 14</td><td>Manti / Box Elder</td><td>11–1 / 10–1</td><td>13.07 / 11.97</td><td>−1.6 / −1.5</td>
+        <td>Great records, cheap schedules, capped ratings.</td>
+      </tr>
+      <tr class="brighton">
+        <td>9</td><td>Brighton</td><td>9–2</td><td>14.55</td><td>3.8</td>
+        <td>Wins were cheap. Schedule is the lever.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Priorities, ranked by influence on final ranking</h2>
+
+  <div class="pri">
+    <h3><span>1</span>Beat good teams. Single biggest lever.</h3>
+    <p>A win over a top-15 opponent moves us more than anything else. The rating asks how strong we must be to have beaten who we beat — only strong opponents force a high answer.</p>
+  </div>
+  <div class="pri">
+    <h3><span>2</span>Do not lose to weak teams. Biggest downside.</h3>
+    <p>An unexpected loss gets more expensive the weaker the opponent. A 1–0 loss to a bottom-half team costs far more than a 1–0 loss to a top-5 team. Take every game seriously.</p>
+  </div>
+  <div class="pri">
+    <h3><span>3</span>Schedule up in non-region games.</h3>
+    <p>Str is 3.8 and can only climb out of region. Target roughly the top 20 in the state, any classification. A competitive loss to a genuinely strong team barely hurts; a win is the best result available. Two or three of these, not a whole schedule of them.</p>
+  </div>
+  <div class="pri">
+    <h3><span>4</span>Classification is irrelevant.</h3>
+    <p>The rating never uses class. Crimson Cliffs (4A) is #1 in the state and Green Canyon (4A) is #3. A game against the top of 4A is a better rating asset than a game against the bottom of 6A. Schedule by the rating list.</p>
+  </div>
+  <div class="pri">
+    <h3><span>5</span>Do not run up the score past five goals.</h3>
+    <p>Soccer is capped at five. A 9–0 and a 5–0 are the same number. Everything past the fifth goal is injury risk and goodwill we need next year.</p>
+  </div>
+  <div class="pri">
+    <h3><span>6</span>Report scores fast and correctly — especially out of state.</h3>
+    <p>If we play out of state, it is our job to get those scores entered. Missing opponent games make our Str wrong. Enter non-varsity as “Non-Varsity Opponent.”</p>
+  </div>
+  <div class="pri">
+    <h3><span>7</span>Prefer opponents who will be good later, not just now.</h3>
+    <p>About half of what moves our rating from here is what past opponents do the rest of the season. A September win over a team that becomes a November power gets re-credited at full value.</p>
+  </div>
+
+  <h2>Region is locked — and that is why non-region has to carry the load</h2>
+  <p>We play each of Bountiful, Olympus, Viewmont, Woods Cross, Alta, and Skyline twice. Mixed bag:</p>
+  <table class="split">
+    <tr>
+      <td class="help">
+        <h3>Helping Str</h3>
+        Olympus #7 (16.27) and Bountiful #10 (13.98). Four real games.
+      </td>
+      <td class="drag">
+        <h3>Dragging Str</h3>
+        Alta (−2.96), Woods Cross (3.56), Viewmont (8.10), Skyline (4.85). Unavoidable.
+      </td>
+    </tr>
+  </table>
+  <p>Half the slate is fixed at mediocre average strength. The other half is the only lever.</p>
+
+  <div class="onesent">
+    <p class="kicker">One-sentence version</p>
+    <p class="body">Play and beat the strongest teams we can find out of region, never lose to a weak one, ignore what class anyone is in, and stop caring about the scoreline once we are up five.</p>
+  </div>
+
+  <div class="swap">
+    <h2>If asked: swap a #75 win for a close #5 loss?</h2>
+    <p style="margin:0">Direction is clear. That trade almost certainly helps, or costs nearly nothing: drop a cheap win (Logan, rating about −5.25) and add a top-5 opponent (Lone Peak, 17.87). MaxPreps says a close loss to a much higher-rated team can raise your rating. Magnitude — how many seed spots — is not a number anyone should invent until the full season game list is loaded. The machinery exists; the inputs are not in yet.</p>
+  </div>
+
+  <p class="caveat">Directions above are grounded in MaxPreps/UHSAA published rules and the 13 Sep 2026 state rankings. Exact seed value of any single game is not calibrated. Treat this as an order of operations, not a forecast. MaxPreps last updated this list 10 Sep 2026.</p>
+</body>
+</html>
