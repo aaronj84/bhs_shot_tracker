@@ -82,7 +82,7 @@ These were one-off / hand-run scripts. The baseline migrations already cover the
 - `migrate_explore.sql` → `…00002_explore.sql`
 - `migrate_shot_tracker_v3.sql`, `migrate_fouler.sql`, `migrate_charlotte_sharky.sql`, `migrate_position_groups_jv.sql`, `migrate_2026_varsity_schedule.sql`, `migrate_import_recorded_shots.sql`, etc.
 
-Optional DEV seed: `sample_data.sql` in the SQL editor.
+Preview / empty-database seed: [`seed.sql`](seed.sql) (wired in `config.toml` `[db.seed]`). Optional SQL Editor extras: `seed_dev_sandbox.sql`, `sample_data.sql`. Never run any of those on prod.
 
 ## Explore + Opponent Prep (optional AI)
 

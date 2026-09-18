@@ -10,6 +10,10 @@
 
 project_id = "bhs_shot_tracker"
 
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
 [functions.explore-shots]
 verify_jwt = true
 

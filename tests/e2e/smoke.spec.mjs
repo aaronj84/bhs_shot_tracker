@@ -1,5 +1,11 @@
-import { expect, test } from "@playwright/test";
-import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, doubleTapUsPitch, signIn } from "./helpers.mjs";
+import {
+  assignTwoUsLineupPlayers,
+  createFriendlyAndOpenTracker,
+  doubleTapUsPitch,
+  expect,
+  signIn,
+  test,
+} from "./helpers.mjs";
 
 test.describe("Shot tracker smoke", () => {
   test.beforeEach(async ({ page }) => {

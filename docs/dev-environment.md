@@ -63,7 +63,9 @@ npm run db:up
 
 That applies every up under `supabase/migrations/` that this database has not recorded yet (baseline schema + semantic layer + explore RPC + later changes). A new empty project comes up to speed with the same command.
 
-Optional DEV seed (rich fake season — **DEV only**):
+Preview branches and `supabase db reset` seed from [`supabase/seed.sql`](../supabase/seed.sql) (cartoon Medville / Bogwater season only — never production data).
+
+Optional extra DEV seed (SQL Editor on the long-lived DEV project):
 
 1. Confirm the dashboard project is `bhs-shot-tracker-dev` (ref `fmiymqnfezkqagpbrmoi`).
 2. **SQL Editor** → paste [`supabase/seed_dev_sandbox.sql`](../supabase/seed_dev_sandbox.sql) → Run.

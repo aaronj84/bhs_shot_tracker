@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, signIn } from "./helpers.mjs";
+import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, expect, signIn, test } from "./helpers.mjs";
 
 test.describe("Lineup sync", () => {
   test.beforeEach(async ({ page }) => {

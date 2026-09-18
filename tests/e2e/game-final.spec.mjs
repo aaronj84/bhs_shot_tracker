@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { createFriendlyAndOpenTracker, recordPlay, signIn } from "./helpers.mjs";
+import { createFriendlyAndOpenTracker, expect, recordPlay, signIn, test } from "./helpers.mjs";
 
 test.describe("Mark game final", () => {
   test.beforeEach(async ({ page }) => {

@@ -1,6 +1,82 @@
-import { expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test as base, expect } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+export { expect };
 
 export const pin = process.env.SHOTS_PIN || "KEPPA";
+
+const createdGameIds = [];
+const createdTeamNames = [];
+let e2eClientPromise;
+
+function loadSupabaseCreds() {
+  let url = process.env.SHOTS_SUPABASE_URL || "";
+  let anon = process.env.SHOTS_SUPABASE_ANON_KEY || "";
+  if (url && anon) return { url, anon };
+  try {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "shots-config.js"), "utf8");
+    url = url || (src.match(/supabaseUrl:\s*"([^"]+)"/) || [])[1] || "";
+    anon = anon || (src.match(/supabaseAnonKey:\s*"([^"]+)"/) || [])[1] || "";
+  } catch {
+    /* no local config */
+  }
+  return { url, anon };
+}
+
+async function e2eClient() {
+  if (e2eClientPromise) return e2eClientPromise;
+  e2eClientPromise = (async () => {
+    const { url, anon } = loadSupabaseCreds();
+    if (!url || !anon) return null;
+    const sb = createClient(url, anon, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error } = await sb.auth.signInAnonymously();
+    if (error) throw new Error(`e2e cleanup auth failed: ${error.message}`);
+    return sb;
+  })();
+  try {
+    return await e2eClientPromise;
+  } catch (err) {
+    e2eClientPromise = undefined;
+    throw err;
+  }
+}
+
+export async function deleteCreatedE2EGames() {
+  const ids = createdGameIds.splice(0, createdGameIds.length);
+  const teamNames = createdTeamNames.splice(0, createdTeamNames.length);
+  if (!ids.length && !teamNames.length) return;
+  const sb = await e2eClient();
+  if (!sb) {
+    console.warn(
+      "e2e cleanup skipped: set SHOTS_SUPABASE_URL and SHOTS_SUPABASE_ANON_KEY (or write shots-config.js)"
+    );
+    return;
+  }
+  if (ids.length) {
+    const { error } = await sb.from("games").delete().in("id", ids);
+    if (error) throw new Error(`e2e game cleanup failed: ${error.message}`);
+  }
+  if (teamNames.length) {
+    const { error } = await sb.from("teams").delete().in("name", teamNames);
+    if (error) throw new Error(`e2e team cleanup failed: ${error.message}`);
+  }
+}
+
+/** Auto-deletes games (and any E2E Opp teams) created during the test. */
+export const test = base.extend({
+  _e2eGameCleanup: [
+    async ({}, use) => {
+      await use();
+      await deleteCreatedE2EGames();
+    },
+    { auto: true },
+  ],
+});
 
 export async function signIn(page) {
   await page.goto("/#shots");
@@ -121,17 +197,24 @@ export async function createFriendlyAndOpenTracker(page) {
   if (existing) {
     await away.selectOption(existing.value);
   } else {
+    const teamName = `E2E Opp ${Date.now()}`;
+    createdTeamNames.push(teamName);
     await away.selectOption("__new__");
     await expect(page.locator("#new-away-name")).toBeVisible();
-    await page.locator("#new-away-name").fill(`E2E Opp ${Date.now()}`);
+    await page.locator("#new-away-name").fill(teamName);
   }
 
   await page.locator("#new-game-type").selectOption("friendly");
   await page.locator("#new-game-form button[type=submit]").click();
   await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
+  await page.waitForFunction(() => !!sessionStorage.getItem("shots-game-id"), null, { timeout: 10000 });
+  const gameId = await page.evaluate(() => sessionStorage.getItem("shots-game-id"));
+  expect(gameId).toBeTruthy();
+  createdGameIds.push(gameId);
   await expect(page.locator("#tracker-pitch-us .pitch-svg")).toBeVisible();
   await expect(page.locator("#tracker-pitch-opp .pitch-svg")).toBeVisible();
   await page.waitForTimeout(400);
+  return gameId;
 }
 
 let tapSeq = 0;
