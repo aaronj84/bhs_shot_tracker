@@ -37,7 +37,7 @@ git push -u origin dev
 
 ```bash
 git checkout dev
-# … edit code / add supabase/migrations/….sql …
+# … edit code / add supabase/migrations + supabase/down …
 git add -A
 git commit -m "Describe why"
 git push origin dev
@@ -46,7 +46,7 @@ git push origin dev
 GitHub Actions on `dev`:
 
 - **CI** — API integration + Playwright smokes against **DEV**
-- **Supabase migrate** — `supabase db push` to **DEV**
+- **Supabase migrate** — `npm run db:up` to **DEV** (applies missing versions only)
 
 Fix failures on `dev` before opening a PR.
 
@@ -59,7 +59,7 @@ Fix failures on `dev` before opening a PR.
 2. Review the diff. Merge when green. Opening/updating the PR runs **Backup PROD** (encrypted dump artifact).
 3. After merge:
    - **Pages** workflow publishes the static site with **PROD** Supabase URL/anon
-   - If the PR included `supabase/migrations/`, **Supabase migrate** dumps PROD again, then `db push`
+   - If the PR included `supabase/migrations/` or `supabase/down/`, **Supabase migrate** dumps PROD again, then `db:up`
 4. Keep coding on `dev`. Do **not** delete `dev` when the PR asks; leave the branch.
 
 On-demand dump and restore: [backup.md](backup.md).

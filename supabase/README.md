@@ -30,28 +30,43 @@ window.SHOTS_CONFIG = {
 | **PROD** | `sczdnalqmymhdornhkbn` | Live site + real data |
 | **DEV** | (you create) | Local + CI |
 
-## Schema & migrations (current process)
+## Schema & migrations
 
-Schema lives in timestamped files under [`migrations/`](migrations/). Apply with the CLI:
+Each change is a versioned **up** + **down** pair:
+
+| | Path |
+| --- | --- |
+| Up | [`migrations/<timestamp>_<name>.sql`](migrations/) |
+| Down | [`down/<timestamp>_<name>.sql`](down/) |
+
+The runner (`scripts/migrate.mjs`) looks at `supabase_migrations.schema_migrations` on the **linked** project, applies any ups that database does not have, and can roll back with the matching down.
 
 ```bash
-supabase link --project-ref <DEV_OR_PROD_REF>
-supabase db push
+supabase link --project-ref <DEV_REF>
+npm run db:status          # local files vs versions on the linked DB
+npm run db:up              # apply missing ups
+npm run db:up -- --dry-run
+npm run db:down -- --dry-run
+npm run db:down -- 1 --yes # rollback last applied (refuses PROD unless --allow-prod)
 ```
-
-- Push to `dev` → GitHub Actions pushes migrations to **DEV**
-- Merge to `main` → Actions dumps PROD, then pushes migrations to **PROD**
-
-On-demand / PR backups: [`docs/backup.md`](../docs/backup.md).
 
 New change:
 
 ```bash
-supabase migration new describe_change
+npm run db:new -- describe_change
 # edit supabase/migrations/<timestamp>_describe_change.sql
-supabase db push
-git add supabase/migrations && git commit
+# edit supabase/down/<timestamp>_describe_change.sql
+npm run db:up
+git add supabase/migrations supabase/down && git commit
 ```
+
+- Push to `dev` → GitHub Actions runs `db:up` against **DEV**
+- Merge to `main` → Actions dumps PROD, then `db:up` against **PROD**
+- A brand-new environment (public DEV, stage, empty project): link it, then `npm run db:up`
+
+If an existing database recorded the same change under a different timestamp, `status` shows it as an **alias** and `up` skips that file. `node scripts/migrate.mjs sync-history --yes` rewrites those remote versions to match git.
+
+On-demand / PR backups: [`docs/backup.md`](../docs/backup.md).
 
 ### Dashboard (still required once per project)
 

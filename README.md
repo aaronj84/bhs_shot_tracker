@@ -40,7 +40,7 @@ npm run test:api                     # Vitest vs DEV
 npm run test:e2e                     # Playwright smokes
 ```
 
-GitHub Actions runs those on push/PR to `dev` and `main`, and applies `supabase/migrations/` via `db push` (DEV on `dev`, PROD on `main` after an encrypted PROD backup).
+GitHub Actions runs those on push/PR to `dev` and `main`, and applies missing `supabase/migrations/` ups (DEV on `dev`, PROD on `main` after an encrypted PROD backup). Rollbacks use the matching file in `supabase/down/`.
 
 ```bash
 export SUPABASE_DB_PASSWORD_PROD='…'
@@ -71,7 +71,8 @@ npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
   shots-config.example.js
   docs/                   # Dev env + git workflow
   tests/                  # API + Playwright
-  supabase/migrations/    # Canonical schema migrations
+  supabase/migrations/    # Schema ups (versioned)
+  supabase/down/          # Matching downs for rollback
   supabase/functions/     # Explore Edge Function
   benchmark/              # Explore LLM harness
   scripts/                # Config writer, CSV helpers, DB backup

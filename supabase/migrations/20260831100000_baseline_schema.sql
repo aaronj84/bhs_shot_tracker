@@ -1,5 +1,5 @@
 -- Baseline schema (squashed from schema.sql). Idempotent.
--- Applied automatically via supabase db push / CI.
+-- Applied automatically via npm run db:up / CI.
 
 -- Brighton Shot Tracker — Phase 2 schema
 -- Safe to re-run: idempotent, additive, non-data-destructive.

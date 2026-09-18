@@ -7,6 +7,11 @@
     "test:api": "vitest run --config vitest.config.mjs",
     "test:e2e": "playwright test",
     "write-config": "node scripts/write-shots-config.js",
+    "db:status": "node scripts/migrate.mjs status",
+    "db:up": "node scripts/migrate.mjs up",
+    "db:down": "node scripts/migrate.mjs down",
+    "db:new": "node scripts/migrate.mjs new",
+    "db:sync-history": "node scripts/migrate.mjs sync-history",
     "backup:prod": "./scripts/backup-db.sh --env prod",
     "backup:dev": "./scripts/backup-db.sh --env dev"
   },

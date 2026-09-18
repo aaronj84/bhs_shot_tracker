@@ -57,10 +57,11 @@ From the repo root (Supabase CLI already used on this machine):
 supabase link --project-ref YOUR_DEV_REF
 # enter the DEV database password when prompted
 
-supabase db push
+npm run db:status
+npm run db:up
 ```
 
-That applies everything under `supabase/migrations/` (baseline schema + semantic layer + explore RPC).
+That applies every up under `supabase/migrations/` that this database has not recorded yet (baseline schema + semantic layer + explore RPC + later changes). A new empty project comes up to speed with the same command.
 
 Optional DEV seed (rich fake season — **DEV only**):
 
@@ -81,10 +82,11 @@ Lighter alternative: `supabase/sample_data.sql`. Never run either on **prod**.
 ### Local CLI habit
 
 - Link to **DEV** when developing: `supabase link --project-ref <DEV_REF>`
-- New schema change: `supabase migration new short_description` → edit the new file → `supabase db push` → commit the migration
-- Prod gets the same files automatically when you merge to `main` (see CI below)
+- New schema change: `npm run db:new -- short_description` → edit the up **and** the down → `npm run db:up` → commit both files
+- Prod gets the same ups automatically when you merge to `main` (see CI below)
+- Rollback on DEV: `npm run db:down -- --dry-run` then `npm run db:down -- --yes`
 
-Legacy one-off scripts (`supabase/migrate_*.sql`, `schema.sql`) are historical; new work goes in `supabase/migrations/` only.
+Legacy one-off scripts (`supabase/migrate_*.sql`, `schema.sql`) are historical; new work goes in `supabase/migrations/` + `supabase/down/` only.
 
 ---
 
@@ -99,7 +101,7 @@ supabase functions deploy explore-shots
 supabase functions deploy prep-opponent
 ```
 
-Core CI does **not** require those functions. Notes tables come from `supabase db push` (migration `prep_notes`).
+Core CI does **not** require those functions. Notes tables come from `npm run db:up` (migration `prep_notes`).
 
 ---
 
@@ -141,9 +143,9 @@ After secrets exist:
 
 If you merge first and leave Pages on “Deploy from a branch”, the public site will 404 `shots-config.js` until you switch.
 
-### First `db push` to PROD
+### First `db:up` to PROD
 
-PROD already has the schema from older hand-run SQL. The baseline migrations are **idempotent** (`if not exists` / `create or replace`), so the first Actions `db push` should apply cleanly and record migration history. If a step fails on an old constraint edge case, open the Actions log, fix or `supabase migration repair` with the CLI linked to PROD, and re-run the workflow (`workflow_dispatch`).
+PROD already has the schema from older hand-run SQL. The baseline ups are **idempotent** (`if not exists` / `create or replace`), so the first Actions `db:up` should apply cleanly and record migration history. If a step fails on an old constraint edge case, open the Actions log, fix or `node scripts/migrate.mjs sync-history --yes --allow-prod` with the CLI linked to PROD, and re-run the workflow (`workflow_dispatch`).
 
 ---
 
@@ -152,6 +154,6 @@ PROD already has the schema from older hand-run SQL. The baseline migrations are
 | Check | Expected |
 | --- | --- |
 | Local `#shots` with DEV config + PIN | Opens tracker; games list loads |
-| `supabase db push` on DEV | “Remote database is up to date” or applies pending files |
+| `npm run db:up` on DEV | “Database is up to date” or applies pending files |
 | GitHub Actions on `dev` | `ci` + `supabase-migrate` (DEV) green |
 | PR merge to `main` | Pages live; migrate job targets PROD |
