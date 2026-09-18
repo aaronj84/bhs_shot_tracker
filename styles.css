@@ -3034,7 +3034,7 @@ tr.is-unsaved td {
 .score-strip-controls {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 0.35rem;
   margin-top: 0.45rem;
   padding-top: 0.5rem;
