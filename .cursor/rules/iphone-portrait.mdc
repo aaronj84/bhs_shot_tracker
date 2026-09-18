@@ -1,0 +1,14 @@
+---
+description: Sideline UI must fit an iPhone portrait screen
+alwaysApply: true
+---
+
+# iPhone portrait UI
+
+This app is used on the sideline on an iPhone, held **portrait**. Every UI change must work in that frame.
+
+- Design and verify at **390×844 CSS pixels** (iPhone 14/15/16 class). Not desktop. Not landscape.
+- Layouts, tap targets, type, and spacing must fit that viewport without horizontal scroll.
+- Prefer the existing phone layout (`max-width: 719px`, hamburger nav). Do not add desktop-only chrome, multi-column dashboards, or hover-only controls.
+- When using a browser or Playwright, set the viewport to 390×844 (portrait) before judging layout.
+- Safe areas matter: keep primary controls clear of the notch and home indicator (`viewport-fit=cover`, `env(safe-area-inset-*)`).

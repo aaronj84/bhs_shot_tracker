@@ -1,0 +1,13 @@
+{
+  "name": "bhs-shot-tracker",
+  "install": "npm ci && npx playwright install --with-deps chromium",
+  "start": "if [ -n \"$SHOTS_SUPABASE_URL\" ] && [ -n \"$SHOTS_SUPABASE_ANON_KEY\" ]; then node scripts/write-shots-config.js; elif [ ! -f shots-config.js ]; then cp shots-config.example.js shots-config.js; fi",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "python3 -m http.server 8080",
+      "description": "Static site at http://127.0.0.1:8080. Verify UI in iPhone portrait (390x844)."
+    }
+  ],
+  "ports": [{ "name": "web", "port": 8080 }]
+}
