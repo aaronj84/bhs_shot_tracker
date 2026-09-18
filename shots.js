@@ -3666,11 +3666,11 @@
           `<button type="button" class="shot-action-btn is-${a.result}" data-action-id="${escapeHtml(a.id)}">${escapeHtml(actionShortLabel(a))}</button>`
       ).join("");
       const continuingSetPiece =
-        !!st.pending?.assist && !st.pending?.shotDraft && !st.pending?.linkType;
-      title.textContent = continuingSetPiece
-        ? "Next pass or shot?"
-        : step === "shot"
-          ? "Shot result?"
+        !!st.pending?.assist && !st.pending?.shotDraft && !st.pending?.linkType && step !== "shot";
+      title.textContent = step === "shot"
+        ? "Shot result?"
+        : continuingSetPiece
+          ? "Next pass or shot?"
           : "Shot or free kick?";
       locEl.textContent = locText;
       if (playerHeading) {
