@@ -31,12 +31,20 @@ async function e2eClient() {
   e2eClientPromise = (async () => {
     const { url, anon } = loadSupabaseCreds();
     if (!url || !anon) return null;
+    // Node 20 has no native WebSocket; we only need REST deletes, not realtime.
     const sb = createClient(url, anon, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: class NoopWebSocket {} },
     });
-    const { error } = await sb.auth.signInAnonymously();
-    if (error) throw new Error(`e2e cleanup auth failed: ${error.message}`);
-    return sb;
+    let lastErr;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await sb.auth.signInAnonymously();
+      if (!error) return sb;
+      lastErr = error;
+      if (!/rate limit/i.test(error.message || "") || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+    throw new Error(`e2e cleanup auth failed: ${lastErr.message}`);
   })();
   try {
     return await e2eClientPromise;

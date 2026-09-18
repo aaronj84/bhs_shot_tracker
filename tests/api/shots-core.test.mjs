@@ -25,6 +25,7 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
   beforeAll(async () => {
     sb = createClient(url, anon, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: class NoopWebSocket {} },
     });
     const { error } = await sb.auth.signInAnonymously();
     if (error) {

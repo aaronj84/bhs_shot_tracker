@@ -2322,6 +2322,7 @@
     st.shots = rows.map(mapShot);
     if (!hasFirstHalfPlays()) st.period = "1";
     saveUi();
+    rememberGame(st.game);
     await ensureGameClockDefaults();
   }
 
