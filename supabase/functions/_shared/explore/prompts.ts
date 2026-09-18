@@ -43,7 +43,7 @@ Do NOT query raw shots or games for stats. Opponent, home/away, on-frame, and sc
 SHOT / ASSIST SEMANTICS
 - result: goal|on-target|blocked|missed|foul|corner|pk-goal|pk-missed
 - Prefer is_on_frame / is_goal flags on the views over re-filtering result
-- assist_type: pass|gap|cross (gap = through-ball / gap pass)
+- assist_type: pass|gap|cross|rebound|over_the_top (gap = through-ball / gap pass; over_the_top = ball played over the defense)
 - second_assist_player_id / second_assist_type: the pass before the assist (pre-assist); same type values; may be null
 - position / assist_position: GK,RB,LB,RCB,LCB,DM,RW,RM,CM,CF,LM,AM,LW
 - Midfielders for assists: join players on assist_player_id and use position_groups including MID, or prior assist_position in ('DM','LM','RM','CM','AM') when needed from raw context

@@ -142,11 +142,24 @@
     post: "Post",
   };
   const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right", "crossbar", "post"];
-  const ASSIST_TYPE_LABELS = { pass: "Pass", gap: "Gap", cross: "Cross" };
+  const ASSIST_TYPE_LABELS = {
+    pass: "Pass",
+    gap: "Gap",
+    cross: "Cross",
+    rebound: "Rebound",
+    over_the_top: "Over the Top",
+  };
   const TRACKER_ASSIST_ACTIONS = [
     { id: "assist-pass", label: "Assist — Pass", kind: "assist", type: "pass" },
     { id: "assist-gap", label: "Assist — Gap", kind: "assist", type: "gap" },
     { id: "assist-cross", label: "Assist — Cross", kind: "assist", type: "cross" },
+    { id: "assist-rebound", label: "Assist — Rebound", kind: "assist", type: "rebound" },
+    {
+      id: "assist-over-the-top",
+      label: "Assist — Over the Top",
+      kind: "assist",
+      type: "over_the_top",
+    },
   ];
   const TRACKER_SHOT_ACTIONS = [
     { id: "goal", label: "Goal", kind: "shot", result: "goal" },
