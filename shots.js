@@ -3665,18 +3665,19 @@
         (a) =>
           `<button type="button" class="shot-action-btn is-${a.result}" data-action-id="${escapeHtml(a.id)}">${escapeHtml(actionShortLabel(a))}</button>`
       ).join("");
-      const continuingCorner =
+      const continuingSetPiece =
         !!st.pending?.assist && !st.pending?.shotDraft && !st.pending?.linkType;
-      title.textContent = continuingCorner
+      title.textContent = continuingSetPiece
         ? "Next pass or shot?"
         : step === "shot"
           ? "Shot result?"
           : "Shot or free kick?";
       locEl.textContent = locText;
       if (playerHeading) {
-        if (continuingCorner) {
+        if (continuingSetPiece) {
           playerHeading.hidden = false;
-          playerHeading.textContent = "The corner is already the setup pass / assist. Add another pass, or pick the shot.";
+          playerHeading.textContent =
+            "The set piece is already the setup pass / assist. Add another pass, or pick the shot.";
         } else {
           playerHeading.hidden = true;
         }
@@ -3686,7 +3687,7 @@
       actionGrid.hidden = false;
       if (step === "shot") {
         actionGrid.innerHTML = `<div class="shot-action-row shot-action-row-fill">${shotBtns}</div>`;
-      } else if (continuingCorner) {
+      } else if (continuingSetPiece) {
         const assistBtns = TRACKER_ASSIST_ACTIONS.map(
           (a) =>
             `<button type="button" class="shot-action-btn is-assist" data-action-id="${escapeHtml(a.id)}">${escapeHtml(ASSIST_TYPE_LABELS[a.type])}</button>`
@@ -3764,6 +3765,7 @@
     if (phase === "fk-result" || phase === "corner-result") {
       const chosen = shotModalDraft.action;
       const isCorner = phase === "corner-result" || chosen?.result === "corner";
+      const setPiece = isCorner ? "corner" : "free kick";
       const taker = shotModalDraft.player
         ? playerLabel(Object.assign({ team: recordingTeam() }, shotModalDraft.player))
         : shotModalDraft.position
@@ -3773,31 +3775,17 @@
       locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
-        playerHeading.textContent = isCorner
-          ? "Was there a shot, a pass, or no shot? A shot or pass treats the corner as the setup pass / assist."
-          : "Shot from here, or just log the free kick.";
+        playerHeading.textContent = `Was there a shot, a pass, or no shot? A shot or pass treats the ${setPiece} as the setup pass / assist.`;
       }
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
       actionGrid.hidden = false;
-      if (isCorner) {
-        actionGrid.innerHTML = `
-          <div class="shot-action-row shot-action-row-fill">
-            <button type="button" class="shot-action-btn is-goal" data-corner-follow="shot">Shot</button>
-            <button type="button" class="shot-action-btn is-assist" data-corner-follow="pass">Pass</button>
-            <button type="button" class="shot-action-btn is-corner" data-corner-follow="none">No shot</button>
-          </div>`;
-        return;
-      }
-      const shotBtns = TRACKER_SHOT_ACTIONS.map(
-        (a) =>
-          `<button type="button" class="shot-action-btn is-${a.result}" data-restart-result="${escapeHtml(a.result)}">${escapeHtml(actionShortLabel(a))}</button>`
-      ).join("");
+      const noneClass = isCorner ? "is-corner" : "is-foul";
       actionGrid.innerHTML = `
-        <p class="shot-action-heading">Shot</p>
-        <div class="shot-action-row shot-action-row-fill">${shotBtns}</div>
-        <div class="shot-action-row shot-action-row-fill" style="margin-top:0.55rem">
-          <button type="button" class="shot-action-btn is-foul" data-restart-result="foul">No shot — free kick only</button>
+        <div class="shot-action-row shot-action-row-fill">
+          <button type="button" class="shot-action-btn is-goal" data-setpiece-follow="shot">Shot</button>
+          <button type="button" class="shot-action-btn is-assist" data-setpiece-follow="pass">Pass</button>
+          <button type="button" class="shot-action-btn ${noneClass}" data-setpiece-follow="none">No shot</button>
         </div>`;
       return;
     }
@@ -4372,34 +4360,38 @@
     await commitShotEvent(draft.result, draft.shooter || null, assist, secondAssist);
   }
 
-  async function saveCornerThenAwaitFollowUp(followUp) {
+  async function saveSetPieceThenAwaitFollowUp(followUp) {
     const player = shotModalDraft.player || null;
     const team = recordingTeam();
+    const origin = shotModalDraft.action?.result === "foul" ? "foul" : "corner";
+    const label = origin === "foul" ? "Free kick" : "Corner";
     const assistType = followUp.assistType || (followUp.kind === "pass" ? "pass" : "cross");
-    const cornerAssist = {
+    const setPieceAssist = {
       player,
       type: assistType,
       location: shotModalDraft.location,
       position: shotModalDraft.position || "",
     };
-    shotModalDraft.fkOutcome = "corner";
+    shotModalDraft.fkOutcome = origin;
     shotModalDraft.missDirection = "";
-    await commitShotEvent("corner", player, null, null);
+    await commitShotEvent(origin, player, null, null);
     st.team = team;
     st.mode = "awaiting-shot-location";
     if (followUp.kind === "pass") {
       st.pending = {
-        assist: cornerAssist,
+        assist: setPieceAssist,
         cornerFollowUp: "pass",
+        setPieceOrigin: origin,
       };
-      showToast("Corner saved — tap the next pass or the shot");
+      showToast(`${label} saved — tap the next pass or the shot`);
     } else {
       st.pending = {
-        assist: cornerAssist,
+        assist: setPieceAssist,
         cornerFollowUp: "shot",
+        setPieceOrigin: origin,
         restartShot: { fromCorner: true },
       };
-      showToast("Corner saved — tap where the shot was taken");
+      showToast(`${label} saved — tap where the shot was taken`);
     }
     draw();
   }
@@ -4770,16 +4762,20 @@
         await commitPendingShotDraft();
         return;
       }
-      const cornerFollowBtn = e.target.closest("[data-corner-follow]");
+      const cornerFollowBtn = e.target.closest("[data-setpiece-follow], [data-corner-follow]");
       if (cornerFollowBtn) {
-        const follow = cornerFollowBtn.getAttribute("data-corner-follow") || "none";
+        const follow =
+          cornerFollowBtn.getAttribute("data-setpiece-follow") ||
+          cornerFollowBtn.getAttribute("data-corner-follow") ||
+          "none";
+        const origin = shotModalDraft.action?.result === "foul" ? "foul" : "corner";
         if (follow === "none") {
-          shotModalDraft.fkOutcome = "corner";
+          shotModalDraft.fkOutcome = origin;
           shotModalDraft.missDirection = "";
           await afterShotReadyToSave();
           return;
         }
-        await saveCornerThenAwaitFollowUp({
+        await saveSetPieceThenAwaitFollowUp({
           kind: follow === "pass" ? "pass" : "shot",
           assistType: follow === "pass" ? "pass" : "cross",
         });

@@ -26,16 +26,16 @@ test.describe("Corners", () => {
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
     await expect(page.locator("#shot-modal-title")).toHaveText("Corner — what next?");
-    await expect(page.locator('[data-corner-follow="shot"]')).toBeVisible();
-    await expect(page.locator('[data-corner-follow="pass"]')).toBeVisible();
-    await expect(page.locator('[data-corner-follow="none"]')).toBeVisible();
-    await page.locator('[data-corner-follow="none"]').click();
+    await expect(page.locator('[data-setpiece-follow="shot"]')).toBeVisible();
+    await expect(page.locator('[data-setpiece-follow="pass"]')).toBeVisible();
+    await expect(page.locator('[data-setpiece-follow="none"]')).toBeVisible();
+    await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log")).toContainText(/Corner/i, { timeout: 20000 });
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
-    await page.locator('[data-corner-follow="none"]').click();
+    await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(2);
   });
@@ -48,7 +48,7 @@ test.describe("Corners", () => {
     await startCornerFromFlag(page, "us", "right");
     await finishTaker(page, "us");
     await expect(page.locator("#shot-modal-title")).toHaveText("Corner — what next?");
-    await page.locator('[data-corner-follow="shot"]').click();
+    await page.locator('[data-setpiece-follow="shot"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log")).toContainText(/Corner/i, { timeout: 20000 });
     await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
@@ -76,7 +76,7 @@ test.describe("Corners", () => {
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
-    await page.locator('[data-corner-follow="pass"]').click();
+    await page.locator('[data-setpiece-follow="pass"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("#tracker-status")).toContainText(/next pass or the shot/i);
@@ -102,7 +102,7 @@ test.describe("Corners", () => {
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
-    await page.locator('[data-corner-follow="none"]').click();
+    await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-pitch-us [data-inspect-id]")).toBeVisible({ timeout: 15000 });
 

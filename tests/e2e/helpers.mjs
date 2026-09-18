@@ -181,8 +181,8 @@ export async function skipLinkedPlayIfAsked(page) {
 
 /**
  * Record one play through the shot modal. `restartResult` is the follow-up after a
- * free kick (`goal`, `missed`, `foul` for FK-only, etc.) or corner (`corner` for
- * corner-only; shot results use the Shot path with a second tap).
+ * free kick or corner (`foul`/`corner` for set-piece only; shot results use the
+ * Shot path with a second tap and auto-link the set piece as assist).
  */
 export async function recordPlay(page, { team, actionId, restartResult, missDir = "over" }) {
   const modal = page.locator("#shot-event-modal");
@@ -197,15 +197,16 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
     await modal.locator("[data-player-skip]").click();
   }
 
-  const isRestart = actionId === "foul" || actionId === "corner";
   const outcome = restartResult || actionId;
-  if (actionId === "corner") {
+  if (actionId === "foul" || actionId === "corner") {
     await finishTaker(page, team);
-    await expect(page.locator("#shot-modal-title")).toHaveText("Corner — what next?", { timeout: 10000 });
-    if (!restartResult || restartResult === "corner") {
-      await page.locator('[data-corner-follow="none"]').click();
+    const heading = actionId === "corner" ? "Corner — what next?" : "Free kick — what next?";
+    const onlyResult = actionId === "corner" ? "corner" : "foul";
+    await expect(page.locator("#shot-modal-title")).toHaveText(heading, { timeout: 10000 });
+    if (!restartResult || restartResult === onlyResult) {
+      await page.locator('[data-setpiece-follow="none"]').click();
     } else {
-      await page.locator('[data-corner-follow="shot"]').click();
+      await page.locator('[data-setpiece-follow="shot"]').click();
       await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
       await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
       await singleTapPitch(page, team, 0.5, 0.3);
@@ -225,21 +226,11 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
     return;
   }
 
-  if (isRestart) {
-    await finishTaker(page, team);
-    await expect(page.locator("#shot-modal-title")).toHaveText("Free kick — what next?", { timeout: 10000 });
-    await page.locator(`[data-restart-result="${outcome}"]`).click();
-    if (outcome === "missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
-    }
-  } else {
-    if (actionId === "missed" || actionId === "pk-missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
-    }
-    await finishTaker(page, team);
+  if (actionId === "missed" || actionId === "pk-missed") {
+    await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+    await page.locator(`[data-miss-dir="${missDir}"]`).click();
   }
+  await finishTaker(page, team);
 
   if (LINK_SHOT_RESULTS.has(outcome)) {
     const expected = outcome === "goal" ? "Add an assist?" : "Add a setup pass?";

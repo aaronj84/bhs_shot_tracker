@@ -40,7 +40,7 @@ test.describe("Fouler swap", () => {
     await page.locator('#shot-event-modal [data-player-number]').first().click();
     await finishTaker(page, "us");
     await expect(page.locator("#shot-modal-title")).toHaveText("Free kick — what next?");
-    await page.locator('[data-restart-result="foul"]').click();
+    await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log")).toContainText(/Free Kick/i);
   });
