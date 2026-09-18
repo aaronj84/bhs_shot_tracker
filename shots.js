@@ -1189,7 +1189,6 @@
               </svg>
             </button>
             <div class="score-strip-menu-pop" id="score-strip-menu-pop" hidden role="menu">
-              <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="sync" ${st.syncing ? "disabled" : ""}>${st.syncing ? "Syncing…" : "Sync"}</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="swap">Switch Sides</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="csv" ${(st.shots || []).length ? "" : "disabled"}>CSV</button>
               <button type="button" class="score-strip-menu-item" role="menuitem" data-tracker-action="zones">${st.showGrid ? "Hide zones" : "Zones"}</button>
@@ -1200,6 +1199,7 @@
               }
             </div>
           </div>
+          <button type="button" class="btn score-strip-btn" data-tracker-action="sync" ${st.syncing ? "disabled" : ""}>${st.syncing ? "Syncing…" : "Sync"}</button>
           <button type="button" class="btn score-strip-btn" data-clock-toggle ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : running ? "Stop" : "Start"}</button>
           <button type="button" class="btn score-strip-btn" data-open-clock-setup ${isFinal ? "disabled" : ""}>${isFinal ? "Final" : escapeHtml(periodLabel(st.period))}</button>
           <a class="score-strip-goto" href="#shots-scoreboard" aria-label="Open scoreboard">${miniScoreboardIconMarkup(score, face)}</a>
@@ -2424,6 +2424,13 @@
   function bindScoreStripMenu() {
     const btn = $("[data-score-strip-menu]");
     const pop = $("#score-strip-menu-pop");
+    const syncBtn = $(".score-strip-controls > [data-tracker-action=\"sync\"]");
+    if (syncBtn) {
+      syncBtn.addEventListener("click", () => {
+        if (syncBtn.disabled || st.syncing) return;
+        runTrackerAction("sync");
+      });
+    }
     if (!btn || !pop) return;
     const setOpen = (open) => {
       pop.hidden = !open;
