@@ -181,7 +181,8 @@ export async function skipLinkedPlayIfAsked(page) {
 
 /**
  * Record one play through the shot modal. `restartResult` is the follow-up after a
- * free kick or corner (`goal`, `missed`, `foul` for FK-only, etc.).
+ * free kick or corner (`foul`/`corner` for set-piece only; shot results use the
+ * Shot path with a second tap and auto-link the set piece as assist).
  */
 export async function recordPlay(page, { team, actionId, restartResult, missDir = "over" }) {
   const modal = page.locator("#shot-event-modal");
@@ -196,27 +197,42 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
     await modal.locator("[data-player-skip]").click();
   }
 
-  const isRestart = actionId === "foul" || actionId === "corner";
   const outcome = restartResult || actionId;
-  if (isRestart) {
+  if (actionId === "foul" || actionId === "corner") {
     await finishTaker(page, team);
     const heading = actionId === "corner" ? "Corner — what next?" : "Free kick — what next?";
+    const onlyResult = actionId === "corner" ? "corner" : "foul";
     await expect(page.locator("#shot-modal-title")).toHaveText(heading, { timeout: 10000 });
-    await page.locator(`[data-restart-result="${outcome}"]`).click();
-    if (outcome === "missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
+    if (!restartResult || restartResult === onlyResult) {
+      await page.locator('[data-setpiece-follow="none"]').click();
+    } else {
+      await page.locator('[data-setpiece-follow="shot"]').click();
+      await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+      await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
+      await singleTapPitch(page, team, 0.5, 0.3);
+      await expect(page.locator("#shot-event-modal")).toBeVisible({ timeout: 10000 });
+      await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?", { timeout: 10000 });
+      await page.locator(`[data-action-id="${restartResult === "on-target" ? "on-target" : restartResult}"]`).click();
+      if (restartResult === "missed") {
+        await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+        await page.locator(`[data-miss-dir="${missDir}"]`).click();
+      }
+      await finishTaker(page, team);
+      const secondLink = restartResult === "goal" ? "Add a second assist?" : "Add a second setup pass?";
+      await expect(page.locator("#shot-modal-title")).toHaveText(secondLink, { timeout: 10000 });
+      await page.locator("[data-offer-skip]").click();
     }
-  } else {
-    if (actionId === "missed" || actionId === "pk-missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
-    }
-    await finishTaker(page, team);
+    await expect(modal).toBeHidden({ timeout: 15000 });
+    return;
   }
 
-  const cornerThenShot = actionId === "corner" && restartResult && restartResult !== "corner";
-  if (!cornerThenShot && LINK_SHOT_RESULTS.has(outcome)) {
+  if (actionId === "missed" || actionId === "pk-missed") {
+    await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+    await page.locator(`[data-miss-dir="${missDir}"]`).click();
+  }
+  await finishTaker(page, team);
+
+  if (LINK_SHOT_RESULTS.has(outcome)) {
     const expected = outcome === "goal" ? "Add an assist?" : "Add a setup pass?";
     await expect(page.locator("#shot-modal-title")).toHaveText(expected, { timeout: 10000 });
     await page.locator("[data-offer-skip]").click();
