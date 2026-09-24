@@ -12,6 +12,11 @@ on:
       - ".github/workflows/supabase-migrate.yml"
   workflow_dispatch:
 
+# Must cover backup-prod.yml's permissions; a called workflow can't exceed its caller.
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   backup-prod:
     if: github.ref == 'refs/heads/main'
