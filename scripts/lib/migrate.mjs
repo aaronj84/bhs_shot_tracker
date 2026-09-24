@@ -157,7 +157,7 @@ export function formatStatusTable(classified) {
   return lines.join("\n");
 }
 
-function balancedObjectEnd(text, start) {
+function balancedJsonEnd(text, start) {
   let depth = 0;
   let inString = false;
   for (let i = start; i < text.length; i++) {
@@ -167,9 +167,9 @@ function balancedObjectEnd(text, start) {
       else if (ch === '"') inString = false;
     } else if (ch === '"') {
       inString = true;
-    } else if (ch === "{") {
+    } else if (ch === "{" || ch === "[") {
       depth++;
-    } else if (ch === "}") {
+    } else if (ch === "}" || ch === "]") {
       depth--;
       if (depth === 0) return i;
     }
@@ -177,23 +177,37 @@ function balancedObjectEnd(text, start) {
   return -1;
 }
 
-/** CLI output can wrap the JSON in notices or print more than one object; prefer the one with `rows`. */
+function nextJsonStart(text, from) {
+  const re = /[[{]/g;
+  re.lastIndex = from;
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+
+const isRowArray = (value) =>
+  Array.isArray(value) && value.every((row) => row && typeof row === "object" && "version" in row);
+
+/**
+ * `supabase db query --output-format json` prints a bare array of rows, or (under AI agents)
+ * `{ boundary, rows, warning }`; either may be surrounded by CLI notices. Returns `{ rows }`.
+ */
 export function extractJsonObject(text) {
-  const found = [];
-  let i = text.indexOf("{");
+  let i = nextJsonStart(text, 0);
   while (i !== -1) {
-    const end = balancedObjectEnd(text, i);
+    const end = balancedJsonEnd(text, i);
     if (end === -1) break;
+    let value;
     try {
-      found.push(JSON.parse(text.slice(i, end + 1)));
-      i = text.indexOf("{", end + 1);
+      value = JSON.parse(text.slice(i, end + 1));
     } catch {
-      i = text.indexOf("{", i + 1);
+      i = nextJsonStart(text, i + 1);
+      continue;
     }
+    if (isRowArray(value)) return { rows: value };
+    if (value && isRowArray(value.rows)) return value;
+    i = nextJsonStart(text, end + 1);
   }
-  const withRows = found.find((obj) => obj && Array.isArray(obj.rows));
-  if (withRows) return withRows;
-  throw new Error(`No JSON object with "rows" in command output:\n${text}`);
+  throw new Error(`No migration rows in command output:\n${text}`);
 }
 
 export function remoteRowsFromQuery(payload) {

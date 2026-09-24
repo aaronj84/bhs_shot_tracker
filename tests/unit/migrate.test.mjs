@@ -156,6 +156,16 @@ describe("helpers", () => {
     expect(remoteRowsFromQuery(payload)).toEqual([{ version: "2", name: "x}" }]);
   });
 
+  it("parses the bare row array the CLI prints in CI", () => {
+    const payload = extractJsonObject(
+      '[WARN] notice\n[\n  {"name": "a", "version": "1"},\n  {"name": "b", "version": "2"}\n]\n'
+    );
+    expect(remoteRowsFromQuery(payload)).toEqual([
+      { version: "1", name: "a" },
+      { version: "2", name: "b" },
+    ]);
+  });
+
   it("refuses output with no rows object instead of treating history as empty", () => {
     expect(() => extractJsonObject('{"status":"ok"}')).toThrow(/rows/);
   });
