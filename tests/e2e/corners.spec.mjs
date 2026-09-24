@@ -60,9 +60,7 @@ test.describe("Corners", () => {
     await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?", { timeout: 10000 });
     await page.locator('[data-action-id="goal"]').click();
     await finishTaker(page, "us");
-    // Corner is already the assist — ask about a second assist, not the first.
-    await expect(page.locator("#shot-modal-title")).toHaveText("Add a second assist?", { timeout: 10000 });
-    await page.locator("[data-offer-skip]").click();
+    // Corner starts the play, so the shot completes it — no second assist prompt.
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
@@ -87,8 +85,6 @@ test.describe("Corners", () => {
     await expect(page.locator("#shot-modal-title")).toHaveText("Next pass or shot?", { timeout: 10000 });
     await page.locator('[data-action-id="on-target"]').click();
     await finishTaker(page, "us");
-    await expect(page.locator("#shot-modal-title")).toHaveText("Add a second setup pass?", { timeout: 10000 });
-    await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.on-target")).toHaveCount(1);

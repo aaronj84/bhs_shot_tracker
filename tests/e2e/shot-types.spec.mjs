@@ -101,4 +101,57 @@ test.describe("Shot types home and visitor", () => {
     await page.locator("[data-offer-skip]").click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
   });
+
+  test("free kick shot is taken from the free kick spot without a second tap", async ({ page }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page);
+    await createFriendlyAndOpenTracker(page);
+    await openRecordModal(page, "us");
+    await page.locator('[data-action-id="foul"]').click();
+    await page.locator("#shot-event-modal [data-player-skip]").click();
+    await finishTaker(page, "us");
+    await page.locator('[data-setpiece-follow="shot"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Free kick shot result?");
+    await expect(page.locator("[data-restart-result]")).toHaveCount(4);
+    await expect(page.locator(".tracker-recording-banner")).toBeHidden();
+    await page.screenshot({ path: "test-results/free-kick-shot-result.png" });
+    await page.locator('[data-restart-result="goal"]').click();
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+    await expect(page.locator(".tracker-recording-banner")).toBeHidden();
+    await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
+    await expect(page.locator("#tracker-log")).toContainText(/Free Kick/i);
+  });
+
+  test("free kick, pass, then shot completes the play without offering another setup", async ({ page }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page);
+    await createFriendlyAndOpenTracker(page);
+    await openRecordModal(page, "us");
+    await page.locator('[data-action-id="foul"]').click();
+    await page.locator("#shot-event-modal [data-player-skip]").click();
+    await finishTaker(page, "us");
+    await page.locator('[data-setpiece-follow="pass"]').click();
+    await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
+
+    await singleTapPitch(page, "us", 0.45, 0.35);
+    await expect(page.locator("#shot-modal-title")).toHaveText("Next pass or shot?", { timeout: 10000 });
+    await page.locator('[data-action-id="assist-pass"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Who played the pass?");
+    await finishTaker(page, "us");
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+    await expect(page.locator("#tracker-status")).toContainText(/tap where the shot/i);
+
+    await singleTapPitch(page, "us", 0.5, 0.25);
+    await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?", { timeout: 10000 });
+    await page.locator('[data-action-id="goal"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Who took the shot?");
+    await page.screenshot({ path: "test-results/who-took-the-shot.png" });
+    await finishTaker(page, "us");
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+    await expect(page.locator(".tracker-recording-banner")).toBeHidden();
+    await expect(page.locator("#tracker-log .shot-result-pill.foul")).toHaveCount(1);
+    await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
+  });
 });
