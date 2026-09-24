@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, signIn } from "./helpers.mjs";
+import { assignTwoUsLineupPlayers, createFriendlyAndOpenTracker, expect, signIn, test } from "./helpers.mjs";
 
 test.describe("Lineup sync", () => {
   test.beforeEach(async ({ page }) => {
@@ -25,8 +24,7 @@ test.describe("Lineup sync", () => {
     expect(v10).toBeTruthy();
     expect(v9).toBeTruthy();
 
-    await page.locator("[data-score-strip-menu]").click();
-    await page.locator("[data-tracker-action=sync]").click();
+    await page.locator('.score-strip-controls [data-tracker-action="sync"]').click();
     await expect(page.locator("#role-toast")).toContainText(/Synced/i, { timeout: 20000 });
 
     await page.evaluate(() => {

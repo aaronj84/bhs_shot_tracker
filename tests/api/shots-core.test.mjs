@@ -25,6 +25,7 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
   beforeAll(async () => {
     sb = createClient(url, anon, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: class NoopWebSocket {} },
     });
     const { error } = await sb.auth.signInAnonymously();
     if (error) {
@@ -32,16 +33,26 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
         `Anonymous sign-in failed: ${error.message}. Enable Anonymous auth on DEV.`
       );
     }
+    // Sweep leftovers from a crashed prior run (labels are unique per process).
+    await sb.from("seasons").delete().like("label", "CI ci-%");
+    await sb.from("teams").delete().like("name", "CI Opp ci-%");
+    await sb.from("players").delete().like("name", "CI Player ci-%");
   });
 
   afterAll(async () => {
     if (!sb) return;
-    // Cascade: deleting season removes games → shots; clean test season + opponent team.
+    // Cascade: deleting season removes games → shots/notes/archives; then drop this run's team + player.
     if (seasonId) {
-      await sb.from("seasons").delete().eq("id", seasonId);
+      const { error } = await sb.from("seasons").delete().eq("id", seasonId);
+      if (error) console.warn("api cleanup season:", error.message);
     }
     if (opponentId) {
-      await sb.from("teams").delete().eq("id", opponentId);
+      const { error } = await sb.from("teams").delete().eq("id", opponentId);
+      if (error) console.warn("api cleanup team:", error.message);
+    }
+    if (playerId) {
+      const { error } = await sb.from("players").delete().eq("id", playerId);
+      if (error) console.warn("api cleanup player:", error.message);
     }
     await sb.auth.signOut();
   });

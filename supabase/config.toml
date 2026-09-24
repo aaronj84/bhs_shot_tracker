@@ -1,6 +1,6 @@
 # Link + migrate: see docs/dev-environment.md and supabase/README.md
 #   supabase link --project-ref <ref>
-#   supabase db push
+#   npm run db:up
 # Deploy Explore (optional):
 #   supabase secrets set OPENAI_API_KEY=sk-...
 #   supabase functions deploy explore-shots
@@ -9,6 +9,10 @@
 #   supabase functions deploy prep-opponent
 
 project_id = "bhs_shot_tracker"
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
 
 [functions.explore-shots]
 verify_jwt = true

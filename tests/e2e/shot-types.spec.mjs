@@ -1,11 +1,12 @@
-import { expect, test } from "@playwright/test";
 import {
   createFriendlyAndOpenTracker,
+  expect,
   finishTaker,
   openRecordModal,
   recordPlay,
   signIn,
   singleTapPitch,
+  test,
 } from "./helpers.mjs";
 
 const SHOT_TYPES = [
@@ -50,7 +51,15 @@ test.describe("Shot types home and visitor", () => {
       }
 
       const pills = page.locator("#tracker-log .shot-result-pill");
-      await expect(pills).toHaveCount(SHOT_TYPES.length);
+      // Set piece → shot saves the restart row plus the follow-up shot.
+      const expectedPills = SHOT_TYPES.reduce((n, kind) => {
+        const setPieceThenShot =
+          (kind.actionId === "foul" || kind.actionId === "corner") &&
+          kind.restartResult &&
+          kind.restartResult !== kind.actionId;
+        return n + (setPieceThenShot ? 2 : 1);
+      }, 0);
+      await expect(pills).toHaveCount(expectedPills);
     });
   }
 

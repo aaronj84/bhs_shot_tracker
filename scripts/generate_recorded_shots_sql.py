@@ -12,7 +12,13 @@ RESULT = {
     "Shot Blocked": "blocked",
     "Missed Shot": "missed",
 }
-ASSIST = {"Pass": "pass", "Gap": "gap", "Cross": "cross"}
+ASSIST = {
+    "Pass": "pass",
+    "Gap": "gap",
+    "Cross": "cross",
+    "Rebound": "rebound",
+    "Over the Top": "over_the_top",
+}
 
 
 def esc(s):

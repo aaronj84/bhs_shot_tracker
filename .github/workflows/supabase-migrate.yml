@@ -1,13 +1,21 @@
-# Deploy Supabase migrations
-# PROD: encrypted backup first (see backup-prod.yml), then db push.
+# Deploy Supabase migrations (up files missing from the target database).
+# PROD: encrypted backup first (see backup-prod.yml), then apply pending ups.
 
 on:
   push:
     branches: [dev, main]
     paths:
       - "supabase/migrations/**"
+      - "supabase/down/**"
+      - "scripts/migrate.mjs"
+      - "scripts/lib/migrate.mjs"
       - ".github/workflows/supabase-migrate.yml"
   workflow_dispatch:
+
+# Must cover backup-prod.yml's permissions; a called workflow can't exceed its caller.
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   backup-prod:
@@ -28,24 +36,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
 
-      - name: Link and push (DEV)
+      - name: Link and apply pending (DEV)
         if: github.ref == 'refs/heads/dev'
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_REF_DEV }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_DEV }}
         run: |
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
-          supabase db push
+          node scripts/migrate.mjs status
+          node scripts/migrate.mjs up --yes
 
-      - name: Link and push (PROD)
+      - name: Link and apply pending (PROD)
         if: github.ref == 'refs/heads/main'
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_PROD }}
         run: |
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
-          supabase db push
+          node scripts/migrate.mjs status
+          node scripts/migrate.mjs up --yes

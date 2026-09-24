@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { createFriendlyAndOpenTracker, openRecordModal, signIn } from "./helpers.mjs";
+import { createFriendlyAndOpenTracker, expect, openRecordModal, signIn, test } from "./helpers.mjs";
 
 test.describe("Shot map markers", () => {
   test.beforeEach(async ({ page }) => {

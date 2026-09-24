@@ -23,7 +23,7 @@ Actions → **Backup PROD** → **Run workflow**. Download the `prod-db-backup-�
 | When | What |
 | --- | --- |
 | PR targeting `main` | Encrypted PROD dump, uploaded as a workflow artifact (90 days) |
-| Merge to `main` that applies migrations | Same dump **again**, then `supabase db push` to PROD |
+| Merge to `main` that applies migrations | Same dump **again**, then `npm run db:up` to PROD |
 
 That second dump is the “old database before the new schema” snapshot. If the backup job fails, migrations do not run.
 

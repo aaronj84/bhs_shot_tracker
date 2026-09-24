@@ -1,6 +1,90 @@
-import { expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test as base, expect } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+export { expect };
 
 export const pin = process.env.SHOTS_PIN || "KEPPA";
+
+const createdGameIds = [];
+const createdTeamNames = [];
+let e2eClientPromise;
+
+function loadSupabaseCreds() {
+  let url = process.env.SHOTS_SUPABASE_URL || "";
+  let anon = process.env.SHOTS_SUPABASE_ANON_KEY || "";
+  if (url && anon) return { url, anon };
+  try {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "shots-config.js"), "utf8");
+    url = url || (src.match(/supabaseUrl:\s*"([^"]+)"/) || [])[1] || "";
+    anon = anon || (src.match(/supabaseAnonKey:\s*"([^"]+)"/) || [])[1] || "";
+  } catch {
+    /* no local config */
+  }
+  return { url, anon };
+}
+
+async function e2eClient() {
+  if (e2eClientPromise) return e2eClientPromise;
+  e2eClientPromise = (async () => {
+    const { url, anon } = loadSupabaseCreds();
+    if (!url || !anon) return null;
+    // Node 20 has no native WebSocket; we only need REST deletes, not realtime.
+    const sb = createClient(url, anon, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: class NoopWebSocket {} },
+    });
+    let lastErr;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await sb.auth.signInAnonymously();
+      if (!error) return sb;
+      lastErr = error;
+      if (!/rate limit/i.test(error.message || "") || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+    throw new Error(`e2e cleanup auth failed: ${lastErr.message}`);
+  })();
+  try {
+    return await e2eClientPromise;
+  } catch (err) {
+    e2eClientPromise = undefined;
+    throw err;
+  }
+}
+
+export async function deleteCreatedE2EGames() {
+  const ids = createdGameIds.splice(0, createdGameIds.length);
+  const teamNames = createdTeamNames.splice(0, createdTeamNames.length);
+  if (!ids.length && !teamNames.length) return;
+  const sb = await e2eClient();
+  if (!sb) {
+    console.warn(
+      "e2e cleanup skipped: set SHOTS_SUPABASE_URL and SHOTS_SUPABASE_ANON_KEY (or write shots-config.js)"
+    );
+    return;
+  }
+  if (ids.length) {
+    const { error } = await sb.from("games").delete().in("id", ids);
+    if (error) throw new Error(`e2e game cleanup failed: ${error.message}`);
+  }
+  if (teamNames.length) {
+    const { error } = await sb.from("teams").delete().in("name", teamNames);
+    if (error) throw new Error(`e2e team cleanup failed: ${error.message}`);
+  }
+}
+
+/** Auto-deletes games (and any E2E Opp teams) created during the test. */
+export const test = base.extend({
+  _e2eGameCleanup: [
+    async ({}, use) => {
+      await use();
+      await deleteCreatedE2EGames();
+    },
+    { auto: true },
+  ],
+});
 
 export async function signIn(page) {
   await page.goto("/#shots");
@@ -121,17 +205,24 @@ export async function createFriendlyAndOpenTracker(page) {
   if (existing) {
     await away.selectOption(existing.value);
   } else {
+    const teamName = `E2E Opp ${Date.now()}`;
+    createdTeamNames.push(teamName);
     await away.selectOption("__new__");
     await expect(page.locator("#new-away-name")).toBeVisible();
-    await page.locator("#new-away-name").fill(`E2E Opp ${Date.now()}`);
+    await page.locator("#new-away-name").fill(teamName);
   }
 
   await page.locator("#new-game-type").selectOption("friendly");
   await page.locator("#new-game-form button[type=submit]").click();
   await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
+  await page.waitForFunction(() => !!sessionStorage.getItem("shots-game-id"), null, { timeout: 10000 });
+  const gameId = await page.evaluate(() => sessionStorage.getItem("shots-game-id"));
+  expect(gameId).toBeTruthy();
+  createdGameIds.push(gameId);
   await expect(page.locator("#tracker-pitch-us .pitch-svg")).toBeVisible();
   await expect(page.locator("#tracker-pitch-opp .pitch-svg")).toBeVisible();
   await page.waitForTimeout(400);
+  return gameId;
 }
 
 let tapSeq = 0;
@@ -181,7 +272,8 @@ export async function skipLinkedPlayIfAsked(page) {
 
 /**
  * Record one play through the shot modal. `restartResult` is the follow-up after a
- * free kick or corner (`goal`, `missed`, `foul` for FK-only, etc.).
+ * free kick or corner (`foul`/`corner` for set-piece only; shot results use the
+ * Shot path with a second tap and auto-link the set piece as assist).
  */
 export async function recordPlay(page, { team, actionId, restartResult, missDir = "over" }) {
   const modal = page.locator("#shot-event-modal");
@@ -196,27 +288,42 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
     await modal.locator("[data-player-skip]").click();
   }
 
-  const isRestart = actionId === "foul" || actionId === "corner";
   const outcome = restartResult || actionId;
-  if (isRestart) {
+  if (actionId === "foul" || actionId === "corner") {
     await finishTaker(page, team);
     const heading = actionId === "corner" ? "Corner — what next?" : "Free kick — what next?";
+    const onlyResult = actionId === "corner" ? "corner" : "foul";
     await expect(page.locator("#shot-modal-title")).toHaveText(heading, { timeout: 10000 });
-    await page.locator(`[data-restart-result="${outcome}"]`).click();
-    if (outcome === "missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
+    if (!restartResult || restartResult === onlyResult) {
+      await page.locator('[data-setpiece-follow="none"]').click();
+    } else {
+      await page.locator('[data-setpiece-follow="shot"]').click();
+      await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+      await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
+      await singleTapPitch(page, team, 0.5, 0.3);
+      await expect(page.locator("#shot-event-modal")).toBeVisible({ timeout: 10000 });
+      await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?", { timeout: 10000 });
+      await page.locator(`[data-action-id="${restartResult === "on-target" ? "on-target" : restartResult}"]`).click();
+      if (restartResult === "missed") {
+        await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+        await page.locator(`[data-miss-dir="${missDir}"]`).click();
+      }
+      await finishTaker(page, team);
+      const secondLink = restartResult === "goal" ? "Add a second assist?" : "Add a second setup pass?";
+      await expect(page.locator("#shot-modal-title")).toHaveText(secondLink, { timeout: 10000 });
+      await page.locator("[data-offer-skip]").click();
     }
-  } else {
-    if (actionId === "missed" || actionId === "pk-missed") {
-      await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-      await page.locator(`[data-miss-dir="${missDir}"]`).click();
-    }
-    await finishTaker(page, team);
+    await expect(modal).toBeHidden({ timeout: 15000 });
+    return;
   }
 
-  const cornerThenShot = actionId === "corner" && restartResult && restartResult !== "corner";
-  if (!cornerThenShot && LINK_SHOT_RESULTS.has(outcome)) {
+  if (actionId === "missed" || actionId === "pk-missed") {
+    await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+    await page.locator(`[data-miss-dir="${missDir}"]`).click();
+  }
+  await finishTaker(page, team);
+
+  if (LINK_SHOT_RESULTS.has(outcome)) {
     const expected = outcome === "goal" ? "Add an assist?" : "Add a setup pass?";
     await expect(page.locator("#shot-modal-title")).toHaveText(expected, { timeout: 10000 });
     await page.locator("[data-offer-skip]").click();

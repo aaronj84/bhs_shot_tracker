@@ -195,7 +195,10 @@ begin
     alter table public.shots drop constraint if exists shots_assist_type_check;
     alter table public.shots
       add constraint shots_assist_type_check
-      check (assist_type is null or assist_type in ('pass', 'gap', 'cross'));
+      check (
+        assist_type is null
+        or assist_type in ('pass', 'gap', 'cross', 'rebound', 'over_the_top')
+      );
 
     alter table public.shots drop constraint if exists shots_assist_position_check;
     alter table public.shots
