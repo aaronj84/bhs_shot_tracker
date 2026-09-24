@@ -132,8 +132,9 @@ function assertNotProd(flags, action) {
 }
 
 function loadRemote(flags) {
+  let stdout;
   try {
-    const stdout = runSupabase([
+    stdout = runSupabase([
       "--yes",
       "db",
       "query",
@@ -142,7 +143,6 @@ function loadRemote(flags) {
       "json",
       HISTORY_SQL,
     ]);
-    return remoteRowsFromQuery(extractJsonObject(stdout));
   } catch (err) {
     const text = String(err.message || err);
     if (/schema_migrations|does not exist|relation .* does not exist/i.test(text)) {
@@ -150,6 +150,7 @@ function loadRemote(flags) {
     }
     throw err;
   }
+  return remoteRowsFromQuery(extractJsonObject(stdout));
 }
 
 function requireDowns(local) {

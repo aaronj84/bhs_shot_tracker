@@ -149,6 +149,17 @@ describe("helpers", () => {
     expect(remoteRowsFromQuery(payload)).toEqual([{ version: "1", name: "a" }]);
   });
 
+  it("picks the rows object when the CLI prints more than one JSON object", () => {
+    const payload = extractJsonObject(
+      '{\n  "status": "linked"\n}\n{"boundary":"b","rows":[{"version":"2","name":"x}"}],"warning":"w {x}"}\n{"done":true}\n'
+    );
+    expect(remoteRowsFromQuery(payload)).toEqual([{ version: "2", name: "x}" }]);
+  });
+
+  it("refuses output with no rows object instead of treating history as empty", () => {
+    expect(() => extractJsonObject('{"status":"ok"}')).toThrow(/rows/);
+  });
+
   it("recognizes prod", () => {
     expect(isProdProject("sczdnalqmymhdornhkbn")).toBe(true);
     expect(isProdProject("fmiymqnfezkqagpbrmoi")).toBe(false);

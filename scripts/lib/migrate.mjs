@@ -157,13 +157,43 @@ export function formatStatusTable(classified) {
   return lines.join("\n");
 }
 
-export function extractJsonObject(text) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) {
-    throw new Error(`No JSON object in command output:\n${text}`);
+function balancedObjectEnd(text, start) {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
   }
-  return JSON.parse(text.slice(start, end + 1));
+  return -1;
+}
+
+/** CLI output can wrap the JSON in notices or print more than one object; prefer the one with `rows`. */
+export function extractJsonObject(text) {
+  const found = [];
+  let i = text.indexOf("{");
+  while (i !== -1) {
+    const end = balancedObjectEnd(text, i);
+    if (end === -1) break;
+    try {
+      found.push(JSON.parse(text.slice(i, end + 1)));
+      i = text.indexOf("{", end + 1);
+    } catch {
+      i = text.indexOf("{", i + 1);
+    }
+  }
+  const withRows = found.find((obj) => obj && Array.isArray(obj.rows));
+  if (withRows) return withRows;
+  throw new Error(`No JSON object with "rows" in command output:\n${text}`);
 }
 
 export function remoteRowsFromQuery(payload) {
