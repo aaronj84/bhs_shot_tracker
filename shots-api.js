@@ -485,6 +485,18 @@
       return { ok: true, data: boxed };
     },
 
+    /** Class rankings via Edge Function maxpreps-rankings. Requires staff PIN session. */
+    async maxprepsRankings() {
+      const sb = getClient();
+      if (!sb) return { ok: false, error: "Supabase is not configured" };
+      const { data, error } = await sb.functions.invoke("maxpreps-rankings", { method: "GET" });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return { ok: false, error: (boxed && boxed.error) || error?.message || "Could not load rankings" };
+      }
+      return { ok: true, data: boxed };
+    },
+
     async insertAppEvents(rows) {
       const list = (rows || []).filter(Boolean);
       if (!list.length) return { ok: true };

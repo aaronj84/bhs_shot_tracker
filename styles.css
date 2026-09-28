@@ -4230,6 +4230,85 @@ button.scoreboard-period:focus-visible {
   margin-top: 0.85rem;
 }
 
+.shots-bracket .prep-tab {
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.rankings-table th,
+.rankings-table td {
+  padding: 0.5rem 0.4rem;
+  vertical-align: middle;
+}
+
+.rankings-table th:first-child,
+.rankings-table td:first-child {
+  padding-left: 0.6rem;
+}
+
+.rankings-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.rankings-table .rank-cell {
+  width: 2.2rem;
+  line-height: 1.1;
+}
+
+.rank-num {
+  display: block;
+  font-weight: 750;
+}
+
+.rank-move {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.rank-move.is-up {
+  color: var(--correct);
+}
+
+.rank-move.is-down {
+  color: var(--incorrect);
+}
+
+.rank-team {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: normal;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.rank-team img,
+.rank-team-blank {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.rankings-table .rank-num-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankings-table tbody tr.is-us {
+  background: rgba(26, 77, 124, 0.12);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.rankings-meta {
+  margin: 0.55rem 0 0;
+  font-size: 0.78rem;
+}
+
 @media (min-width: 640px) {
   .prep-stats-grid {
     grid-template-columns: 1fr 1fr;
