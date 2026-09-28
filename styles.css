@@ -4145,6 +4145,91 @@ button.scoreboard-period:focus-visible {
   font-weight: 700;
 }
 
+.bracket-rounds {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.6rem;
+  padding: 0.4rem 0;
+  background: var(--bg);
+}
+
+.bracket-round-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.25rem 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.15;
+}
+
+.bracket-round-label {
+  font-size: 0.8rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.bracket-round-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.bracket-round-btn.is-on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.bracket-round-btn.is-on .bracket-round-date {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.bracket-scroller {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  scroll-snap-type: x mandatory;
+  background: #eee;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.bracket-track {
+  position: relative;
+}
+
+.bracket-snap {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  scroll-snap-align: start;
+}
+
+.bracket-frame {
+  display: block;
+  border: 0;
+}
+
+.bracket-open {
+  width: 100%;
+  margin-top: 0.85rem;
+}
+
 @media (min-width: 640px) {
   .prep-stats-grid {
     grid-template-columns: 1fr 1fr;

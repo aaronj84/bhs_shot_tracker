@@ -123,6 +123,22 @@
     { slot: 11, code: "RW", number: "32" }, // Ari
   ];
   const GAME_TYPES = ["preseason", "region", "playoffs", "friendly", "other"];
+  // MaxPreps renders fixed 220px round columns with no mobile layout, so the frame is
+  // sized to the whole bracket and the page scrolls it sideways. `x` is each round's left edge.
+  const PLAYOFF_BRACKET = {
+    title: "5A State Championship",
+    sub: "2026 UHSAA Girls Soccer",
+    url: "https://www.maxpreps.com/tournament/view.aspx?tournamentid=c646745f-d71a-4e31-a0d1-a762f780df6a&ssid=cf0a49ca-ee08-43c3-b26d-050cdcbd1b8e&bracketid=de862b5b-6674-4f12-b010-7b83be03a8e4",
+    memberId: "a0d5b091-d1f0-4d3c-a530-9669634b2b7f",
+    width: 960,
+    height: 1110,
+    rounds: [
+      { label: "1st Round", date: "Oct 13", x: 0 },
+      { label: "Quarters", date: "Oct 15", x: 239 },
+      { label: "Semis", date: "Oct 20", x: 478 },
+      { label: "Final", date: "Oct 23", x: 718 },
+    ],
+  };
   const SHOT_RESULT_LABELS = {
     goal: "Goal",
     "on-target": "Shot on Goal",
@@ -6946,6 +6962,70 @@
     draw();
   }
 
+  function bracketFrameSrc() {
+    const b = PLAYOFF_BRACKET;
+    const q = new URL(b.url).searchParams;
+    q.set("width", String(b.width));
+    q.set("height", String(b.height));
+    // MaxPreps' widget reads the member id under this misspelled key.
+    q.set("memeberid", b.memberId);
+    q.set("content-box-background-color", "ffffff");
+    q.set("content-color", "0b1f33");
+    q.set("link-color", "1a4d7c");
+    q.set("ref", location.href);
+    return `https://www.maxpreps.com/widgets/tournament.aspx?${q}`;
+  }
+
+  function renderBracket() {
+    const b = PLAYOFF_BRACKET;
+    root().innerHTML = `
+      <div class="shots-admin shots-bracket">
+        <h1>Playoffs</h1>
+        <p class="muted">${escapeHtml(b.sub)} · ${escapeHtml(b.title)}. Scores update live from MaxPreps.</p>
+        <div class="bracket-rounds" role="group" aria-label="Jump to round">
+          ${b.rounds
+            .map(
+              (r, i) => `<button type="button" class="bracket-round-btn${i === 0 ? " is-on" : ""}" data-bracket-round="${i}">
+                <span class="bracket-round-label">${escapeHtml(r.label)}</span>
+                <span class="bracket-round-date">${escapeHtml(r.date)}</span>
+              </button>`
+            )
+            .join("")}
+        </div>
+        <div class="bracket-scroller" id="bracket-scroller">
+          <div class="bracket-track" style="width:${b.width}px;height:${b.height}px">
+            ${b.rounds.map((r) => `<span class="bracket-snap" style="left:${r.x}px"></span>`).join("")}
+            <iframe class="bracket-frame" src="${escapeHtml(bracketFrameSrc())}" title="${escapeHtml(b.title)} bracket" width="${b.width}" height="${b.height}" scrolling="no" frameborder="0"></iframe>
+          </div>
+        </div>
+        <a class="btn btn-ghost bracket-open" href="${escapeHtml(b.url)}" target="_blank" rel="noopener">Open on MaxPreps</a>
+      </div>`;
+
+    const scroller = $("#bracket-scroller");
+    const btns = $$("[data-bracket-round]");
+    const setOn = (idx) => btns.forEach((btn, i) => btn.classList.toggle("is-on", i === idx));
+    btns.forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.bracketRound);
+        setOn(idx);
+        scroller.scrollTo({ left: b.rounds[idx].x, behavior: "smooth" });
+      })
+    );
+    scroller.addEventListener(
+      "scroll",
+      () => {
+        const max = scroller.scrollWidth - scroller.clientWidth;
+        const left = scroller.scrollLeft;
+        let idx = 0;
+        b.rounds.forEach((r, i) => {
+          if (Math.min(r.x, max) <= left + 4) idx = i;
+        });
+        setOn(idx);
+      },
+      { passive: true }
+    );
+  }
+
   function renderHistory() {
     bindEditModal();
     const f = st.history;
@@ -8784,6 +8864,10 @@
     }
     if (view === "shots-history") {
       renderHistory();
+      return;
+    }
+    if (view === "shots-bracket") {
+      renderBracket();
       return;
     }
     if (view !== "shots-prep") closePrepConfig();
