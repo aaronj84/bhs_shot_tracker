@@ -1,0 +1,62 @@
+# Daily MaxPreps scrape -> validate -> load mp_* tables on DEV and PROD.
+# Each slot first checks mp_ingest_runs; once today has an ok/blocked run
+# for a target, later slots skip it. A blocked or failed run fails the job,
+# which is the alert.
+
+on:
+  schedule:
+    # 5, 8, 11 AM and 2 PM Mountain (MDT); an hour earlier in winter.
+    - cron: "0 11,14,17,20 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Scrape and load even if today already ran or validation flags it"
+        type: boolean
+        default: false
+      diff_only:
+        description: "Scrape and validate only; write nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: mp-daily-scrape
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: America/Denver
+      SUPABASE_URL_DEV: ${{ secrets.SHOTS_SUPABASE_URL_DEV }}
+      SUPABASE_SERVICE_ROLE_KEY_DEV: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_DEV }}
+      SUPABASE_URL_PROD: ${{ secrets.SHOTS_SUPABASE_URL_PROD }}
+      SUPABASE_SERVICE_ROLE_KEY_PROD: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_PROD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install scraper deps
+        run: pip install requests beautifulsoup4
+
+      - name: Scrape, validate, load
+        run: |
+          args=(--workdir "$RUNNER_TEMP/mp")
+          if [ "${{ inputs.force }}" = "true" ]; then args+=(--force); fi
+          if [ "${{ inputs.diff_only }}" = "true" ]; then args+=(--diff-only); fi
+          python maxprep/deClaude/mp_daily.py "${args[@]}"
+
+      - name: Upload scrape CSVs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mp-scrape-${{ github.run_id }}
+          path: ${{ runner.temp }}/mp/
+          if-no-files-found: ignore
+          retention-days: 14

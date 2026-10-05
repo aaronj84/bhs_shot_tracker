@@ -19,6 +19,7 @@ Gemfile.lock
 
 # Explore LLM benchmark
 benchmark/.venv/
+.venv/
 benchmark/.env
 benchmark/questions.txt
 benchmark-results/

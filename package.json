@@ -13,7 +13,8 @@
     "db:new": "node scripts/migrate.mjs new",
     "db:sync-history": "node scripts/migrate.mjs sync-history",
     "backup:prod": "./scripts/backup-db.sh --env prod",
-    "backup:dev": "./scripts/backup-db.sh --env dev"
+    "backup:dev": "./scripts/backup-db.sh --env dev",
+    "mp:refresh-snapshot": "node scripts/refresh-mp-snapshot.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

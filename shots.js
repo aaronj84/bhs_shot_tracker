@@ -672,6 +672,21 @@
       showFilters: false,
       showStats: false,
       showNoteForm: false,
+      scenarios: {
+        mode: "add",
+        opponent: "Lone Peak",
+        drop: "Orem",
+        add: "Lone Peak",
+        goalsFor: "1",
+        goalsAgainst: "2",
+        teams: [],
+        teamsLoaded: false,
+        loading: false,
+        error: "",
+        baseline: null,
+        result: null,
+        meta: null,
+      },
     },
   };
 
@@ -1553,6 +1568,11 @@
         const qs = compactParams(p).toString();
         return `shots-prep?${qs}`;
       }
+      if (st.prep.tab === "scenarios") {
+        p.set("tab", "scenarios");
+        const qs = compactParams(p).toString();
+        return `shots-prep?${qs}`;
+      }
       if (st.prep.lockedGameId) {
         const g = gamePool().find((x) => x.id === st.prep.lockedGameId);
         p.set("game", g ? shareGameRef(g) : st.prep.lockedGameId);
@@ -1636,10 +1656,16 @@
         }
       }
       if (path === "shots-prep" || path === "shots-explore") {
-        const tab = params.get("tab") === "explore" || path === "shots-explore" ? "explore" : "opponent";
+        const tabParam = params.get("tab") || "";
+        const tab =
+          path === "shots-explore" || tabParam === "explore"
+            ? "explore"
+            : tabParam === "scenarios"
+              ? "scenarios"
+              : "opponent";
         st.prep.tab = tab;
         const gameRefParam = params.get("game") || "";
-        if (gameRefParam && tab !== "explore") {
+        if (gameRefParam && tab === "opponent") {
           const g = await resolveGameRef(gameRefParam);
           if (g) {
             const was = st.prep.lockedGameId;
@@ -1656,12 +1682,12 @@
             }
             rememberGame(g);
           }
-        } else if (!gameRefParam && st.prep.lockedGameId && tab !== "explore") {
+        } else if (!gameRefParam && st.prep.lockedGameId && tab === "opponent") {
           st.prep.lockedGameId = "";
           st.prep.loadKey = "";
           st.prep.gemini = emptyPrepGemini();
         }
-        if (tab !== "explore" && !gameRefParam) {
+        if (tab === "opponent" && !gameRefParam) {
           const opp = findTeamByRef(params.get("opp") || "");
           if (params.has("opp")) st.prep.opponentId = opp ? opp.id : "";
           const season = findSeasonByRef(params.get("season") || "");
@@ -2292,6 +2318,14 @@
   }
 
   async function refreshMeta() {
+    if (typeof API.isPlaceholderConfig === "function" && API.isPlaceholderConfig()) {
+      st.teams = [];
+      st.seasons = [];
+      st.allGames = [];
+      st.games = [];
+      st.namedPlayers = [];
+      return;
+    }
     st.teams = await API.teams();
     st.seasons = await API.seasons();
     if (!st.seasonId && st.seasons[0]) st.seasonId = st.seasons[0].id;
@@ -7270,7 +7304,10 @@
 
   function applyPrepHash() {
     const { params } = prepHashParams();
-    st.prep.tab = params.get("tab") === "explore" ? "explore" : "opponent";
+    const tabParam = params.get("tab") || "";
+    st.prep.tab =
+      tabParam === "explore" ? "explore" : tabParam === "scenarios" ? "scenarios" : "opponent";
+    if (st.prep.tab !== "opponent") return;
     const gameId = params.get("game") || "";
     if (gameId) {
       if (st.prep.lockedGameId !== gameId) {
@@ -7299,6 +7336,9 @@
         <a class="prep-tab ${active === "opponent" ? "is-on" : ""}" href="#shots-prep" role="tab" aria-selected="${
           active === "opponent" ? "true" : "false"
         }">Opponent Prep</a>
+        <a class="prep-tab ${active === "scenarios" ? "is-on" : ""}" href="#shots-prep?tab=scenarios" role="tab" aria-selected="${
+          active === "scenarios" ? "true" : "false"
+        }">Scenarios</a>
         <a class="prep-tab ${active === "explore" ? "is-on" : ""}" href="#shots-prep?tab=explore" role="tab" aria-selected="${
           active === "explore" ? "true" : "false"
         }">Explore</a>
@@ -8043,7 +8083,217 @@
       renderExplore();
       return;
     }
+    if (st.prep.tab === "scenarios") {
+      closePrepConfig();
+      renderScenarios();
+      return;
+    }
     renderOpponentPrep();
+  }
+
+  function scenarioRankLabel(rank) {
+    if (rank == null || rank < 0) return "—";
+    return `#${rank}`;
+  }
+
+  function scenarioDeltaHtml(delta, betterIsPositive = true) {
+    if (delta == null || Number.isNaN(Number(delta))) return "";
+    const n = Number(delta);
+    const up = betterIsPositive ? n > 0 : n < 0;
+    const down = betterIsPositive ? n < 0 : n > 0;
+    const cls = up ? "is-up" : down ? "is-down" : "is-flat";
+    const sign = n > 0 ? `+${n}` : String(n);
+    return `<span class="scenario-delta ${cls}">${escapeHtml(sign)}</span>`;
+  }
+
+  async function ensureScenarioTeams() {
+    const sc = st.prep.scenarios;
+    if (sc.teamsLoaded || sc.loading) return;
+    sc.loading = true;
+    sc.error = "";
+    draw({ keepScroll: true });
+    const res = await API.mpWhatIf({ mode: "teams" });
+    sc.loading = false;
+    sc.teamsLoaded = true;
+    if (!res.ok) {
+      sc.error = res.error || "Could not load teams";
+      draw({ keepScroll: true });
+      return;
+    }
+    sc.teams = res.data.teams || [];
+    sc.meta = {
+      source: res.data.source,
+      as_of: res.data.as_of,
+      games_count: res.data.games_count,
+    };
+    draw({ keepScroll: true });
+  }
+
+  async function runScenario() {
+    const sc = st.prep.scenarios;
+    const gf = Number(sc.goalsFor);
+    const ga = Number(sc.goalsAgainst);
+    if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
+      sc.error = "Enter non-negative goals for and against";
+      draw({ keepScroll: true });
+      return;
+    }
+    sc.loading = true;
+    sc.error = "";
+    sc.result = null;
+    draw({ keepScroll: true });
+    const payload =
+      sc.mode === "swap"
+        ? {
+            mode: "swap",
+            drop: String(sc.drop || "").trim(),
+            add: String(sc.add || "").trim(),
+            goals_for: Math.round(gf),
+            goals_against: Math.round(ga),
+          }
+        : {
+            mode: "add",
+            opponent: String(sc.opponent || "").trim(),
+            goals_for: Math.round(gf),
+            goals_against: Math.round(ga),
+          };
+    const res = await API.mpWhatIf(payload);
+    sc.loading = false;
+    if (!res.ok) {
+      sc.error = res.error || "Scenario failed";
+      draw({ keepScroll: true });
+      return;
+    }
+    sc.baseline = res.data.baseline || null;
+    sc.result = res.data.result || null;
+    sc.meta = {
+      source: res.data.source,
+      as_of: res.data.as_of,
+      games_count: res.data.games_count,
+      model: res.data.model,
+    };
+    draw({ keepScroll: true });
+  }
+
+  function renderScenarios() {
+    ensureScenarioTeams();
+    const sc = st.prep.scenarios;
+    const teamOpts = (sc.teams || [])
+      .map((t) => `<option value="${escapeHtml(t)}"></option>`)
+      .join("");
+    const base = sc.baseline;
+    const result = sc.result;
+    const metaBits = [];
+    if (sc.meta?.as_of) metaBits.push(`season through ${sc.meta.as_of}`);
+    if (sc.meta?.games_count) metaBits.push(`${sc.meta.games_count} games`);
+    if (sc.meta?.source === "mp_games") metaBits.push("live datastore");
+    else if (sc.meta?.source) metaBits.push("bundled snapshot");
+
+    const resultBlock = !result
+      ? ""
+      : `
+      <section class="scenario-result" aria-live="polite">
+        <h3 class="scenario-result-title">Freeman outcome</h3>
+        <div class="scenario-metrics">
+          <div class="scenario-metric">
+            <span class="scenario-metric-label">Seed</span>
+            <span class="scenario-metric-value">${scenarioRankLabel(result.rank_before)} → ${scenarioRankLabel(result.rank_after)} ${scenarioDeltaHtml(result.rank_delta)}</span>
+          </div>
+          <div class="scenario-metric">
+            <span class="scenario-metric-label">Rating</span>
+            <span class="scenario-metric-value">${escapeHtml(String(result.rating_before))} → ${escapeHtml(String(result.rating_after))} ${scenarioDeltaHtml(result.rating_delta)}</span>
+          </div>
+        </div>
+        <p class="muted scenario-result-note">Positive seed delta means we move up. Model is Freeman (capped margin), not published MaxPreps.</p>
+      </section>`;
+
+    const standings = (base?.standings || [])
+      .slice(0, 10)
+      .map((row) => {
+        const mine = row.team === (base.team || "Brighton");
+        return `<tr class="${mine ? "is-us" : ""}"><td>${row.rank}</td><td>${escapeHtml(row.team)}</td><td>${escapeHtml(String(row.rating))}</td></tr>`;
+      })
+      .join("");
+
+    root().innerHTML = `
+      <div class="shots-admin shots-scenarios">
+        ${trackerNav()}
+        <h1>Prep</h1>
+        ${prepTabsMarkup("scenarios")}
+        <header class="scenario-header">
+          <h2 class="scenario-title">What if…</h2>
+          <p class="muted">Freeman model seed moves for Brighton. Ask “what if we beat X” or “what if we had played Y instead.”</p>
+          ${metaBits.length ? `<p class="muted scenario-meta">${escapeHtml(metaBits.join(" · "))}</p>` : ""}
+        </header>
+        ${base ? `<p class="scenario-baseline">Current model seed <strong>${scenarioRankLabel(base.rank)}</strong> · rating ${escapeHtml(String(base.rating))}${base.classification ? ` · ${escapeHtml(base.classification)}` : ""}</p>` : ""}
+        <div class="scenario-modes" role="tablist" aria-label="Scenario type">
+          <button type="button" class="scenario-mode ${sc.mode === "add" ? "is-on" : ""}" data-scenario-mode="add">Add a result</button>
+          <button type="button" class="scenario-mode ${sc.mode === "swap" ? "is-on" : ""}" data-scenario-mode="swap">Swap a result</button>
+        </div>
+        <form id="scenario-form" class="scenario-form">
+          ${
+            sc.mode === "swap"
+              ? `
+            <label class="field">
+              <span>Drop our win vs</span>
+              <input list="scenario-teams" id="scenario-drop" name="drop" autocomplete="off" value="${escapeHtml(sc.drop)}" required />
+            </label>
+            <label class="field">
+              <span>Add game vs</span>
+              <input list="scenario-teams" id="scenario-add" name="add" autocomplete="off" value="${escapeHtml(sc.add)}" required />
+            </label>`
+              : `
+            <label class="field">
+              <span>Opponent</span>
+              <input list="scenario-teams" id="scenario-opponent" name="opponent" autocomplete="off" value="${escapeHtml(sc.opponent)}" required />
+            </label>`
+          }
+          <datalist id="scenario-teams">${teamOpts}</datalist>
+          <div class="scenario-score-row">
+            <label class="field">
+              <span>Us</span>
+              <input type="number" id="scenario-gf" name="goals_for" min="0" max="20" inputmode="numeric" value="${escapeHtml(String(sc.goalsFor))}" required />
+            </label>
+            <span class="scenario-score-sep" aria-hidden="true">–</span>
+            <label class="field">
+              <span>Them</span>
+              <input type="number" id="scenario-ga" name="goals_against" min="0" max="20" inputmode="numeric" value="${escapeHtml(String(sc.goalsAgainst))}" required />
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary scenario-run" ${sc.loading ? "disabled" : ""}>${sc.loading ? "Running…" : "Run scenario"}</button>
+        </form>
+        ${sc.error ? `<p class="error scenario-error">${escapeHtml(sc.error)}</p>` : ""}
+        ${resultBlock}
+        ${
+          standings
+            ? `<section class="scenario-standings">
+          <h3 class="scenario-standings-title">Model top 10 (baseline)</h3>
+          <table class="tracker-table scenario-table">
+            <thead><tr><th>#</th><th>Team</th><th>Rtg</th></tr></thead>
+            <tbody>${standings}</tbody>
+          </table>
+        </section>`
+            : ""
+        }
+      </div>`;
+
+    $$("[data-scenario-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        sc.mode = btn.getAttribute("data-scenario-mode") === "swap" ? "swap" : "add";
+        sc.result = null;
+        sc.error = "";
+        draw();
+      });
+    });
+    $("#scenario-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      sc.opponent = $("#scenario-opponent")?.value || sc.opponent;
+      sc.drop = $("#scenario-drop")?.value || sc.drop;
+      sc.add = $("#scenario-add")?.value || sc.add;
+      sc.goalsFor = $("#scenario-gf")?.value ?? sc.goalsFor;
+      sc.goalsAgainst = $("#scenario-ga")?.value ?? sc.goalsAgainst;
+      runScenario();
+    });
   }
 
   function renderOpponentPrep() {
