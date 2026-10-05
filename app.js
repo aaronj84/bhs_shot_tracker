@@ -13,6 +13,7 @@
     if (path === "shots-history") return "shots-history";
     if (path === "shots-prep" || path === "shots-explore") return "shots-prep";
     if (path === "shots-scoreboard") return "shots-scoreboard";
+    if (path === "shots-bracket") return "shots-bracket";
     if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
@@ -25,7 +26,7 @@
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
     document.body.classList.toggle(
       "shots-admin-view",
-      view === "shots-games" || view === "shots-history" || view === "shots-prep"
+      view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
     );
     const theme = document.querySelector('meta[name="theme-color"]');
     if (theme) theme.setAttribute("content", view === "shots-scoreboard" ? "#0b1f33" : "#f4f7fb");
@@ -47,7 +48,8 @@
         (view === "shots-games" && key === "shots-games") ||
         (view === "shots-history" && key === "shots-history") ||
         (view === "shots-prep" && key === "shots-prep") ||
-        (view === "shots-map" && key === "shots-map");
+        (view === "shots-map" && key === "shots-map") ||
+        (view === "shots-bracket" && key === "shots-bracket");
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");
     });

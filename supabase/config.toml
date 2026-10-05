@@ -7,6 +7,8 @@
 # Opponent Prep Gemini (optional):
 #   supabase secrets set GEMINI_API_KEY=...
 #   supabase functions deploy prep-opponent
+# Playoffs rankings (no secrets):
+#   supabase functions deploy maxpreps-rankings
 
 project_id = "bhs_shot_tracker"
 
@@ -18,4 +20,7 @@ sql_paths = ["./seed.sql"]
 verify_jwt = true
 
 [functions.prep-opponent]
+verify_jwt = true
+
+[functions.maxpreps-rankings]
 verify_jwt = true

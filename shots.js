@@ -123,6 +123,24 @@
     { slot: 11, code: "RW", number: "32" }, // Ari
   ];
   const GAME_TYPES = ["preseason", "region", "playoffs", "friendly", "other"];
+  // MaxPreps renders fixed 220px round columns with no mobile layout, so the frame is
+  // sized to the whole bracket and the page scrolls it sideways. `x` is each round's left edge.
+  const PLAYOFF_BRACKET = {
+    title: "5A State Championship",
+    sub: "2026 UHSAA Girls Soccer",
+    url: "https://www.maxpreps.com/tournament/view.aspx?tournamentid=c646745f-d71a-4e31-a0d1-a762f780df6a&ssid=cf0a49ca-ee08-43c3-b26d-050cdcbd1b8e&bracketid=de862b5b-6674-4f12-b010-7b83be03a8e4",
+    memberId: "a0d5b091-d1f0-4d3c-a530-9669634b2b7f",
+    rankingsUrl: "https://www.maxpreps.com/ut/soccer/girls/26-27/class/class-5a/rankings/1/?statedivisionid=8fd8bb6b-6430-463a-915b-1e02dba437c1",
+    ourSchool: "Brighton",
+    width: 960,
+    height: 1110,
+    rounds: [
+      { label: "1st Round", date: "Oct 13", x: 0 },
+      { label: "Quarters", date: "Oct 15", x: 239 },
+      { label: "Semis", date: "Oct 20", x: 478 },
+      { label: "Final", date: "Oct 23", x: 718 },
+    ],
+  };
   const SHOT_RESULT_LABELS = {
     goal: "Goal",
     "on-target": "Shot on Goal",
@@ -622,6 +640,7 @@
     inspectRole: "",
     pendingOpenGameId: "",
     history: { seasonId: "", playerId: "", opponentId: "", depth: "", rows: null, loading: false },
+    playoffs: { tab: "rankings", rankings: null, updated: null, loading: false, error: "", loadedAt: 0 },
     explore: {
       messages: [],
       draft: "",
@@ -6980,6 +6999,169 @@
     draw();
   }
 
+  function bracketFrameSrc() {
+    const b = PLAYOFF_BRACKET;
+    const q = new URL(b.url).searchParams;
+    q.set("width", String(b.width));
+    q.set("height", String(b.height));
+    // MaxPreps' widget reads the member id under this misspelled key.
+    q.set("memeberid", b.memberId);
+    q.set("content-box-background-color", "ffffff");
+    q.set("content-color", "0b1f33");
+    q.set("link-color", "1a4d7c");
+    q.set("ref", location.href);
+    return `https://www.maxpreps.com/widgets/tournament.aspx?${q}`;
+  }
+
+  const PLAYOFF_RANKINGS_TTL_MS = 15 * 60 * 1000;
+
+  async function loadPlayoffRankings(force = false) {
+    const p = st.playoffs;
+    if (p.loading) return;
+    if (!force && p.loadedAt && Date.now() - p.loadedAt < PLAYOFF_RANKINGS_TTL_MS) return;
+    p.loading = true;
+    p.error = "";
+    if (!p.rankings) draw();
+    const res = await API.maxprepsRankings();
+    p.loading = false;
+    p.loadedAt = Date.now();
+    if (res.ok) {
+      p.rankings = (res.data && res.data.rankings) || [];
+      p.updated = (res.data && res.data.updated) || null;
+    } else {
+      p.error = res.error || "Could not load rankings";
+    }
+    if (st.view === "shots-bracket" && p.tab === "rankings") draw();
+  }
+
+  function rankMovementHtml(movement) {
+    const m = String(movement || "").trim();
+    if (/^\+\d+$/.test(m)) return `<span class="rank-move is-up" aria-label="Up ${m.slice(1)}">▲${m.slice(1)}</span>`;
+    if (/^-\d+$/.test(m)) return `<span class="rank-move is-down" aria-label="Down ${m.slice(1)}">▼${m.slice(1)}</span>`;
+    return "";
+  }
+
+  function playoffRankingsHtml() {
+    const p = st.playoffs;
+    const b = PLAYOFF_BRACKET;
+    if (!p.rankings && p.error) {
+      return `
+        <p class="shots-error">${escapeHtml(p.error)}</p>
+        <button type="button" class="btn btn-secondary" data-rankings-retry>Try again</button>`;
+    }
+    if (!p.rankings) return `<p class="muted">Loading rankings…</p>`;
+    if (!p.rankings.length) return `<p class="muted">MaxPreps has no rankings for this class yet.</p>`;
+    const num = (v) => (typeof v === "number" ? v.toFixed(1) : "—");
+    const rows = p.rankings
+      .map((r) => {
+        const us = r.school === b.ourSchool;
+        return `<tr class="${us ? "is-us" : ""}">
+          <td class="rank-cell"><span class="rank-num">${escapeHtml(r.rank ?? "")}</span>${rankMovementHtml(r.movement)}</td>
+          <td><div class="rank-team">
+            ${r.mascot ? `<img src="${escapeHtml(r.mascot.replace(/width=\d+&height=\d+/, "width=64&height=64"))}" alt="" width="28" height="28" loading="lazy" />` : `<span class="rank-team-blank"></span>`}
+            <span>${escapeHtml(r.school)}</span>
+          </div></td>
+          <td>${escapeHtml(r.record)}</td>
+          <td class="rank-num-cell">${num(r.rating)}</td>
+          <td class="rank-num-cell">${num(r.strength)}</td>
+        </tr>`;
+      })
+      .join("");
+    const updated = p.updated
+      ? new Date(p.updated).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "";
+    return `
+      ${p.error ? `<p class="shots-error">${escapeHtml(p.error)}</p>` : ""}
+      <div class="tracker-table-wrap">
+        <table class="tracker-table rankings-table">
+          <thead><tr><th>#</th><th>Team</th><th>Record</th><th class="rank-num-cell">Rtg</th><th class="rank-num-cell">Str</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <p class="muted rankings-meta">${updated ? `Updated ${escapeHtml(updated)} · ` : ""}Rtg is the MaxPreps rating; Str is strength of schedule.</p>
+      <a class="btn btn-ghost bracket-open" href="${escapeHtml(b.rankingsUrl)}" target="_blank" rel="noopener">Open on MaxPreps</a>`;
+  }
+
+  function playoffBracketHtml() {
+    const b = PLAYOFF_BRACKET;
+    return `
+      <div class="bracket-rounds" role="group" aria-label="Jump to round">
+        ${b.rounds
+          .map(
+            (r, i) => `<button type="button" class="bracket-round-btn${i === 0 ? " is-on" : ""}" data-bracket-round="${i}">
+              <span class="bracket-round-label">${escapeHtml(r.label)}</span>
+              <span class="bracket-round-date">${escapeHtml(r.date)}</span>
+            </button>`
+          )
+          .join("")}
+      </div>
+      <div class="bracket-scroller" id="bracket-scroller">
+        <div class="bracket-track" style="width:${b.width}px;height:${b.height}px">
+          ${b.rounds.map((r) => `<span class="bracket-snap" style="left:${r.x}px"></span>`).join("")}
+          <iframe class="bracket-frame" src="${escapeHtml(bracketFrameSrc())}" title="${escapeHtml(b.title)} bracket" width="${b.width}" height="${b.height}" scrolling="no" frameborder="0"></iframe>
+        </div>
+      </div>
+      <a class="btn btn-ghost bracket-open" href="${escapeHtml(b.url)}" target="_blank" rel="noopener">Open on MaxPreps</a>`;
+  }
+
+  function bindBracketRounds() {
+    const b = PLAYOFF_BRACKET;
+    const scroller = $("#bracket-scroller");
+    if (!scroller) return;
+    const btns = $$("[data-bracket-round]");
+    const setOn = (idx) => btns.forEach((btn, i) => btn.classList.toggle("is-on", i === idx));
+    btns.forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.bracketRound);
+        setOn(idx);
+        scroller.scrollTo({ left: b.rounds[idx].x, behavior: "smooth" });
+      })
+    );
+    scroller.addEventListener(
+      "scroll",
+      () => {
+        const max = scroller.scrollWidth - scroller.clientWidth;
+        const left = scroller.scrollLeft;
+        let idx = 0;
+        b.rounds.forEach((r, i) => {
+          if (Math.min(r.x, max) <= left + 4) idx = i;
+        });
+        setOn(idx);
+      },
+      { passive: true }
+    );
+  }
+
+  function renderPlayoffs() {
+    const b = PLAYOFF_BRACKET;
+    const tab = st.playoffs.tab;
+    const tabBtn = (key, label) =>
+      `<button type="button" class="prep-tab ${tab === key ? "is-on" : ""}" role="tab" aria-selected="${
+        tab === key ? "true" : "false"
+      }" data-playoffs-tab="${key}">${label}</button>`;
+    root().innerHTML = `
+      <div class="shots-admin shots-bracket">
+        <h1>Playoffs</h1>
+        <p class="muted">${escapeHtml(b.sub)} · ${escapeHtml(b.title)}. Live from MaxPreps.</p>
+        <div class="prep-tabs" role="tablist" aria-label="Playoffs">
+          ${tabBtn("rankings", "Rankings")}
+          ${tabBtn("bracket", "Bracket")}
+        </div>
+        ${tab === "bracket" ? playoffBracketHtml() : playoffRankingsHtml()}
+      </div>`;
+
+    $$("[data-playoffs-tab]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (st.playoffs.tab === btn.dataset.playoffsTab) return;
+        st.playoffs.tab = btn.dataset.playoffsTab;
+        draw();
+      })
+    );
+    $("[data-rankings-retry]")?.addEventListener("click", () => loadPlayoffRankings(true));
+    if (tab === "bracket") bindBracketRounds();
+    else loadPlayoffRankings();
+  }
+
   function renderHistory() {
     bindEditModal();
     const f = st.history;
@@ -9034,6 +9216,10 @@
     }
     if (view === "shots-history") {
       renderHistory();
+      return;
+    }
+    if (view === "shots-bracket") {
+      renderPlayoffs();
       return;
     }
     if (view !== "shots-prep") closePrepConfig();
