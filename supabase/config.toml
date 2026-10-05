@@ -1,14 +1,10 @@
 # Link + migrate: see docs/dev-environment.md and supabase/README.md
 #   supabase link --project-ref <ref>
 #   npm run db:up
-# Deploy Explore (optional):
-#   supabase secrets set OPENAI_API_KEY=sk-...
-#   supabase functions deploy explore-shots
-# Opponent Prep Gemini (optional):
-#   supabase secrets set GEMINI_API_KEY=...
-#   supabase functions deploy prep-opponent
-# Playoffs rankings (no secrets):
-#   supabase functions deploy maxpreps-rankings
+# Edge Functions deploy from CI (.github/workflows/supabase-migrate.yml) on
+# push to dev (DEV) / main (PROD). Secrets are set once per project:
+#   supabase secrets set OPENAI_API_KEY=sk-...   # explore-shots
+#   supabase secrets set GEMINI_API_KEY=...      # prep-opponent
 
 project_id = "bhs_shot_tracker"
 
@@ -23,4 +19,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.maxpreps-rankings]
+verify_jwt = true
+
+[functions.mp-whatif]
 verify_jwt = true

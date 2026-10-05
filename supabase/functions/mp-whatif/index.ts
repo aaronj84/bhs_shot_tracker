@@ -19,6 +19,8 @@ import {
   whatIf,
   swapResult,
 } from "../_shared/mp/freeman.mjs";
+// Imported (not read from disk) so `supabase functions deploy` bundles it.
+import seasonSnapshot from "../_shared/mp/season_snapshot.json" with { type: "json" };
 
 type SeasonSnap = {
   games: Game[];
@@ -26,15 +28,8 @@ type SeasonSnap = {
   as_of?: string;
 };
 
-let cachedSnap: SeasonSnap | null = null;
-
-async function getBundledSnapshot(): Promise<SeasonSnap> {
-  if (cachedSnap) return cachedSnap;
-  const raw = await Deno.readTextFile(
-    new URL("../_shared/mp/season_snapshot.json", import.meta.url),
-  );
-  cachedSnap = JSON.parse(raw) as SeasonSnap;
-  return cachedSnap;
+function getBundledSnapshot(): SeasonSnap {
+  return seasonSnapshot as SeasonSnap;
 }
 
 const corsHeaders: Record<string, string> = {
@@ -136,7 +131,7 @@ async function loadSnapshot(): Promise<{
   source: string;
   as_of?: string;
 }> {
-  const snap = await getBundledSnapshot();
+  const snap = getBundledSnapshot();
   return {
     games: snap.games,
     teams: snap.teams,
