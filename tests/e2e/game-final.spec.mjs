@@ -20,10 +20,11 @@ test.describe("Mark game final", () => {
     await expect(page.locator("#tracker-log .shot-result-pill.goal")).toBeVisible({ timeout: 20000 });
 
     page.once("dialog", (dialog) => dialog.accept());
-    await page.locator("[data-score-strip-menu]").click();
-    const finalBtn = page.locator('[data-tracker-action="final"]');
-    await expect(finalBtn).toBeVisible({ timeout: 5000 });
-    await finalBtn.click();
+    // A sync redraw can still close the menu after the pill shows; reopen and retry.
+    await expect(async () => {
+      await page.locator("[data-score-strip-menu]").click();
+      await page.locator('[data-tracker-action="final"]').click({ timeout: 3000 });
+    }).toPass({ timeout: 30000 });
 
     await expect(page.locator(".score-clock-face")).toHaveText("FINAL", { timeout: 15000 });
     await expect(page.locator("[data-clock-toggle]")).toBeDisabled();

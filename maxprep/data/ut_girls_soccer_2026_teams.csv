@@ -1,38 +1,39 @@
 team_id,display_name,state,classification,region,maxpreps_slug,is_our_team
 K9QJojir20W_5jJl-wpZVg,Bishop Manogue,UT,,,,0
+d7o70ttTskORC2J1WRlTuQ,Brighton,UT,,,brighton-bengals,1
 Tvs6GoVtFkarMBtupUzgYw,Galena,UT,,,,0
 BhQCJ-TxcE24nmyQGgwyJQ,Meridian,UT,,,,0
 4LMSCP6jxEya7MYQ-odqLQ,Pine View,UT,,,pine-view-panthers,0
-Jur801Co7Ua6fnty0xbW3w,South Sevier,UT,,,,0
+oFlF5I7CckK4gEE8o0M-qQ,Pleasant Grove,UT,,,,0
 TrMrL8MWSU2QPw4V-VRfwQ,Spanish Springs,UT,,,,0
-u_AxdR5CJ0CUbWPhzXh-pQ,American Heritage,UT,2A,2A Region 17,,0
-vamWny48nUyvwGsZjOV7iA,American Leadership Academy,UT,2A,2A Region 15,,0
+u_AxdR5CJ0CUbWPhzXh-pQ,American Heritage,UT,2A,2A Region 15,,0
+vamWny48nUyvwGsZjOV7iA,American Leadership Academy,UT,2A,2A Region 17,,0
 QfbajoUoqE6KmpaGJKIYxg,American Prep WV,UT,2A,2A Region 16,,0
 h0e_0l5RKki2YHjIK42s8Q,Beaver,UT,2A,2A Region 18,,0
-epqAqJIXWU6BFUbmpp69ig,Cedar,UT,2A,2A Region 18,cedar-reds,0
-w-XMMLAxU0S0iUqhvxjCDQ,Draper APA,UT,2A,2A Region 17,,0
+w-XMMLAxU0S0iUqhvxjCDQ,Draper APA,UT,2A,2A Region 16,,0
 TMtlPq-joECmYu-slufHKQ,Enterprise,UT,2A,2A Region 18,,0
 GiB8Xpczq0OcdwUsMRpm0Q,Grand County,UT,2A,2A Region 18,,0
 9vXe0yo80Eqv69sZ2zs_ng,Gunnison Valley,UT,2A,2A Region 18,,0
-gLZnKJDlyE2I_Bh44UeetA,Maeser Prep Academy,UT,2A,2A Region 16,,0
+gLZnKJDlyE2I_Bh44UeetA,Maeser Prep Academy,UT,2A,2A Region 15,,0
 tG05w1fT8EWcQYN2P3gbfA,Millard,UT,2A,2A Region 18,,0
 Uh4QQ75ciE65D9KoAS0bGA,North Summit,UT,2A,2A Region 15,,0
 xBgZr-cSTkS0Cwg7HQSmrg,Parowan,UT,2A,2A Region 18,,0
-hT4q4iptykiPRlFSmcfcFA,Rowland Hall,UT,2A,2A Region 16,,0
+hT4q4iptykiPRlFSmcfcFA,Rowland Hall,UT,2A,2A Region 17,,0
 yx311UctvUKv4xx_Cd-dfA,San Juan,UT,2A,2A Region 18,,0
+Jur801Co7Ua6fnty0xbW3w,South Sevier,UT,2A,2A Region 18,,0
 Me75bEeZiEKNebC6Fz3aBw,South Summit,UT,2A,2A Region 15,,0
 ojCwmUEcV0qyZBT6zyI_Vg,St. Joseph,UT,2A,2A Region 17,,0
 uqmTTZhXv0eLmYmRyVKpvw,UMACW,UT,2A,2A Region 16,,0
-o6eI4jTKeUCG7W8MiBI09Q,UMAHF,UT,2A,2A Region 17,,0
+o6eI4jTKeUCG7W8MiBI09Q,UMAHF,UT,2A,2A Region 16,,0
 iYScz0lKmUqmVT_al-YcrA,Waterford,UT,2A,2A Region 17,waterford-ravens,0
 XHyb82zTkEumpkG0wdDiVg,Ben Lomond,UT,3A,3A Region 12,ben-lomond-scots,0
 pKaA2FCaWE2UytvY8keBbQ,Canyon View,UT,3A,3A Region 14,,0
 gthncdwH2UGfCZTIABdUxQ,Carbon,UT,3A,3A Region 13,carbon-dinos,0
-2waxi2_uMUmULPI-C4W2rg,Delta,UT,3A,3A Region 13,,0
+2waxi2_uMUmULPI-C4W2rg,Delta,UT,3A,3A Region 14,,0
 Bos_J2uWu0KpBMuw8n3XvA,Emery,UT,3A,3A Region 13,,0
-oRzWdW4T806uW6T6lZEj8A,Grantsville,UT,3A,3A Region 12,,0
+oRzWdW4T806uW6T6lZEj8A,Grantsville,UT,3A,3A Region 12,grantsville-cowboys,0
 dUvS7F01UUindP8SuMI6qg,Juab,UT,3A,3A Region 14,,0
-WjLZnjAXY0G52j7wK2anow,Logan,UT,3A,3A Region 12,,0
+WjLZnjAXY0G52j7wK2anow,Logan,UT,3A,3A Region 12,logan-grizzlies,0
 VolHRBzydEWz9sXwLRnHQQ,Manti,UT,3A,3A Region 13,manti-templars,0
 eJHY5fS2DE6RSrs2YUK4vw,Morgan,UT,3A,3A Region 12,morgan-trojans,0
 VUyQmU-xsEC1C1CBc44gpg,North Sanpete,UT,3A,3A Region 13,,0
@@ -41,6 +42,7 @@ nC5WzLRyyES8OQ9bomMbDQ,Providence Hall,UT,3A,3A Region 14,,0
 EkE7d-kpBkyNzLAyIZ3Ybw,Richfield,UT,3A,3A Region 14,,0
 WQTAUXyji06XfVOkLDovwA,Union,UT,3A,3A Region 13,,0
 NGgliQsUlUezFT0g_n92Qg,Bear River,UT,4A,4A Region 11,bear-river-bears,0
+epqAqJIXWU6BFUbmpp69ig,Cedar,UT,4A,4A Region 9,cedar-reds,0
 5005CJLWE0yYhDV6yknTfA,Cottonwood,UT,4A,4A Region 10,,0
 Yr4Go1Cbi0yI68nKGZ42Uw,Crimson Cliffs,UT,4A,4A Region 9,crimson-cliffs-mustangs,0
 e-jFFn_fNkK1b503lTHGQQ,Deer Creek,UT,4A,4A Region 8,deer-creek-riverhawks,0
@@ -73,7 +75,6 @@ nJDp5m789UihkixEDnDCOQ,Alta,UT,5A,5A Region 6,alta-hawks,0
 A5FbmWmy1kCQbK_104f4xw,Bonneville,UT,5A,5A Region 5,bonneville-lakers,0
 gp9RBPuTDkCfuM7BEb_IzQ,Bountiful,UT,5A,5A Region 6,bountiful-redhawks,0
 0SBsTFySgU21WIhalXEU5g,Box Elder,UT,5A,5A Region 5,box-elder-bees,0
-d7o70ttTskORC2J1WRlTuQ,Brighton,UT,5A,5A Region 6,brighton-bengals,1
 szv6Ia2yJ0GYwLahjBqswA,Clearfield,UT,5A,5A Region 5,clearfield-falcons,0
 5kaVdvKpJkyz4KyhLAp2JQ,Cyprus,UT,5A,5A Region 4,cyprus-pirates,0
 VCdl3-YaU0W-8yHRuLj4bg,Fremont,UT,5A,5A Region 5,fremont-wolves,0
@@ -85,7 +86,6 @@ tif4SSihfE-eTHeOjNgcqw,Kearns,UT,5A,5A Region 4,kearns-cougars,0
 8aU3aN5kiEyMyiHI36acgQ,Northridge,UT,5A,5A Region 5,,0
 7HjpjwfzpU6GkdCeGFVh_Q,Olympus,UT,5A,5A Region 6,olympus-titans,0
 HZOTMPfRb0yQ5UUkcXYQZw,Payson,UT,5A,5A Region 7,,0
-oFlF5I7CckK4gEE8o0M-qQ,Pleasant Grove,UT,5A,5A Region 7,,0
 Ug41sf7tgEGqZrYBNaaKzA,Roy,UT,5A,5A Region 5,roy-royals,0
 0qGZxmqQ9EebK3P_H5Hnhg,Salem Hills,UT,5A,5A Region 7,salem-hills-skyhawks,0
 dHHlIoYsbEmZybAkuFfL4A,Skyline,UT,5A,5A Region 6,skyline-eagles,0

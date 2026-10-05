@@ -99,12 +99,7 @@ supabase secrets set OPENAI_API_KEY=sk-...
 supabase secrets set GEMINI_API_KEY=...
 ```
 
-4. Deploy:
-
-```bash
-supabase functions deploy explore-shots
-supabase functions deploy prep-opponent
-```
+4. Deploy: automatic. `.github/workflows/supabase-migrate.yml` deploys every function in `supabase/functions/` after migrations on push to `dev` (DEV) and `main` (PROD).
 
 Confirm JWT verification stays on (default).
 
