@@ -6,6 +6,10 @@ create table if not exists public.mp_ingest_runs (
   started_at       timestamptz not null default now(),
   finished_at      timestamptz,
   source_label     text not null default 'csv',
+  -- ok: loaded. blocked: validation refused the scrape. failed: scrape/sync error.
+  status           text not null default 'ok'
+                     check (status in ('ok', 'blocked', 'failed')),
+  reason           text,
   games_before     int,
   games_after      int,
   games_added      int not null default 0,

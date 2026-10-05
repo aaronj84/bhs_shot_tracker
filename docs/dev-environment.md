@@ -124,6 +124,10 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `SHOTS_SUPABASE_ANON_KEY_PROD` | PROD anon key |
 | `SHOTS_PIN` | Staff PIN (e.g. `KEPPA`) |
 | `BACKUP_ENCRYPTION_KEY` | Optional passphrase for CI database archives; falls back to `SUPABASE_DB_PASSWORD_PROD`. See [backup.md](backup.md). |
+| `SUPABASE_SERVICE_ROLE_KEY_DEV` | DEV service_role key (Settings → API). Used only by the daily MaxPreps scrape to write `mp_*` tables. |
+| `SUPABASE_SERVICE_ROLE_KEY_PROD` | PROD service_role key. Same use. Never put either in the app or config. |
+
+The **MaxPreps daily scrape** workflow (`.github/workflows/mp-daily-scrape.yml`) runs at 5, 8, 11 AM and 2 PM Mountain. Each run checks `mp_ingest_runs` and skips any database that already has an `ok` or `blocked` run since local midnight; otherwise it scrapes once (`maxprep/deClaude/mp_daily.py`), validates against the table, and loads. A scrape that looks broken (no games, too many table games missing, more than 10 existing scores changed) is recorded as `blocked`, not loaded, and fails the job. Re-run it from Actions with **force** once you've checked the diff, or **diff_only** to look without writing.
 
 After secrets exist:
 
