@@ -1,0 +1,48 @@
+contest_id,date,team_a,team_b,score,winner
+f6ef91b4-da92-46ba-848c-69658aff852e,2026-08-04,Deer Creek,Hillcrest,1,Deer Creek
+afdc4b05-4d94-424a-af0a-2d7b4832ee6e,2026-08-04,Herriman,Viewmont,1,Viewmont
+d2692108-3944-4743-8ddc-c04f249ea618,2026-08-04,Lone Peak,Park City,1,Park City
+51d2c3d5-53ff-4ea3-99d9-fa65b21c5ee8,2026-08-06,South Sevier,Utah Military Academy - Camp Williams,0,South Sevier
+41b5c5a6-7651-4373-b333-20f2f23d07e2,2026-08-07,Sky View,Springville,1,Sky View
+4fba363e-fbad-4984-9691-e763525eaed5,2026-08-08,Desert Hills,Timpanogos,1,Desert Hills
+10e740c1-9c33-45a7-92e9-00a79d03b486,2026-08-10,West,Roy,0,Roy
+9e20a4e1-0dd4-4e4b-b1f2-3d8794e70350,2026-08-10,West Field,Farmington,1,West Field
+7f65b752-8efd-4575-9be3-c6fd0ae3dfd8,2026-08-11,Corner Canyon,Herriman,0,Corner Canyon
+7b05bed9-3beb-4585-aaef-3479e418809a,2026-08-11,Provo,Sky View,2,Provo
+81cd9cc1-955a-4c5c-8e2e-df77150cb878,2026-08-11,Ridgeline,Maple Mountain,3,Maple Mountain
+7a098e27-38a1-4f5c-9264-073c03fe1334,2026-08-15,Crimson Cliffs,American Fork,1,American Fork
+90d214da-45a3-4ed5-8b22-9ff11127716c,2026-08-20,Herriman,Salt Lake Academy,1,Herriman
+0ce25053-e1f8-49c3-b71b-ac4ad5ea2d41,2026-08-20,Spanish Fork,Salem Hills,1,Spanish Fork
+819cdf92-17f9-4af6-84ed-89f20e145f8d,2026-08-20,West Field,Bonneville,0,Bonneville
+28da82c2-a8b0-40f7-aab3-24f94bb3b1d8,2026-08-22,San Juan,Parowan,3,Parowan
+8f734342-c5f4-46eb-a3bd-2a7e0685cad2,2026-08-25,Beaver,San Juan,3,San Juan
+8afcb858-1102-4bde-9d59-f59bfc6b2b08,2026-08-25,Farmington,Corner Canyon,0,Farmington
+d628723d-163c-4ce8-b1af-ad27b7a1ab23,2026-08-27,Farmington,Lone Peak,1,Lone Peak
+08e60567-71c3-49a2-b820-472ec55f78e7,2026-08-27,Herriman,Mountain Ridge,1,Herriman
+beb27996-e9fe-4341-a083-7770e479266d,2026-08-27,Weber,American Fork,2,American Fork
+f3cfb3ef-ef73-4b43-a842-e26b4625f4fc,2026-08-27,West Jordan,Taylorsville,3,Taylorsville
+5b0ab2fd-bcfe-475e-a342-b52f7851bfb6,2026-08-29,Logan,Meridian,2,Meridian
+e72922ee-43f9-47b8-bf0c-61f501e1df59,2026-09-03,Lehi,Lone Peak,1,Lone Peak
+f9fcbb4b-0b33-4e58-a549-bc387ccd4d6d,2026-09-03,Wasatch,Orem,1,Wasatch
+127ec4fc-0686-41bd-8ac4-aea9b0f19218,2026-09-08,Draper APA,North Summit,2,Draper APA
+3c36663c-3799-430b-966e-2a7e4d9f4127,2026-09-08,Payson,Salem Hills,1,Salem Hills
+4f20d4db-bae6-44df-b695-12b2d7347a56,2026-09-08,Timpview,Springville,3,Timpview
+2d722ff8-8d0c-4663-92b5-73b573bd0168,2026-09-10,Granger,Taylorsville,2,Taylorsville
+b726adb0-78eb-4439-b81e-1cc391d22335,2026-09-11,Spanish Fork,Springville,1,Spanish Fork
+9c38af4c-053a-40aa-85e9-3e629a8e01a7,2026-09-15,Cyprus,Granger,0,Cyprus
+4661a4a6-088d-4bb8-9c9e-ac3839abf31e,2026-09-15,Riverton,Cedar Valley,0,Riverton
+fb37166b-59fa-467b-a1af-515aba5f2041,2026-09-15,Wasatch,Mountain View,2,Wasatch
+7201e7f7-8a79-4d79-a584-bef056789526,2026-09-16,Sky View,Stansbury,1,Sky View
+953d5167-4df8-4534-bc5c-d928f5cacb8e,2026-09-17,Cedar Valley,Salt Lake Academy,2,Cedar Valley
+db96f42a-8e27-43cb-a8ec-b993aebab13f,2026-09-24,Alta,Viewmont,1,Alta
+b483697e-e296-4a38-96c7-2d8401f535e3,2026-09-24,Lone Peak,Corner Canyon,1,Lone Peak
+c59a2918-481f-4429-933b-a1b9c0567ed6,2026-09-28,Highland,Cottonwood,0,Highland
+e09b5d21-eebc-4ac7-a02f-390c2caee74b,2026-09-29,Beaver,Enterprise,1,Enterprise
+10b14d15-a48c-41e0-a2ae-67ef80f76ec9,2026-09-29,Deer Creek,Uintah,3,Uintah
+cadd56af-1121-4c0c-9fd9-66b0e7271127,2026-09-29,Mountain Ridge,Copper Hills,2,Copper Hills
+4b01acb2-ad80-4c6a-b39f-c6f6c1cb56c0,2026-09-29,Provo,Timpanogos,1,Timpanogos
+de451c44-1f67-4586-b3b1-753da2b4374b,2026-09-29,Woods Cross,Olympus,1,Olympus
+dd9cd64b-e1d0-408e-bfa1-2c62e247266b,2026-10-01,Kearns,Hillcrest,1,Hillcrest
+4dc861ca-3f3f-4de5-9a3a-28aa7f94d10d,2026-10-01,Snow Canyon,Crimson Cliffs,2,Snow Canyon
+533aa162-9d12-4f1c-b11b-ec3486b7e67f,2026-10-01,Westlake,Salt Lake Academy,1,Westlake
+b100a1d8-51d6-4479-a694-079becbec67d,2026-10-03,Enterprise,San Juan,1,Enterprise

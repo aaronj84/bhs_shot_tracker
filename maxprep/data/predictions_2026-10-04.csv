@@ -1,0 +1,114 @@
+team,current_rank,current_rating,bethel_pred,freeman_pred
+Lone Peak,1,20.94,20.83,20.9
+Park City,2,18.25,18.15,18.32
+Crimson Cliffs,3,18.06,17.17,16.95
+Green Canyon,4,18.03,17.64,18.01
+Davis,5,17.20,17.29,17.59
+Bountiful,6,17.07,17.84,18.4
+Olympus,7,16.84,16.14,15.8
+American Fork,8,16.18,15.61,15.28
+Maple Mountain,9,15.74,16.15,16.55
+Farmington,10,14.84,14.91,15.1
+Brighton,11,14.58,14.68,14.87
+Manti,12,13.65,13.36,13.11
+Wasatch,13,13.10,13.2,13.28
+Mountain View,14,12.91,13.08,13.34
+Box Elder,15,12.86,11.72,11.59
+Ridgeline,16,12.56,12.57,13.07
+East,17,12.11,11.99,11.86
+Syracuse,18,11.75,11.23,10.94
+Pleasant Grove,19,11.41,11.33,11.15
+Corner Canyon,20,11.35,11.91,12.49
+Lehi,21,11.25,11.26,11.36
+Timpview,22,11.15,10.76,10.4
+Desert Hills,23,10.49,10.59,10.71
+Bonneville,24,10.36,10.22,10.35
+Snow Canyon,25,9.54,10.4,10.96
+Timpanogos,26,8.39,8.41,8.42
+Judge Memorial Catholic,27,7.97,7.94,8.18
+Ogden,28,7.96,7.77,8.04
+Cedar Valley,29,7.95,7.73,7.38
+Layton,30,7.94,8.58,9.17
+Herriman,31,7.91,7.56,7.23
+Salem Hills,32,7.83,8.01,8.21
+Viewmont,33,7.74,7.63,7.51
+Mountain Ridge,34,7.64,8.02,8.46
+Carbon,35,7.46,7.37,7.51
+Uintah,36,7.43,7.27,6.99
+Richfield,37,7.29,6.91,6.46
+Springville,38,6.23,6.87,7.47
+Stansbury,39,6.17,6.04,6.02
+Copper Hills,40,6.07,6.61,7.01
+Weber,41,5.52,5.58,5.62
+Mountain Crest,42,5.47,5.09,5.49
+West Field,43,5.42,5.94,6.44
+Spanish Fork,44,5.36,5.4,5.4
+Maeser Prep Academy,45,5.20,5.27,5.56
+Sky View,46,5.00,4.67,4.55
+Cedar,47,4.68,5.01,5.24
+Provo,48,4.48,4.66,4.91
+Canyon View,49,4.39,4.91,5.37
+Morgan,50,4.38,4.41,4.77
+Bingham,51,4.29,4.1,3.81
+Riverton,52,4.24,4.68,5.13
+Highland,53,3.64,3.6,3.47
+Dixie,54,3.62,3.76,3.78
+Alta,55,3.54,3.87,4.23
+Skyline,56,3.42,3.12,2.99
+Union,57,2.52,1.56,1.2
+Skyridge,58,2.51,2.46,2.59
+Woods Cross,59,1.41,0.83,0.55
+Orem,60,-0.20,-0.44,-0.61
+American Leadership Academy,61,-0.24,-0.22,-0.16
+Grand County,62,-0.31,-1.2,-1.53
+Waterford,63,-0.43,-0.77,-0.87
+American Heritage,64,-0.73,-0.92,-0.63
+Hillcrest,65,-1.47,-1.05,-0.81
+Hurricane,66,-2.42,-2.43,-2.52
+Jordan,67,-2.46,-2.09,-1.73
+Kearns,68,-2.74,-2.84,-3.24
+Grantsville,69,-2.77,-2.9,-2.91
+Salt Lake Academy,70,-3.21,-3.13,-3.1
+Murray,71,-3.29,-3.62,-3.97
+Juab,72,-3.85,-3.48,-3.12
+Deer Creek,73,-3.95,-3.96,-3.96
+Clearfield,74,-4.02,-4.32,-4.34
+Enterprise,75,-4.76,-4.48,-4.19
+Pine View,76,-5.16,-5.04,-5.08
+Fremont,77,-5.35,-5.45,-5.01
+Logan,78,-5.45,-6.03,-6.3
+Cyprus,79,-5.88,-5.61,-5.52
+Payson,80,-5.89,-5.76,-5.83
+North Sanpete,81,-5.91,-4.53,-4.26
+Northridge,82,-6.08,-6.19,-6.07
+Delta,83,-6.45,-6.24,-6.44
+Beaver,84,-6.61,-5.8,-5.61
+Juan Diego Catholic,85,-6.77,-6.67,-6.95
+Bear River,86,-7.17,-8.68,-8.4
+R Rowland Hall,87,-7.33,-7.33,-7.33
+Westlake,88,-7.86,-7.8,-7.75
+San Juan,89,-8.40,-7.99,-8.36
+Ben Lomond,90,-8.83,-8.93,-9.23
+South Summit,91,-9.74,-9.76,-9.71
+Millard,92,-10.19,-10.05,-10.16
+St. Joseph,93,-10.99,-11.0,-10.86
+Granger,94,-12.45,-11.94,-11.72
+Summit Academy,95,-12.64,-12.64,-12.61
+Deseret Peak,96,-12.88,-12.66,-13.01
+Parowan,97,-13.54,-13.82,-14.23
+Tooele,98,-13.63,-12.31,-12.55
+West,99,-14.01,-14.36,-14.77
+Providence Hall,100,-14.03,-14.28,-15.0
+Cottonwood,101,-14.36,-13.92,-13.92
+Roy,102,-14.87,-15.07,-15.37
+Taylorsville,103,-15.22,-15.17,-15.27
+Utah Military Academy - Camp Williams,104,-16.01,-16.01,-16.01
+Draper APA,105,-17.24,-17.02,-17.64
+Emery,106,-18.84,-18.28,-18.08
+South Sevier,107,-19.09,-18.69,-18.43
+Utah Military Academy - Hill Field,108,-19.16,-19.16,-19.16
+West Jordan,109,-19.96,-20.0,-20.21
+Gunnison Valley,110,-23.69,-23.85,-24.44
+North Summit,111,-24.03,-23.78,-24.19
+Hunter,112,-25.32,-25.28,-25.32
+American Prep WV,113,-26.59,-26.47,-27.16
