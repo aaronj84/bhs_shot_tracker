@@ -91,6 +91,7 @@
 
   const api = {
     isConfigured,
+    isPlaceholderConfig,
     pinValue,
     getClient,
 
