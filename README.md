@@ -30,6 +30,7 @@ python3 -m http.server 8080
 | [docs/dev-environment.md](docs/dev-environment.md) | Create DEV Supabase, CLI migrations, GitHub secrets, Pages |
 | [docs/git-workflow.md](docs/git-workflow.md) | `dev` branch → PR to `main` (prod); branch is not deleted |
 | [docs/backup.md](docs/backup.md) | On-demand + PR/merge PROD database dumps and restore |
+| [docs/pr-preview.md](docs/pr-preview.md) | STAGING review stack (PROD dump → staging backend + test URL) |
 | [supabase/README.md](supabase/README.md) | Schema, migrations folder, Explore |
 
 ```bash

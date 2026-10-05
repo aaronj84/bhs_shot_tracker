@@ -13,9 +13,11 @@ This is a phone app. Design, implement, and verify every screen in **iPhone port
 | Env | Project ref | Use |
 | --- | --- | --- |
 | **DEV** | `fmiymqnfezkqagpbrmoi` | Local, CI, Cloud Agents, feature work |
+| **STAGING** | (create once; see `docs/pr-preview.md`) | PR review; restored from PROD dumps |
 | **PROD** | `sczdnalqmymhdornhkbn` | Live GitHub Pages site + real game data |
 
 - Day-to-day work points at **DEV**. Never write one-off SQL against PROD.
+- Human review of feature PRs with real-ish data uses **STAGING**, not DEV cartoon seed (`docs/pr-preview.md`).
 - New schema is a versioned pair: `supabase/migrations/<ts>_name.sql` (up) and `supabase/down/<ts>_name.sql` (down). Scaffold with `npm run db:new -- describe_change`, then `npm run db:up` on the linked DEV project. The runner records versions in `supabase_migrations.schema_migrations` and applies only what that database is missing — so a new DEV/stage project catches up from empty.
 - GitHub flow: work on a branch → PR into `dev` → later PR `dev` → `main`. Do not push to `main`. Merging to `main` deploys Pages and migrates PROD.
 - `shots-config.js` is gitignored. Generate it; never commit it.

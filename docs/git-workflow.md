@@ -7,12 +7,16 @@ feature branch (optional)
         │
         ▼
        dev  ── CI: tests + migrations → DEV Supabase
+        │      staging site publish (optional STAGING stack)
         │
         │  Pull Request
         ▼
       main  ── GitHub Pages (prod site)
             ── encrypted PROD DB backup (artifact)
             ── migrations → PROD Supabase
+
+STAGING (long-lived) ← restore from PROD dump for human review
+  see docs/pr-preview.md
 ```
 
 ---
@@ -62,7 +66,8 @@ Fix failures on `dev` before opening a PR.
    - If the PR included `supabase/migrations/` or `supabase/down/`, **Supabase migrate** dumps PROD again, then `db:up`
 4. Keep coding on `dev`. Do **not** delete `dev` when the PR asks; leave the branch.
 
-On-demand dump and restore: [backup.md](backup.md).
+On-demand dump and restore: [backup.md](backup.md).  
+PR review with PROD-shaped data on a separate backend: [pr-preview.md](pr-preview.md).
 
 That PR **is** the migrate-to-prod path for both frontend and schema.
 

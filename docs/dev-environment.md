@@ -1,9 +1,10 @@
 # Dev environment (Supabase)
 
 **PROD** = existing project `sczdnalqmymhdornhkbn` (real game data).  
-**DEV** = a new empty project you create below (local work + GitHub Actions).
+**DEV** = project `fmiymqnfezkqagpbrmoi` (local work + GitHub Actions).  
+**STAGING** = long-lived review project restored from PROD dumps (optional; see [pr-preview.md](pr-preview.md)).
 
-Day-to-day: point local `shots-config.js` at **DEV**. Promote schema with migrations; promote the site with a PR `dev` → `main` (see [git-workflow.md](git-workflow.md)).
+Day-to-day: point local `shots-config.js` at **DEV**. Promote schema with migrations; promote the site with a PR `dev` → `main` (see [git-workflow.md](git-workflow.md)). Human PR review with real-ish data uses **STAGING**, not DEV’s cartoon seed.
 
 ---
 
@@ -124,6 +125,9 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `SHOTS_SUPABASE_ANON_KEY_PROD` | PROD anon key |
 | `SHOTS_PIN` | Staff PIN (e.g. `KEPPA`) |
 | `BACKUP_ENCRYPTION_KEY` | Optional passphrase for CI database archives; falls back to `SUPABASE_DB_PASSWORD_PROD`. See [backup.md](backup.md). |
+| `SUPABASE_PROJECT_REF_STAGING` / `SUPABASE_DB_PASSWORD_STAGING` / `SUPABASE_DB_URL_STAGING` | STAGING project (PR review). See [pr-preview.md](pr-preview.md). |
+| `SHOTS_SUPABASE_URL_STAGING` / `SHOTS_SUPABASE_ANON_KEY_STAGING` | Staging frontend config |
+| `SURGE_LOGIN` / `SURGE_TOKEN` | Optional; public staging site URL |
 
 After secrets exist:
 

@@ -13,7 +13,12 @@
     "db:new": "node scripts/migrate.mjs new",
     "db:sync-history": "node scripts/migrate.mjs sync-history",
     "backup:prod": "./scripts/backup-db.sh --env prod",
-    "backup:dev": "./scripts/backup-db.sh --env dev"
+    "backup:dev": "./scripts/backup-db.sh --env dev",
+    "staging:refresh": "./scripts/staging-refresh.sh",
+    "staging:restore": "./scripts/restore-db.sh --env staging",
+    "staging:functions": "./scripts/deploy-edge-functions.sh --env staging",
+    "staging:site": "./scripts/assemble-site.sh --out _staging_site",
+    "staging:publish": "./scripts/publish-staging-site.sh --dir _staging_site"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

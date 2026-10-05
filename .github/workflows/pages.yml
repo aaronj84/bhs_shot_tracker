@@ -27,18 +27,12 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Write PROD shots-config.js
+      - name: Assemble site (PROD config)
         env:
           SHOTS_SUPABASE_URL: ${{ secrets.SHOTS_SUPABASE_URL_PROD }}
           SHOTS_SUPABASE_ANON_KEY: ${{ secrets.SHOTS_SUPABASE_ANON_KEY_PROD }}
           SHOTS_PIN: ${{ secrets.SHOTS_PIN }}
-        run: node scripts/write-shots-config.js
-
-      - name: Assemble site
-        run: |
-          mkdir -p _site/assets
-          cp index.html styles.css app.js shots.js shots-api.js shots-config.js .nojekyll _site/
-          cp -R assets/* _site/assets/ 2>/dev/null || true
+        run: ./scripts/assemble-site.sh --out _site
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

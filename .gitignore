@@ -30,6 +30,9 @@ shots-config.js
 # Logical DB dumps (roster names — never commit)
 /backups/
 
+# Assembled staging static site (generated config — never commit)
+/_staging_site/
+
 # Node / Playwright
 node_modules/
 playwright-report/

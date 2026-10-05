@@ -1,0 +1,84 @@
+# Publish the staging frontend (config → STAGING Supabase).
+# Does not touch PROD Pages. Live URL via surge.sh when SURGE_* secrets exist;
+# always uploads a staging-site artifact.
+#
+# Manual: Actions → Publish STAGING site → Run workflow
+# Also runs on push to dev (keeps staging UI current with the integration branch)
+
+name: Publish STAGING site
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "index.html"
+      - "styles.css"
+      - "app.js"
+      - "shots.js"
+      - "shots-api.js"
+      - "assets/**"
+      - "scripts/write-shots-config.js"
+      - "scripts/assemble-site.sh"
+      - "scripts/publish-staging-site.sh"
+      - ".github/workflows/staging-pages.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      SHOTS_SUPABASE_URL: ${{ secrets.SHOTS_SUPABASE_URL_STAGING }}
+      SHOTS_SUPABASE_ANON_KEY: ${{ secrets.SHOTS_SUPABASE_ANON_KEY_STAGING }}
+      SHOTS_PIN: ${{ secrets.SHOTS_PIN }}
+      SHOTS_BRAND_SUB: Staging
+      SUPABASE_PROJECT_REF_PROD: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+      SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
+      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+      STAGING_SURGE_DOMAIN: ${{ vars.STAGING_SURGE_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Require STAGING frontend secrets
+        run: |
+          test -n "$SHOTS_SUPABASE_URL" || (echo "Missing SHOTS_SUPABASE_URL_STAGING" && exit 1)
+          test -n "$SHOTS_SUPABASE_ANON_KEY" || (echo "Missing SHOTS_SUPABASE_ANON_KEY_STAGING" && exit 1)
+
+      - name: Assemble staging site
+        run: ./scripts/assemble-site.sh --out _staging_site
+
+      - name: Publish (surge if configured)
+        id: publish
+        run: ./scripts/publish-staging-site.sh --dir _staging_site
+
+      - name: Upload staging site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-site-${{ github.run_id }}
+          path: _staging_site/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          DOMAIN="${STAGING_SURGE_DOMAIN:-bhs-shot-tracker-staging.surge.sh}"
+          {
+            echo "## STAGING site"
+            echo ""
+            if [[ -n "${SURGE_TOKEN:-}" ]]; then
+              echo "- URL: https://${DOMAIN}"
+            else
+              echo "- Artifact: \`staging-site-${{ github.run_id }}\`"
+              echo "- Add \`SURGE_LOGIN\` + \`SURGE_TOKEN\` for a clickable review URL (see docs/pr-preview.md)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

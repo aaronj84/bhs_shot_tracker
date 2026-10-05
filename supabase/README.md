@@ -28,7 +28,8 @@ window.SHOTS_CONFIG = {
 | Env | Project | Used for |
 | --- | --- | --- |
 | **PROD** | `sczdnalqmymhdornhkbn` | Live site + real data |
-| **DEV** | (you create) | Local + CI |
+| **DEV** | `fmiymqnfezkqagpbrmoi` | Local + CI |
+| **STAGING** | (create once) | PR review; PROD dump restore — [pr-preview.md](../docs/pr-preview.md) |
 
 ## Schema & migrations
 

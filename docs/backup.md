@@ -43,8 +43,19 @@ tar -tzf backups/bhs-shot-tracker-prod-YYYYMMDD-HHMMSSZ.tar.gz   # or wherever t
 
 Prefer restoring into a **new** Supabase project or empty database, not live PROD, until you have verified the dump.
 
-1. Get a session-pooler (port **5432**) connection string from the target project’s **Connect** dialog. Percent-encode the password.
-2. Unpack the archive (`MANIFEST.txt` repeats these commands).
+For the long-lived **STAGING** review project (refresh from PROD dumps, frontend URL, edge functions), use the automated path in [pr-preview.md](pr-preview.md):
+
+```bash
+./scripts/restore-db.sh --archive backups/bhs-shot-tracker-prod-….tar.gz.enc \
+  --env staging --wipe
+# or full orchestrator:
+./scripts/staging-refresh.sh --archive backups/….tar.gz.enc
+```
+
+### Manual restore (any empty target)
+
+1. Get a **direct** or session-pooler (port **5432**) connection string from the target project’s **Connect** dialog. Percent-encode the password. Transaction pooler (6543) is a poor fit for large restores.
+2. Unpack the archive (`MANIFEST.txt` repeats these commands), or let `restore-db.sh` unpack for you.
 3. Restore:
 
 ```bash
@@ -61,7 +72,7 @@ psql --single-transaction --variable ON_ERROR_STOP=1 \
   --dbname "$SUPABASE_DB_URL"
 ```
 
-If `roles.sql` errors on a hosted project (reserved roles), restore schema + data only, then the history files.
+If `roles.sql` errors on a hosted project (reserved roles), restore schema + data only, then the history files. `restore-db.sh` skips roles by default for that reason (`--roles` to try).
 
 Supabase dashboard **PITR / daily backups** (paid) are a separate safety net; this archive is the one you control.
 
@@ -73,3 +84,5 @@ Supabase dashboard **PITR / daily backups** (paid) are a separate safety net; th
 | `SUPABASE_PROJECT_REF_PROD` | Yes (defaults in the script if unset locally) |
 | `SUPABASE_DB_PASSWORD_PROD` | Yes |
 | `BACKUP_ENCRYPTION_KEY` | Optional; CI falls back to the DB password |
+
+Staging restore secrets (separate project — never PROD): see [pr-preview.md](pr-preview.md).
