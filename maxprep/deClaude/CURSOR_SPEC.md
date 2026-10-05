@@ -1,5 +1,15 @@
 # CURSOR_SPEC.md -- build brief for the MaxPreps module
 
+RESUMED 2026-10-05 for Prep → Scenarios (Freeman what-if in-app).
+Phase 2 live compute shipped first as edge function `mp-whatif` (Freeman /
+margin model only). Prefers `mp_games` / `mp_teams` when populated; falls
+back to bundled `season_snapshot.json`. Ingest diffs land in `mp_ingest_runs`
+via `mp_to_supabase.py --diff-only` / sync.
+
+PAUSED note from 2026-09-13 kept below for history.
+
+---
+
 PAUSED 2026-09-13. Ryan does not need an app. Current deliverable is
 the scheduling-priorities briefing (`../Brighton_scheduling_priorities.html`).
 Next number he asked for (swap a #75 win for a #5 loss) waits on the

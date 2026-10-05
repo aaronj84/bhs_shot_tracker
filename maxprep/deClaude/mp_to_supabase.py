@@ -7,12 +7,18 @@ CSV from mp_snapshot.py (or the dated rankings dump).
 Auth: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (service role bypasses RLS).
 Without those, pass --sql-out to write INSERT statements instead.
 
+Before upsert, compares incoming games to the datastore and prints a
+diff (added / updated / removed / score changes). Pass --diff-only to
+stop after the comparison. Successful syncs append a row to
+mp_ingest_runs when that table exists.
+
     python3 mp_to_supabase.py \
         --games ../data/ut_girls_soccer_2026.csv \
         --teams ../data/ut_girls_soccer_2026_teams.csv \
         --snapshots ../data/ut_girls_rankings_2026-09-13.csv
 
     python3 mp_to_supabase.py --games ... --teams ... --sql-out seed.sql
+    python3 mp_to_supabase.py --games ... --teams ... --diff-only
 
 ASCII only. Python 3.9+. Requires requests if talking to the API.
 """
@@ -234,6 +240,105 @@ def rest_upsert(url: str, key: str, table: str, rows: List[dict],
         sys.stderr.write("  %s %d-%d ok\n" % (table, i + 1, i + len(chunk)))
 
 
+def rest_select_all(url: str, key: str, table: str, columns: str) -> List[dict]:
+    import requests
+    endpoint = url.rstrip("/") + "/rest/v1/" + table
+    headers = {
+        "apikey": key,
+        "Authorization": "Bearer " + key,
+    }
+    out: List[dict] = []
+    start = 0
+    page = 1000
+    while True:
+        headers_range = dict(headers)
+        headers_range["Range"] = "%d-%d" % (start, start + page - 1)
+        r = requests.get(
+            endpoint, headers=headers_range,
+            params={"select": columns}, timeout=60)
+        if r.status_code >= 300:
+            raise SystemExit(
+                "GET %s failed %d: %s" % (table, r.status_code, r.text[:500]))
+        chunk = r.json()
+        if not chunk:
+            break
+        out.extend(chunk)
+        if len(chunk) < page:
+            break
+        start += page
+    return out
+
+
+def diff_games(existing: List[dict], incoming: List[dict]) -> dict:
+    """Compare datastore games to a fresh scrape payload."""
+    before = {g["game_id"]: g for g in existing if g.get("game_id")}
+    after = {g["game_id"]: g for g in incoming if g.get("game_id")}
+    added = [gid for gid in after if gid not in before]
+    removed = [gid for gid in before if gid not in after]
+    updated = []
+    score_changes = []
+    score_keys = ("home_score", "away_score", "is_forfeit", "neutral")
+    for gid, neu in after.items():
+        old = before.get(gid)
+        if not old:
+            continue
+        changed = False
+        for k in score_keys:
+            if old.get(k) != neu.get(k):
+                changed = True
+                if k in ("home_score", "away_score"):
+                    score_changes.append({
+                        "game_id": gid,
+                        "before": [old.get("home_score"), old.get("away_score")],
+                        "after": [neu.get("home_score"), neu.get("away_score")],
+                    })
+                    break
+        if changed:
+            updated.append(gid)
+    sample = {
+        "added": added[:10],
+        "removed": removed[:10],
+        "score_changes": score_changes[:10],
+    }
+    return {
+        "games_before": len(before),
+        "games_after": len(after),
+        "games_added": len(added),
+        "games_updated": len(updated),
+        "games_removed": len(removed),
+        "score_changes": len(score_changes),
+        "diff_sample": sample,
+    }
+
+
+def record_ingest_run(url: str, key: str, diff: dict, source_label: str) -> None:
+    import requests
+    endpoint = url.rstrip("/") + "/rest/v1/mp_ingest_runs"
+    headers = {
+        "apikey": key,
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    row = {
+        "finished_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "source_label": source_label,
+        "games_before": diff["games_before"],
+        "games_after": diff["games_after"],
+        "games_added": diff["games_added"],
+        "games_updated": diff["games_updated"],
+        "games_removed": diff["games_removed"],
+        "score_changes": diff["score_changes"],
+        "diff_sample": diff["diff_sample"],
+        "notes": "mp_to_supabase sync",
+    }
+    r = requests.post(endpoint, headers=headers, data=json.dumps(row), timeout=60)
+    if r.status_code >= 300:
+        sys.stderr.write(
+            "warn: could not write mp_ingest_runs (%d): %s\n"
+            % (r.status_code, r.text[:300]))
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -241,6 +346,9 @@ def main() -> int:
     p.add_argument("--teams", required=True)
     p.add_argument("--snapshots", default="")
     p.add_argument("--sql-out", default="")
+    p.add_argument("--diff-only", action="store_true",
+                   help="Compare CSV to datastore; do not upsert")
+    p.add_argument("--source-label", default="csv")
     p.add_argument("--supabase-url",
                    default=os.environ.get("SUPABASE_URL", ""))
     p.add_argument("--service-key",
@@ -277,12 +385,28 @@ def main() -> int:
             "pass --sql-out or set env vars\n")
         return 2
 
+    existing = rest_select_all(
+        args.supabase_url, args.service_key, "mp_games",
+        "game_id,home_score,away_score,neutral,is_forfeit")
+    diff = diff_games(existing, games)
+    sys.stderr.write(
+        "diff: before=%d after=%d added=%d updated=%d removed=%d score_changes=%d\n"
+        % (diff["games_before"], diff["games_after"], diff["games_added"],
+           diff["games_updated"], diff["games_removed"], diff["score_changes"]))
+    if diff["diff_sample"]["score_changes"]:
+        sys.stderr.write("  score change sample: %s\n"
+                         % json.dumps(diff["diff_sample"]["score_changes"][:3]))
+    if args.diff_only:
+        print(json.dumps(diff, indent=2))
+        return 0
+
     rest_upsert(args.supabase_url, args.service_key, "mp_teams", teams, "team_id")
     rest_upsert(args.supabase_url, args.service_key, "mp_games", games, "game_id")
     if snaps:
         # REST upsert needs a unique key; snapshots use (taken_on,state,sport,team_name)
         rest_upsert(args.supabase_url, args.service_key, "mp_snapshots", snaps,
                     "taken_on,state,sport,team_name")
+    record_ingest_run(args.supabase_url, args.service_key, diff, args.source_label)
     sys.stderr.write("upsert complete\n")
     return 0
 

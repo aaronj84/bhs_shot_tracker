@@ -1,0 +1,74 @@
+{
+  "params": {
+    "cap": 5.0,
+    "ridge": 1.0,
+    "result_bonus": 1.0
+  },
+  "baseline": {
+    "team": "Brighton",
+    "rating": 3.899419,
+    "rank": 9,
+    "n_games": 899,
+    "n_teams": 117
+  },
+  "what_if": [
+    {
+      "model": "margin",
+      "opponent": "Lone Peak",
+      "opp_rating": 4.2944,
+      "score": "2-1",
+      "rating_before": 3.8994,
+      "rating_after": 4.0447,
+      "rating_delta": 0.1453,
+      "rank_before": 9,
+      "rank_after": 5,
+      "rank_delta": 4
+    },
+    {
+      "model": "margin",
+      "opponent": "Lone Peak",
+      "opp_rating": 4.2944,
+      "score": "1-2",
+      "rating_before": 3.8994,
+      "rating_after": 3.8021,
+      "rating_delta": -0.0974,
+      "rank_before": 9,
+      "rank_after": 9,
+      "rank_delta": 0
+    },
+    {
+      "model": "margin",
+      "opponent": "Cyprus",
+      "opp_rating": -1.6829,
+      "score": "5-0",
+      "rating_before": 3.8994,
+      "rating_after": 3.9224,
+      "rating_delta": 0.023,
+      "rank_before": 9,
+      "rank_after": 9,
+      "rank_delta": 0
+    },
+    {
+      "model": "margin",
+      "opponent": "Orem",
+      "opp_rating": 0.1437,
+      "score": "1-2",
+      "rating_before": 3.8994,
+      "rating_after": 3.5652,
+      "rating_delta": -0.3342,
+      "rank_before": 9,
+      "rank_after": 11,
+      "rank_delta": -2
+    }
+  ],
+  "swap_orem_for_lone_peak_loss": {
+    "drop": "Orem",
+    "add": "Lone Peak",
+    "score": "1-2",
+    "dropped": 1,
+    "rank_before": 9,
+    "rank_after": 9,
+    "rating_before": 3.899419,
+    "rating_after": 3.656898
+  }
+}

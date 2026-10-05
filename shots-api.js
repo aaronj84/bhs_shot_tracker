@@ -485,6 +485,24 @@
       return { ok: true, data: boxed };
     },
 
+    /** Freeman what-if scenarios via Edge Function mp-whatif. Requires staff PIN. */
+    async mpWhatIf(payload) {
+      const sb = getClient();
+      if (!sb) return { ok: false, error: "Supabase is not configured" };
+      const { data, error } = await sb.functions.invoke("mp-whatif", {
+        body: payload && typeof payload === "object" ? payload : { mode: "baseline" },
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyMpError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
+
     async insertAppEvents(rows) {
       const list = (rows || []).filter(Boolean);
       if (!list.length) return { ok: true };
@@ -516,6 +534,17 @@
       return "Prep summary failed. If this is a new project, set GEMINI_API_KEY on the Edge Function secrets.";
     }
     return text || "Prep request failed. Deploy prep-opponent and set GEMINI_API_KEY.";
+  }
+
+  function friendlyMpError(msg) {
+    const text = String(msg || "").trim();
+    if (/Sign in with the staff PIN/i.test(text)) {
+      return "Enter the staff PIN first — scenarios need a signed-in session.";
+    }
+    if (/non-2xx status code/i.test(text)) {
+      return "Scenario request failed. Deploy the mp-whatif Edge Function on this Supabase project.";
+    }
+    return text || "Scenario request failed.";
   }
 
   function normalizeNoteTags(raw) {
