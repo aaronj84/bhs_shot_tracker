@@ -2299,6 +2299,14 @@
   }
 
   async function refreshMeta() {
+    if (typeof API.isPlaceholderConfig === "function" && API.isPlaceholderConfig()) {
+      st.teams = [];
+      st.seasons = [];
+      st.allGames = [];
+      st.games = [];
+      st.namedPlayers = [];
+      return;
+    }
     st.teams = await API.teams();
     st.seasons = await API.seasons();
     if (!st.seasonId && st.seasons[0]) st.seasonId = st.seasons[0].id;
