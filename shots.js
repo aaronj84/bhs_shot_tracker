@@ -7114,7 +7114,10 @@
 
   function applyPrepHash() {
     const { params } = prepHashParams();
-    st.prep.tab = params.get("tab") === "explore" ? "explore" : "opponent";
+    const tabParam = params.get("tab") || "";
+    st.prep.tab =
+      tabParam === "explore" ? "explore" : tabParam === "scenarios" ? "scenarios" : "opponent";
+    if (st.prep.tab !== "opponent") return;
     const gameId = params.get("game") || "";
     if (gameId) {
       if (st.prep.lockedGameId !== gameId) {
