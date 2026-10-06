@@ -63,6 +63,10 @@ function baselineFor(
   };
 }
 
+function noClassAnswer(team: string) {
+  return `I don't have a classification for ${team} in the MaxPreps data, so I can't seed them within their class. The next MaxPreps refresh should fill it in.`;
+}
+
 function meta(loaded: SeasonLoad) {
   return {
     model: "freeman",
@@ -148,6 +152,17 @@ Deno.serve(async (req) => {
 
       const focus =
         resolveTeamName(plan.focus_team, loaded.teams) || defaultTeam;
+      if (!classes[focus]) {
+        return jsonResponse({
+          ok: true,
+          mode: "ask",
+          answer: noClassAnswer(focus),
+          plan: { ...plan, focus_team: focus, intent: "clarify" },
+          baseline: null,
+          result: null,
+          ...meta(loaded),
+        });
+      }
       const ratings = marginPowerRating(loaded.games, RATING_OPTS);
       const baseline = baselineFor(loaded, focus, classes, ratings);
 
@@ -350,6 +365,9 @@ Deno.serve(async (req) => {
     }
 
     const team = String(body.team || defaultTeam).trim() || DEFAULT_TEAM;
+    if (!classes[team]) {
+      return jsonResponse({ error: noClassAnswer(team) }, 409);
+    }
     const ratings = marginPowerRating(loaded.games, RATING_OPTS);
     const baseline = baselineFor(loaded, team, classes, ratings);
 

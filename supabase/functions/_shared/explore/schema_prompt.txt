@@ -10,7 +10,7 @@ v_brighton_shots / v_brighton_shots_official columns:
   shot_id, game_id, team_id, player_id, player_name, position, zone_id, zone_label, x, y, result, period,
   assist_player_id, assist_type, is_brighton_shot, is_shot_against, game_date, season_id, opponent_name,
   is_home, game_type, stat_scope, is_tracked, is_on_frame, is_goal, second_assist_player_id, second_assist_type,
-  game_clock_seconds
+  game_clock_seconds, shot_lane, shot_range, goal_dist_yd, goal_angle_deg
 
 v_brighton_games columns:
   game_id, season_id, game_date, game_type, stat_scope, is_tracked, opponent_name, is_home,
@@ -38,6 +38,11 @@ SHOT / ASSIST SEMANTICS
 - period: '1'|'2'|'ET1'|'ET2'
 - Coordinates: x is across the pitch (0–68), y is depth from attacking goal line toward halfway (meters). Attacking half only for most shots.
 - zone_id like "C-BOX", "LHS-D", "DEF" — channel (LW|LHS|C|RHS|RW) + depth (6Y|PS|BOX|D|AT|HALF) or DEF
+- PREFER shot_lane / shot_range for location analysis (derived from x,y, consistent across all games):
+  shot_lane: LW|LHS|C|RHS|RW — wide = touchline to penalty-box side, half-space (LHS/RHS) = penalty-box side to six-yard-box side, C = between six-yard-box sides
+  shot_range: '0-9'|'9-18'|'18-27'|'27+' — yards from the goal line ('9-18' = rest of the penalty area)
+  goal_dist_yd: straight-line yards to goal centre; goal_angle_deg: angle the goal mouth subtends (bigger = better look)
+  Exclude PKs (result in ('pk-goal','pk-missed')) and non-shots (foul, corner) when comparing conversion by location.
 
 SCOPE
 - For season or aggregate stats, query v_brighton_shots_official, which already excludes friendlies and untracked games. Only fall back to v_brighton_shots when the user explicitly asks to include friendlies or a specific non-official game.

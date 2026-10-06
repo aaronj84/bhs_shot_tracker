@@ -338,6 +338,25 @@ def validate_diff(diff: dict) -> List[str]:
     return reasons
 
 
+def keep_known_classes(url: str, key: str, teams: List[dict]) -> None:
+    """Don't let a scrape that missed a team's class/region blank the table."""
+    existing = {
+        t["team_id"]: t
+        for t in rest_select_all(url, key, "mp_teams", "team_id,classification,region")
+    }
+    kept = 0
+    for t in teams:
+        old = existing.get(t["team_id"])
+        if not old:
+            continue
+        for col in ("classification", "region"):
+            if not t.get(col) and old.get(col):
+                t[col] = old[col]
+                kept += 1
+    if kept:
+        sys.stderr.write("kept %d class/region values the scrape left blank\n" % kept)
+
+
 def _headers(key: str) -> dict:
     return {
         "apikey": key,
@@ -442,6 +461,11 @@ def sync(url: str, key: str, teams: List[dict], games: List[dict],
             sys.stderr.write("  score change sample: %s\n"
                              % json.dumps(diff["diff_sample"]["score_changes"][:3]))
         reasons = validate_diff(diff)
+        keep_known_classes(url, key, teams)
+        ours = [t for t in teams if t.get("is_our_team")]
+        if ours and not all(t.get("classification") for t in ours):
+            reasons.append("our team has no classification (seeds would be "
+                           "ranked against every class)")
         for why in reasons:
             sys.stderr.write("  validation: %s\n" % why)
         if diff_only:
