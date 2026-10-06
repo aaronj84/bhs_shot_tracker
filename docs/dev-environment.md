@@ -99,6 +99,7 @@ Only if you want the Prep AI tabs against DEV:
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
 supabase secrets set GEMINI_API_KEY=...
+supabase secrets set MP_REFRESH_GITHUB_TOKEN=github_pat_...  # Scenarios auto-refresh; see supabase/README.md
 ```
 
 Functions themselves deploy from CI: every push to `dev` that touches `supabase/functions/**` or `supabase/config.toml` runs `supabase functions deploy` against DEV (after pending migrations); `main` does the same for PROD.
