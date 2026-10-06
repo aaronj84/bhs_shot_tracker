@@ -673,18 +673,10 @@
       showStats: false,
       showNoteForm: false,
       scenarios: {
-        mode: "add",
-        opponent: "Lone Peak",
-        drop: "Orem",
-        add: "Lone Peak",
-        goalsFor: "1",
-        goalsAgainst: "2",
-        teams: [],
-        teamsLoaded: false,
+        messages: [],
+        draft: "",
         loading: false,
         error: "",
-        baseline: null,
-        result: null,
         meta: null,
       },
     },
@@ -1570,6 +1562,8 @@
       }
       if (st.prep.tab === "scenarios") {
         p.set("tab", "scenarios");
+        const asked = [...(st.prep.scenarios.messages || [])].reverse().find((m) => m.role === "user");
+        if (asked) p.set("q", asked.content);
         const qs = compactParams(p).toString();
         return `shots-prep?${qs}`;
       }
@@ -1624,6 +1618,7 @@
 
   let applyingHash = false;
   let hashExploreQ = "";
+  let hashScenarioQ = "";
 
   function hrefForView(view, extra) {
     const prevView = st.view;
@@ -1643,6 +1638,7 @@
     let gameChanged = false;
     let runHistory = false;
     let runQ = "";
+    let runScenarioQ = "";
     try {
       if (path === "shots" || path === "shots-map" || path === "shots-scoreboard") {
         const ref = params.get("game");
@@ -1720,6 +1716,17 @@
             hashExploreQ = q;
           }
         }
+        if (tab === "scenarios") {
+          const q = String(params.get("q") || "").trim();
+          if (
+            q &&
+            hashScenarioQ !== q &&
+            !st.prep.scenarios.messages.some((m) => m.role === "user" && m.content === q)
+          ) {
+            runScenarioQ = q;
+            hashScenarioQ = q;
+          }
+        }
       }
       if (path === "shots-history") {
         const season = findSeasonByRef(params.get("season") || "");
@@ -1749,6 +1756,10 @@
     }
     if (runQ) {
       await runExplore(runQ);
+      return "drew";
+    }
+    if (runScenarioQ) {
+      await runScenarioAsk(runScenarioQ);
       return "drew";
     }
     if (runHistory && !st.history.rows && !st.history.loading) {
@@ -7293,6 +7304,13 @@
     "Where do Brighton goals tend to come from on the pitch?",
   ];
 
+  const SCENARIO_STARTERS = [
+    "What if we beat Lone Peak 2-1?",
+    "What if instead of beating Orem early we had played Lone Peak and lost 1-2?",
+    "Where is Brighton seeded in the Freeman model right now?",
+    "What if Alta beat Bountiful 1-0?",
+  ];
+
   function prepHashParams() {
     const raw = (location.hash || "").replace(/^#/, "");
     const path = raw.split("?")[0];
@@ -8096,204 +8114,152 @@
     return `#${rank}`;
   }
 
-  function scenarioDeltaHtml(delta, betterIsPositive = true) {
+  function scenarioDeltaHtml(delta) {
     if (delta == null || Number.isNaN(Number(delta))) return "";
     const n = Number(delta);
-    const up = betterIsPositive ? n > 0 : n < 0;
-    const down = betterIsPositive ? n < 0 : n > 0;
-    const cls = up ? "is-up" : down ? "is-down" : "is-flat";
+    const cls = n > 0 ? "is-up" : n < 0 ? "is-down" : "is-flat";
     const sign = n > 0 ? `+${n}` : String(n);
     return `<span class="scenario-delta ${cls}">${escapeHtml(sign)}</span>`;
   }
 
-  async function ensureScenarioTeams() {
-    const sc = st.prep.scenarios;
-    if (sc.teamsLoaded || sc.loading) return;
-    sc.loading = true;
-    sc.error = "";
-    draw({ keepScroll: true });
-    const res = await API.mpWhatIf({ mode: "teams" });
-    sc.loading = false;
-    sc.teamsLoaded = true;
-    if (!res.ok) {
-      sc.error = res.error || "Could not load teams";
-      draw({ keepScroll: true });
-      return;
+  function scenarioResultChips(data) {
+    const result = data?.result;
+    const base = data?.baseline;
+    if (!result && !base) return "";
+    const bits = [];
+    if (result && result.rank_before != null) {
+      bits.push(
+        `<span class="scenario-chip">Seed ${scenarioRankLabel(result.rank_before)} → ${scenarioRankLabel(result.rank_after)} ${scenarioDeltaHtml(result.rank_delta)}</span>`,
+      );
+      bits.push(
+        `<span class="scenario-chip">Rtg ${escapeHtml(String(result.rating_before))} → ${escapeHtml(String(result.rating_after))} ${scenarioDeltaHtml(result.rating_delta)}</span>`,
+      );
+    } else if (base) {
+      bits.push(
+        `<span class="scenario-chip">${escapeHtml(base.team || "Team")} ${scenarioRankLabel(base.rank)} · ${escapeHtml(String(base.rating))}</span>`,
+      );
     }
-    sc.teams = res.data.teams || [];
-    sc.meta = {
-      source: res.data.source,
-      as_of: res.data.as_of,
-      games_count: res.data.games_count,
-    };
-    draw({ keepScroll: true });
+    return bits.length ? `<div class="scenario-chips">${bits.join("")}</div>` : "";
   }
 
-  async function runScenario() {
-    const sc = st.prep.scenarios;
-    const gf = Number(sc.goalsFor);
-    const ga = Number(sc.goalsAgainst);
-    if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
-      sc.error = "Enter non-negative goals for and against";
-      draw({ keepScroll: true });
-      return;
+  function scenarioMsgMarkup(m) {
+    if (m.role === "user") {
+      return `<div class="explore-msg is-user"><p>${escapeHtml(m.content)}</p></div>`;
     }
-    sc.loading = true;
+    return `<div class="explore-msg is-assistant">
+      ${markdownLite(m.content || "")}
+      ${scenarioResultChips(m.data)}
+      ${
+        m.data?.meta_line
+          ? `<p class="muted scenario-meta">${escapeHtml(m.data.meta_line)}</p>`
+          : ""
+      }
+    </div>`;
+  }
+
+  async function runScenarioAsk(question) {
+    const sc = st.prep.scenarios;
+    const q = String(question || sc.draft || "").trim();
+    if (!q || sc.loading) return;
+    sc.draft = "";
     sc.error = "";
-    sc.result = null;
-    draw({ keepScroll: true });
-    const payload =
-      sc.mode === "swap"
-        ? {
-            mode: "swap",
-            drop: String(sc.drop || "").trim(),
-            add: String(sc.add || "").trim(),
-            goals_for: Math.round(gf),
-            goals_against: Math.round(ga),
-          }
-        : {
-            mode: "add",
-            opponent: String(sc.opponent || "").trim(),
-            goals_for: Math.round(gf),
-            goals_against: Math.round(ga),
-          };
-    const res = await API.mpWhatIf(payload);
+    sc.messages.push({ role: "user", content: q });
+    sc.loading = true;
+    draw();
+    const history = sc.messages
+      .slice(0, -1)
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content }));
+    const res = await API.mpWhatIf({ mode: "ask", question: q, history });
     sc.loading = false;
     if (!res.ok) {
       sc.error = res.error || "Scenario failed";
-      draw({ keepScroll: true });
+      sc.messages.push({
+        role: "assistant",
+        content: sc.error,
+        data: null,
+      });
+      draw();
       return;
     }
-    sc.baseline = res.data.baseline || null;
-    sc.result = res.data.result || null;
+    const metaBits = [];
+    if (res.data.as_of) metaBits.push(`season through ${res.data.as_of}`);
+    if (res.data.games_count) metaBits.push(`${res.data.games_count} games`);
+    if (res.data.source === "mp_games") metaBits.push("live datastore");
+    else if (res.data.source) metaBits.push("bundled snapshot");
     sc.meta = {
       source: res.data.source,
       as_of: res.data.as_of,
       games_count: res.data.games_count,
-      model: res.data.model,
     };
-    draw({ keepScroll: true });
+    sc.messages.push({
+      role: "assistant",
+      content: res.data.answer || "Done.",
+      data: {
+        baseline: res.data.baseline,
+        result: res.data.result,
+        plan: res.data.plan,
+        meta_line: metaBits.join(" · "),
+      },
+    });
+    draw();
   }
 
   function renderScenarios() {
-    ensureScenarioTeams();
     const sc = st.prep.scenarios;
-    const teamOpts = (sc.teams || [])
-      .map((t) => `<option value="${escapeHtml(t)}"></option>`)
-      .join("");
-    const base = sc.baseline;
-    const result = sc.result;
-    const metaBits = [];
-    if (sc.meta?.as_of) metaBits.push(`season through ${sc.meta.as_of}`);
-    if (sc.meta?.games_count) metaBits.push(`${sc.meta.games_count} games`);
-    if (sc.meta?.source === "mp_games") metaBits.push("live datastore");
-    else if (sc.meta?.source) metaBits.push("bundled snapshot");
-
-    const resultBlock = !result
-      ? ""
-      : `
-      <section class="scenario-result" aria-live="polite">
-        <h3 class="scenario-result-title">Freeman outcome</h3>
-        <div class="scenario-metrics">
-          <div class="scenario-metric">
-            <span class="scenario-metric-label">Seed</span>
-            <span class="scenario-metric-value">${scenarioRankLabel(result.rank_before)} → ${scenarioRankLabel(result.rank_after)} ${scenarioDeltaHtml(result.rank_delta)}</span>
-          </div>
-          <div class="scenario-metric">
-            <span class="scenario-metric-label">Rating</span>
-            <span class="scenario-metric-value">${escapeHtml(String(result.rating_before))} → ${escapeHtml(String(result.rating_after))} ${scenarioDeltaHtml(result.rating_delta)}</span>
-          </div>
-        </div>
-        <p class="muted scenario-result-note">Positive seed delta means we move up. Model is Freeman (capped margin), not published MaxPreps.</p>
-      </section>`;
-
-    const standings = (base?.standings || [])
-      .slice(0, 10)
-      .map((row) => {
-        const mine = row.team === (base.team || "Brighton");
-        return `<tr class="${mine ? "is-us" : ""}"><td>${row.rank}</td><td>${escapeHtml(row.team)}</td><td>${escapeHtml(String(row.rating))}</td></tr>`;
-      })
-      .join("");
+    const transcript = (sc.messages || []).map(scenarioMsgMarkup).join("");
 
     root().innerHTML = `
       <div class="shots-admin shots-scenarios">
         ${trackerNav()}
         <h1>Prep</h1>
         ${prepTabsMarkup("scenarios")}
-        <header class="scenario-header">
-          <h2 class="scenario-title">What if…</h2>
-          <p class="muted">Freeman model seed moves for Brighton. Ask “what if we beat X” or “what if we had played Y instead.”</p>
-          ${metaBits.length ? `<p class="muted scenario-meta">${escapeHtml(metaBits.join(" · "))}</p>` : ""}
-        </header>
-        ${base ? `<p class="scenario-baseline">Current model seed <strong>${scenarioRankLabel(base.rank)}</strong> · rating ${escapeHtml(String(base.rating))}${base.classification ? ` · ${escapeHtml(base.classification)}` : ""}</p>` : ""}
-        <div class="scenario-modes" role="tablist" aria-label="Scenario type">
-          <button type="button" class="scenario-mode ${sc.mode === "add" ? "is-on" : ""}" data-scenario-mode="add">Add a result</button>
-          <button type="button" class="scenario-mode ${sc.mode === "swap" ? "is-on" : ""}" data-scenario-mode="swap">Swap a result</button>
+        <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for Brighton or any team in the season data.</p>
+        ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+        ${sc.error && !sc.messages.length ? `<p class="shots-error">${escapeHtml(sc.error)}</p>` : ""}
+        <div class="explore-starters" role="group" aria-label="Suggested scenarios">
+          ${SCENARIO_STARTERS.map(
+            (q) =>
+              `<button type="button" class="explore-starter" data-scenario-starter>${escapeHtml(q)}</button>`,
+          ).join("")}
         </div>
-        <form id="scenario-form" class="scenario-form">
+        <div class="explore-transcript" id="scenario-transcript">
           ${
-            sc.mode === "swap"
-              ? `
-            <label class="field">
-              <span>Drop our win vs</span>
-              <input list="scenario-teams" id="scenario-drop" name="drop" autocomplete="off" value="${escapeHtml(sc.drop)}" required />
-            </label>
-            <label class="field">
-              <span>Add game vs</span>
-              <input list="scenario-teams" id="scenario-add" name="add" autocomplete="off" value="${escapeHtml(sc.add)}" required />
-            </label>`
-              : `
-            <label class="field">
-              <span>Opponent</span>
-              <input list="scenario-teams" id="scenario-opponent" name="opponent" autocomplete="off" value="${escapeHtml(sc.opponent)}" required />
-            </label>`
+            transcript ||
+            `<p class="muted">Try a starter, or type something like “what if we had played Lone Peak instead of Orem and lost.”</p>`
           }
-          <datalist id="scenario-teams">${teamOpts}</datalist>
-          <div class="scenario-score-row">
-            <label class="field">
-              <span>Us</span>
-              <input type="number" id="scenario-gf" name="goals_for" min="0" max="20" inputmode="numeric" value="${escapeHtml(String(sc.goalsFor))}" required />
-            </label>
-            <span class="scenario-score-sep" aria-hidden="true">–</span>
-            <label class="field">
-              <span>Them</span>
-              <input type="number" id="scenario-ga" name="goals_against" min="0" max="20" inputmode="numeric" value="${escapeHtml(String(sc.goalsAgainst))}" required />
-            </label>
+          ${sc.loading ? `<p class="explore-loading">Working…</p>` : ""}
+        </div>
+        <form id="scenario-form" class="explore-form">
+          <label class="sr-only" for="scenario-input">Scenario question</label>
+          <textarea id="scenario-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. What if we beat Lone Peak 2-1?" ${sc.loading ? "disabled" : ""}>${escapeHtml(sc.draft)}</textarea>
+          <div class="explore-form-actions">
+            <button type="submit" class="btn btn-primary" ${sc.loading ? "disabled" : ""}>Ask</button>
+            <button type="button" class="btn btn-ghost" id="scenario-clear" ${sc.loading || !sc.messages.length ? "disabled" : ""}>Clear</button>
           </div>
-          <button type="submit" class="btn btn-primary scenario-run" ${sc.loading ? "disabled" : ""}>${sc.loading ? "Running…" : "Run scenario"}</button>
         </form>
-        ${sc.error ? `<p class="error scenario-error">${escapeHtml(sc.error)}</p>` : ""}
-        ${resultBlock}
-        ${
-          standings
-            ? `<section class="scenario-standings">
-          <h3 class="scenario-standings-title">Model top 10 (baseline)</h3>
-          <table class="tracker-table scenario-table">
-            <thead><tr><th>#</th><th>Team</th><th>Rtg</th></tr></thead>
-            <tbody>${standings}</tbody>
-          </table>
-        </section>`
-            : ""
-        }
       </div>`;
 
-    $$("[data-scenario-mode]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        sc.mode = btn.getAttribute("data-scenario-mode") === "swap" ? "swap" : "add";
-        sc.result = null;
-        sc.error = "";
-        draw();
-      });
+    $$("[data-scenario-starter]").forEach((btn) => {
+      btn.addEventListener("click", () => runScenarioAsk(btn.textContent));
     });
     $("#scenario-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
-      sc.opponent = $("#scenario-opponent")?.value || sc.opponent;
-      sc.drop = $("#scenario-drop")?.value || sc.drop;
-      sc.add = $("#scenario-add")?.value || sc.add;
-      sc.goalsFor = $("#scenario-gf")?.value ?? sc.goalsFor;
-      sc.goalsAgainst = $("#scenario-ga")?.value ?? sc.goalsAgainst;
-      runScenario();
+      runScenarioAsk($("#scenario-input")?.value || "");
     });
+    $("#scenario-input")?.addEventListener("input", (e) => {
+      sc.draft = e.target.value;
+    });
+    $("#scenario-clear")?.addEventListener("click", () => {
+      sc.messages = [];
+      sc.error = "";
+      sc.draft = "";
+      sc.meta = null;
+      draw();
+    });
+    const transcriptEl = $("#scenario-transcript");
+    if (transcriptEl) transcriptEl.scrollTop = transcriptEl.scrollHeight;
   }
 
   function renderOpponentPrep() {
