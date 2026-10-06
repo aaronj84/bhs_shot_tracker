@@ -4187,6 +4187,63 @@ button.scoreboard-period:focus-visible {
   font-size: 0.8rem;
 }
 
+.shots-scenarios .scenario-freshness {
+  margin: -0.25rem 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.mp-refresh-modal {
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+}
+
+.mp-refresh-panel {
+  text-align: center;
+}
+
+.mp-refresh-panel h2 {
+  font-size: 1.1rem;
+  line-height: 1.35;
+}
+
+.mp-refresh-panel .modal-actions {
+  justify-content: center;
+}
+
+.mp-refresh-panel .modal-actions .btn {
+  min-height: 44px;
+}
+
+.mp-refresh-step {
+  margin: 0 0 0.25rem;
+  font-weight: 650;
+}
+
+.mp-refresh-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.mp-ball {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0.25rem auto 1rem;
+  color: var(--brand);
+  animation: mp-ball-roll 1.1s linear infinite;
+}
+
+@keyframes mp-ball-roll {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-ball {
+    animation-duration: 4s;
+  }
+}
+
 .bracket-rounds {
   position: sticky;
   top: var(--header-h);

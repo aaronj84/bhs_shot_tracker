@@ -678,6 +678,8 @@
         loading: false,
         error: "",
         meta: null,
+        // phase: idle | checking | running | failed | fresh
+        refresh: { phase: "idle", checkedAt: 0, startedAt: 0, reason: "", ghStatus: "", lastOkAt: null, lastGameOn: null },
       },
     },
   };
@@ -8161,6 +8163,11 @@
     const sc = st.prep.scenarios;
     const q = String(question || sc.draft || "").trim();
     if (!q || sc.loading) return;
+    if (sc.refresh.phase !== "fresh") {
+      sc.draft = q;
+      draw();
+      return;
+    }
     sc.draft = "";
     sc.error = "";
     sc.messages.push({ role: "user", content: q });
@@ -8206,9 +8213,215 @@
     draw();
   }
 
+  function submitOnModEnter(textarea) {
+    textarea?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
+      e.preventDefault();
+      textarea.form?.requestSubmit();
+    });
+  }
+
+  const MP_RECHECK_MS = 5 * 60 * 1000;
+  const MP_POLL_MS = 10 * 1000;
+  const MP_GIVE_UP_MS = 25 * 60 * 1000;
+  let mpRefreshInFlight = false;
+  let mpElapsedTimer = null;
+
+  function onScenariosTab() {
+    return st.view === "shots-prep" && st.prep.tab === "scenarios";
+  }
+
+  function mpShortDate(iso) {
+    if (!iso) return "";
+    const d = new Date(String(iso).length === 10 ? `${iso}T12:00:00` : iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function mpAgo(iso) {
+    if (!iso) return "";
+    const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 48) return `${hrs} hr ago`;
+    return `${Math.round(hrs / 24)} days ago`;
+  }
+
+  function mpApplyStatus(rf, data) {
+    rf.lastOkAt = data.last_ok_at || null;
+    rf.lastGameOn = data.last_game_on || null;
+    rf.ghStatus = data.scrape_run?.status || "";
+  }
+
+  function mpRefreshRedraw() {
+    if (onScenariosTab()) draw({ keepScroll: true });
+  }
+
+  async function ensureScenarioDataFresh(force = false) {
+    const rf = st.prep.scenarios.refresh;
+    if (mpRefreshInFlight) return;
+    if (!force && rf.phase === "fresh" && Date.now() - rf.checkedAt < MP_RECHECK_MS) return;
+    mpRefreshInFlight = true;
+    try {
+      rf.phase = "checking";
+      rf.reason = "";
+      mpRefreshRedraw();
+
+      let res = await API.mpRefresh({ action: "status" });
+      if (res.ok && res.data.state === "stale") {
+        res = await API.mpRefresh({ action: "start" });
+      }
+      if (!res.ok) {
+        rf.phase = "failed";
+        rf.reason = res.error;
+        return;
+      }
+      mpApplyStatus(rf, res.data);
+      if (res.data.state === "fresh") {
+        rf.phase = "fresh";
+        rf.checkedAt = Date.now();
+        return;
+      }
+
+      // Somebody's scrape (ours or the schedule's) is running: wait it out.
+      const since = res.data.requested_at || null;
+      rf.phase = "running";
+      rf.startedAt = Date.now();
+      mpRefreshRedraw();
+      while (Date.now() - rf.startedAt < MP_GIVE_UP_MS) {
+        await new Promise((r) => setTimeout(r, MP_POLL_MS));
+        const poll = await API.mpRefresh({ action: "status", since });
+        if (!poll.ok) continue;
+        mpApplyStatus(rf, poll.data);
+        const state = poll.data.state;
+        if (state === "fresh") {
+          rf.phase = "fresh";
+          rf.checkedAt = Date.now();
+          return;
+        }
+        if (state === "running") {
+          mpRefreshRedraw();
+          continue;
+        }
+        rf.phase = "failed";
+        rf.reason =
+          poll.data.reason ||
+          poll.data.latest_run?.reason ||
+          "The MaxPreps scrape finished without saving new data.";
+        return;
+      }
+      rf.phase = "failed";
+      rf.reason = "The MaxPreps scrape is taking longer than 25 minutes.";
+    } finally {
+      mpRefreshInFlight = false;
+      mpRefreshRedraw();
+    }
+  }
+
+  function soccerBallSvg() {
+    const pt = (r, deg) => {
+      const a = (deg * Math.PI) / 180;
+      return [32 + r * Math.cos(a), 32 + r * Math.sin(a)];
+    };
+    const pent = (cx, cy, r, rot) =>
+      [0, 1, 2, 3, 4]
+        .map((i) => {
+          const a = ((rot + i * 72) * Math.PI) / 180;
+          return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
+        })
+        .join(" ");
+    const spokes = [];
+    const patches = [];
+    for (let i = 0; i < 5; i++) {
+      const deg = -90 + i * 72;
+      const [x1, y1] = pt(9, deg);
+      const [x2, y2] = pt(21, deg);
+      spokes.push(`<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`);
+      const [px, py] = pt(28, deg);
+      patches.push(`<polygon points="${pent(px, py, 8, deg)}"/>`);
+    }
+    return `<svg class="mp-ball" viewBox="0 0 64 64" aria-hidden="true">
+      <defs><clipPath id="mp-ball-clip"><circle cx="32" cy="32" r="29"/></clipPath></defs>
+      <circle cx="32" cy="32" r="29" fill="#fff"/>
+      <g clip-path="url(#mp-ball-clip)" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+        <polygon points="${pent(32, 32, 9, -90)}"/>
+        ${spokes.join("")}
+        ${patches.join("")}
+      </g>
+      <circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="3"/>
+    </svg>`;
+  }
+
+  function mpRefreshModalMarkup() {
+    const rf = st.prep.scenarios.refresh;
+    if (rf.phase !== "running" && rf.phase !== "failed") return "";
+    const stale = rf.lastGameOn
+      ? `<p class="muted mp-refresh-sub">Saved data only has games through ${escapeHtml(mpShortDate(rf.lastGameOn))}.</p>`
+      : "";
+    if (rf.phase === "failed") {
+      return `<div class="modal mp-refresh-modal" role="alertdialog" aria-modal="true" aria-labelledby="mp-refresh-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-panel mp-refresh-panel">
+          <h2 id="mp-refresh-title">Couldn’t update MaxPreps data</h2>
+          <p>${escapeHtml(rf.reason || "Something went wrong.")}</p>
+          ${stale}
+          <p class="muted mp-refresh-sub">Scenario answers would be wrong on old data, so Scenarios stays closed until this works.</p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-primary" id="mp-refresh-retry">Try again</button>
+            <a class="btn btn-ghost" href="#shots-prep?tab=opponent">Back to Prep</a>
+          </div>
+        </div>
+      </div>`;
+    }
+    const step =
+      rf.ghStatus === "in_progress"
+        ? "Reading MaxPreps scoreboards…"
+        : rf.ghStatus
+          ? "Waiting for the scraper to start…"
+          : "Starting the scraper…";
+    return `<div class="modal mp-refresh-modal" role="dialog" aria-modal="true" aria-labelledby="mp-refresh-title" aria-busy="true">
+      <div class="modal-backdrop"></div>
+      <div class="modal-panel mp-refresh-panel">
+        ${soccerBallSvg()}
+        <h2 id="mp-refresh-title">Please hang on while I pull and save the latest scores and rankings from MaxPreps</h2>
+        <p class="mp-refresh-step">${escapeHtml(step)}</p>
+        <p class="muted mp-refresh-sub"><span id="mp-refresh-elapsed">0:00</span> · usually 3–8 minutes</p>
+        ${stale}
+      </div>
+    </div>`;
+  }
+
+  function syncMpElapsedTimer() {
+    const rf = st.prep.scenarios.refresh;
+    const tick = () => {
+      const el = $("#mp-refresh-elapsed");
+      if (!el || rf.phase !== "running") return;
+      const s = Math.floor((Date.now() - rf.startedAt) / 1000);
+      el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    };
+    if (rf.phase === "running" && onScenariosTab()) {
+      tick();
+      if (!mpElapsedTimer) mpElapsedTimer = setInterval(tick, 1000);
+    } else if (mpElapsedTimer) {
+      clearInterval(mpElapsedTimer);
+      mpElapsedTimer = null;
+    }
+  }
+
   function renderScenarios() {
     const sc = st.prep.scenarios;
     const transcript = (sc.messages || []).map(scenarioMsgMarkup).join("");
+    const rf = sc.refresh;
+    const blocked = rf.phase !== "fresh";
+    const freshness =
+      rf.phase === "fresh" && rf.lastOkAt
+        ? `<p class="muted scenario-freshness">MaxPreps data updated ${escapeHtml(mpAgo(rf.lastOkAt))}${
+            rf.lastGameOn ? ` · games through ${escapeHtml(mpShortDate(rf.lastGameOn))}` : ""
+          }</p>`
+        : rf.phase === "checking"
+          ? `<p class="muted scenario-freshness">Checking MaxPreps data…</p>`
+          : "";
 
     root().innerHTML = `
       <div class="shots-admin shots-scenarios">
@@ -8216,12 +8429,13 @@
         <h1>Prep</h1>
         ${prepTabsMarkup("scenarios")}
         <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for Brighton or any team in the season data.</p>
+        ${freshness}
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${sc.error && !sc.messages.length ? `<p class="shots-error">${escapeHtml(sc.error)}</p>` : ""}
         <div class="explore-starters" role="group" aria-label="Suggested scenarios">
           ${SCENARIO_STARTERS.map(
             (q) =>
-              `<button type="button" class="explore-starter" data-scenario-starter>${escapeHtml(q)}</button>`,
+              `<button type="button" class="explore-starter" data-scenario-starter ${blocked ? "disabled" : ""}>${escapeHtml(q)}</button>`,
           ).join("")}
         </div>
         <div class="explore-transcript" id="scenario-transcript">
@@ -8233,13 +8447,20 @@
         </div>
         <form id="scenario-form" class="explore-form">
           <label class="sr-only" for="scenario-input">Scenario question</label>
-          <textarea id="scenario-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. What if we beat Lone Peak 2-1?" ${sc.loading ? "disabled" : ""}>${escapeHtml(sc.draft)}</textarea>
+          <textarea id="scenario-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. What if we beat Lone Peak 2-1?" ${sc.loading || blocked ? "disabled" : ""}>${escapeHtml(sc.draft)}</textarea>
           <div class="explore-form-actions">
-            <button type="submit" class="btn btn-primary" ${sc.loading ? "disabled" : ""}>Ask</button>
+            <button type="submit" class="btn btn-primary" ${sc.loading || blocked ? "disabled" : ""}>Ask</button>
             <button type="button" class="btn btn-ghost" id="scenario-clear" ${sc.loading || !sc.messages.length ? "disabled" : ""}>Clear</button>
           </div>
         </form>
+        ${mpRefreshModalMarkup()}
       </div>`;
+
+    $("#mp-refresh-retry")?.addEventListener("click", () => ensureScenarioDataFresh(true));
+    syncMpElapsedTimer();
+    if (rf.phase === "idle" || (rf.phase === "fresh" && Date.now() - rf.checkedAt >= MP_RECHECK_MS)) {
+      ensureScenarioDataFresh();
+    }
 
     $$("[data-scenario-starter]").forEach((btn) => {
       btn.addEventListener("click", () => runScenarioAsk(btn.textContent));
@@ -8251,6 +8472,7 @@
     $("#scenario-input")?.addEventListener("input", (e) => {
       sc.draft = e.target.value;
     });
+    submitOnModEnter($("#scenario-input"));
     $("#scenario-clear")?.addEventListener("click", () => {
       sc.messages = [];
       sc.error = "";
@@ -8683,6 +8905,7 @@
     $("#explore-input")?.addEventListener("input", (e) => {
       ex.draft = e.target.value;
     });
+    submitOnModEnter($("#explore-input"));
     $("#explore-clear")?.addEventListener("click", () => {
       ex.messages = [];
       ex.lastResult = null;

@@ -81,7 +81,13 @@ def main() -> int:
 
     pending = []
     for name, url, key in targets:
-        done = None if (args.force or args.diff_only) else mts.ran_today(url, key)
+        try:
+            done = None if (args.force or args.diff_only) else mts.ran_today(url, key)
+        except SystemExit as e:
+            # One broken target (e.g. a missing table) must not stop the others.
+            sys.stderr.write("%s: could not read today's runs (%s), syncing anyway\n"
+                             % (name, e))
+            done = None
         if done:
             sys.stderr.write("%s: already ran today (%s at %s), skipping\n"
                              % (name, done["status"], done["started_at"]))

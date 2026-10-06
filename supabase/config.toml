@@ -5,6 +5,7 @@
 # push to dev (DEV) / main (PROD). Secrets are set once per project:
 #   supabase secrets set OPENAI_API_KEY=sk-...   # explore-shots
 #   supabase secrets set GEMINI_API_KEY=...      # prep-opponent
+#   supabase secrets set MP_REFRESH_GITHUB_TOKEN=...  # mp-refresh (Actions r/w PAT)
 
 project_id = "bhs_shot_tracker"
 
@@ -22,4 +23,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.mp-whatif]
+verify_jwt = true
+
+[functions.mp-refresh]
 verify_jwt = true

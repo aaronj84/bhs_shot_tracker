@@ -540,6 +540,30 @@
       return { ok: true, data: boxed };
     },
 
+    /** MaxPreps datastore freshness / scrape trigger via Edge Function mp-refresh. */
+    async mpRefresh(payload) {
+      const sb = getClient();
+      if (!sb || isPlaceholderConfig()) {
+        return { ok: false, error: "Refreshing MaxPreps data needs a live Supabase project." };
+      }
+      const { data, error } = await sb.functions.invoke("mp-refresh", {
+        body: payload && typeof payload === "object" ? payload : { action: "status" },
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        const text = String((boxed && boxed.error) || error?.message || "").trim();
+        let msg = text || "Could not check MaxPreps data.";
+        if (/Sign in with the staff PIN/i.test(text)) msg = "Enter the staff PIN first.";
+        else if (/MP_REFRESH_GITHUB_TOKEN/i.test(text)) {
+          msg = "Auto-refresh is not set up on this project (MP_REFRESH_GITHUB_TOKEN secret is missing).";
+        } else if (/non-2xx status code|Failed to send|404/i.test(text)) {
+          msg = "Could not reach the mp-refresh Edge Function. Deploy it to this project.";
+        }
+        return { ok: false, error: msg, data: boxed };
+      }
+      return { ok: true, data: boxed };
+    },
+
     /** Class rankings via Edge Function maxpreps-rankings. Requires staff PIN session. */
     async maxprepsRankings() {
       const sb = getClient();

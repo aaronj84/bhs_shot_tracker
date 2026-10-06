@@ -105,6 +105,16 @@ Confirm JWT verification stays on (default).
 
 Optional: `EXPLORE_OPENAI_MODEL` (default `gpt-4.1`), `PREP_GEMINI_MODEL` (default `gemini-3.6-flash`).
 
+### Scenarios data refresh
+
+Opening **Prep → Scenarios** calls `mp-refresh`. If `mp_ingest_runs` has no `ok` run in the last 24 hours, it dispatches `.github/workflows/mp-daily-scrape.yml` on `main` (which loads DEV **and** PROD) and the app waits behind a modal until a fresh run lands. Needs a fine-grained GitHub token with **Actions: Read and write** on this repo only:
+
+```bash
+supabase secrets set MP_REFRESH_GITHUB_TOKEN=github_pat_...
+```
+
+Optional overrides: `MP_REFRESH_GITHUB_REPO` (default `aaronj84/bhs_shot_tracker`), `MP_REFRESH_WORKFLOW` (default `mp-daily-scrape.yml`), `MP_REFRESH_REF` (default `main`).
+
 Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../benchmark/README.md`](../benchmark/README.md).
 
 ## Other machine checklist
