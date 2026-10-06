@@ -30,17 +30,31 @@
   const PEN_W = 40.32;
   const SIX_W = 18.32;
   const PEN_SIDE = (PW - PEN_W) / 2;
-  const WIDE_END = PEN_SIDE + 1.2;
-  const CENTER_W = 17;
-  const CENTER_X0 = (PW - CENTER_W) / 2;
-  const CENTER_X1 = CENTER_X0 + CENTER_W;
-  const TRACKER_CHANNELS = [
-    { id: "LW", label: "Left wide", x0: 0, x1: WIDE_END },
-    { id: "LHS", label: "Left half-space", x0: WIDE_END, x1: CENTER_X0 },
-    { id: "C", label: "Center", x0: CENTER_X0, x1: CENTER_X1 },
-    { id: "RHS", label: "Right half-space", x0: CENTER_X1, x1: PW - WIDE_END },
-    { id: "RW", label: "Right wide", x0: PW - WIDE_END, x1: PW },
+  const SIX_SIDE = (PW - SIX_W) / 2;
+  const PEN_D = 16.5;
+  /**
+   * Five vertical lanes anchored on the box edges: wide = touchline to penalty-box side,
+   * half-space = penalty-box side to six-yard-box side, center = between the six-yard-box sides.
+   * x = 0 is the attacker's left touchline. Mirrored in SQL by public.shot_lane().
+   */
+  const SHOT_LANES = [
+    { id: "LW", label: "Left wide", x0: 0, x1: PEN_SIDE },
+    { id: "LHS", label: "Left half-space", x0: PEN_SIDE, x1: SIX_SIDE },
+    { id: "C", label: "Center", x0: SIX_SIDE, x1: PW - SIX_SIDE },
+    { id: "RHS", label: "Right half-space", x0: PW - SIX_SIDE, x1: PW - PEN_SIDE },
+    { id: "RW", label: "Right wide", x0: PW - PEN_SIDE, x1: PW },
   ];
+  /**
+   * Straight-line depth from the goal line in 9-yard steps. 18 yd is the drawn penalty-area
+   * line (16.5 m), so 9 / 27 yd sit at half / one-and-a-half box depths. Mirrored by public.shot_range().
+   */
+  const SHOT_RANGES = [
+    { id: "0-9", label: "0–9 yd", y0: 0, y1: PEN_D / 2 },
+    { id: "9-18", label: "9–18 yd", y0: PEN_D / 2, y1: PEN_D },
+    { id: "18-27", label: "18–27 yd", y0: PEN_D, y1: PEN_D * 1.5 },
+    { id: "27+", label: "27+ yd", y0: PEN_D * 1.5, y1: Infinity },
+  ];
+  const TRACKER_CHANNELS = SHOT_LANES;
   const TRACKER_DEPTHS = [
     { id: "6Y", label: "Six-yard", y0: 0, y1: 5.5 },
     { id: "PS", label: "Penalty-spot line", y0: 5.5, y1: 11 },
@@ -639,7 +653,7 @@
     inspectEventId: "",
     inspectRole: "",
     pendingOpenGameId: "",
-    history: { seasonId: "", playerId: "", opponentId: "", depth: "", rows: null, loading: false },
+    history: { seasonId: "", playerId: "", opponentId: "", depth: "", lane: "", range: "", rows: null, loading: false },
     playoffs: { tab: "rankings", rankings: null, updated: null, loading: false, error: "", loadedAt: 0 },
     explore: {
       messages: [],
@@ -1550,6 +1564,8 @@
       const opp = teamById(st.history.opponentId);
       if (opp) p.set("opp", shareTeamRef(opp));
       if (st.history.depth) p.set("depth", st.history.depth);
+      if (st.history.lane) p.set("lane", st.history.lane);
+      if (st.history.range) p.set("range", st.history.range);
       const qs = compactParams(p).toString();
       return qs ? `shots-history?${qs}` : "shots-history";
     }
@@ -1738,7 +1754,16 @@
         const opp = findTeamByRef(params.get("opp") || "");
         if (params.has("opp")) st.history.opponentId = opp ? opp.id : "";
         if (params.has("depth")) st.history.depth = params.get("depth") || "";
-        runHistory = !!(st.history.seasonId || st.history.playerId || st.history.opponentId || st.history.depth);
+        if (params.has("lane")) st.history.lane = params.get("lane") || "";
+        if (params.has("range")) st.history.range = params.get("range") || "";
+        runHistory = !!(
+          st.history.seasonId ||
+          st.history.playerId ||
+          st.history.opponentId ||
+          st.history.depth ||
+          st.history.lane ||
+          st.history.range
+        );
       }
     } finally {
       applyingHash = false;
@@ -3081,6 +3106,34 @@
     return loc?.zoneLabel || loc?.zone_label || "—";
   }
 
+  function locNum(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /** A point on a lane boundary belongs to the more central lane. */
+  function shotLane(loc) {
+    const x = locNum(loc?.x);
+    if (x === null || locNum(loc?.y) === null) return null;
+    const left = x <= PW / 2;
+    return SHOT_LANES.find((l) => (left ? x < l.x1 : x <= l.x1)) || SHOT_LANES[SHOT_LANES.length - 1];
+  }
+
+  /** A point on a range line belongs to the nearer range ("within 18" includes 18). */
+  function shotRange(loc) {
+    const y = locNum(loc?.y);
+    if (y === null || locNum(loc?.x) === null) return null;
+    return SHOT_RANGES.find((r) => y <= r.y1) || SHOT_RANGES[SHOT_RANGES.length - 1];
+  }
+
+  function locFlagMarkup(loc) {
+    const lane = shotLane(loc);
+    const range = shotRange(loc);
+    if (!lane || !range) return "";
+    return `<span class="loc-flag" title="${escapeHtml(`${lane.label} · ${range.label}`)}">${escapeHtml(lane.id)} · ${escapeHtml(range.label)}</span>`;
+  }
+
   function formatXY(loc) {
     if (!loc || loc.x == null) return "—";
     return `${Number(loc.x).toFixed(1)}, ${Number(loc.y).toFixed(1)}`;
@@ -3135,6 +3188,8 @@
       csvEscape(ev.shot?.zoneLabel || ev.zone_label || ""),
       ev.shot?.x ?? ev.x ?? "",
       ev.shot?.y ?? ev.y ?? "",
+      shotLane(ev.shot || ev)?.id ?? "",
+      shotRange(ev.shot || ev)?.id ?? "",
       ev.assist?.number ?? "",
       csvEscape(ev.assist?.name || ev.assist_player?.name || ""),
       ev.assist ? ASSIST_TYPE_LABELS[ev.assist.type] || ev.assist.type : ev.assist_type || "",
@@ -3174,6 +3229,8 @@
     "shot_zone",
     "shot_x",
     "shot_y",
+    "shot_lane",
+    "shot_range",
     "assisted_by_number",
     "assisted_by_name",
     "assist_type",
@@ -3308,6 +3365,7 @@
         ${shooter && shooter !== "—" ? `<p class="pitch-inspect-popup-player">${escapeHtml(shooter)}</p>` : ""}
         <p class="pitch-inspect-popup-result">${escapeHtml(result)}${miss ? ` · ${escapeHtml(miss)}` : ""}</p>
         <p>${escapeHtml([clock, zone].filter(Boolean).join(" · "))}</p>
+        ${locFlagMarkup(ev.shot) ? `<p>${locFlagMarkup(ev.shot)}</p>` : ""}
         ${extra}
         <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-edit="${escapeHtml(ev.id)}">Edit play</button>
         <button type="button" class="btn btn-ghost pitch-inspect-edit" data-inspect-add="${escapeHtml(ev.id)}">Add play here</button>
@@ -3362,19 +3420,22 @@
     }
     let grid = "";
     if (opts.showGrid) {
-      TRACKER_CHANNELS.forEach((ch, i) => {
-        TRACKER_DEPTHS.forEach((d, j) => {
+      SHOT_LANES.forEach((lane, i) => {
+        SHOT_RANGES.forEach((r, j) => {
           if ((i + j) % 2 === 1) {
-            grid += `<rect class="tracker-cell" x="${ch.x0}" y="${d.y0}" width="${ch.x1 - ch.x0}" height="${d.y1 - d.y0}" />`;
+            const y1 = Math.min(r.y1, HALF_L);
+            grid += `<rect class="tracker-cell" x="${lane.x0}" y="${r.y0}" width="${lane.x1 - lane.x0}" height="${y1 - r.y0}" />`;
           }
         });
       });
       grid += `<rect class="tracker-cell tracker-cell-deep" x="0" y="${HALF_L}" width="${PW}" height="${DEF_SLIVER}" />`;
-      TRACKER_CHANNELS.slice(1).forEach((ch) => {
-        grid += `<line class="tracker-grid-line" x1="${ch.x0}" y1="0" x2="${ch.x0}" y2="${HALF_L}" />`;
+      SHOT_LANES.slice(1).forEach((lane) => {
+        grid += `<line class="tracker-grid-line" x1="${lane.x0}" y1="0" x2="${lane.x0}" y2="${HALF_L}" />`;
       });
-      TRACKER_DEPTHS.slice(1).forEach((d) => {
-        grid += `<line class="tracker-grid-line" x1="0" y1="${d.y0}" x2="${PW}" y2="${d.y0}" />`;
+      SHOT_RANGES.slice(1).forEach((r) => {
+        grid += `<line class="tracker-grid-line" x1="0" y1="${r.y0}" x2="${PW}" y2="${r.y0}" />`;
+        const yd = Math.round(r.y0 / (PEN_D / 18));
+        grid += `<text class="tracker-grid-label" x="1.4" y="${r.y0 - 0.6}" transform="rotate(${swapped ? 90 : -90} 1.4 ${r.y0 - 0.6})">${yd}</text>`;
       });
     }
     const pendingDots = [];
@@ -5421,6 +5482,59 @@
     return { topPos, topPairs, missRows };
   }
 
+  function laneRangeMatrixMarkup(events) {
+    const shotResults = ["goal", "on-target", "blocked", "missed"];
+    const cells = {};
+    const laneTot = {};
+    const rangeTot = {};
+    const all = { shots: 0, goals: 0 };
+    const bump = (bucket, key, goal) => {
+      const c = bucket[key] || (bucket[key] = { shots: 0, goals: 0 });
+      c.shots += 1;
+      if (goal) c.goals += 1;
+    };
+    events.forEach((ev) => {
+      if (!shotResults.includes(ev.result)) return;
+      const lane = shotLane(ev.shot);
+      const range = shotRange(ev.shot);
+      if (!lane || !range) return;
+      const goal = ev.result === "goal";
+      bump(cells, `${range.id}|${lane.id}`, goal);
+      bump(laneTot, lane.id, goal);
+      bump(rangeTot, range.id, goal);
+      all.shots += 1;
+      if (goal) all.goals += 1;
+    });
+    if (!all.shots) return `<p class="muted">No located shots.</p>`;
+    const cell = (c, cls = "") => {
+      if (!c || !c.shots) return `<td class="lane-matrix-cell ${cls}"><span class="muted">–</span></td>`;
+      const share = c.shots / all.shots;
+      return `<td class="lane-matrix-cell ${cls}" style="--heat:${Math.min(1, share * 3).toFixed(2)}"><strong>${c.goals}/${c.shots}</strong><span>${Math.round(
+        (c.goals / c.shots) * 100
+      )}%</span></td>`;
+    };
+    return `
+      <div class="lane-matrix-wrap">
+        <table class="lane-matrix">
+          <thead>
+            <tr><th scope="col"><span class="sr-only">Range</span></th>${SHOT_LANES.map(
+              (l) => `<th scope="col" title="${escapeHtml(l.label)}">${escapeHtml(l.id)}</th>`
+            ).join("")}<th scope="col">All</th></tr>
+          </thead>
+          <tbody>
+            ${SHOT_RANGES.map(
+              (r) =>
+                `<tr><th scope="row">${escapeHtml(r.id)}</th>${SHOT_LANES.map((l) => cell(cells[`${r.id}|${l.id}`])).join("")}${cell(
+                  rangeTot[r.id],
+                  "is-total"
+                )}</tr>`
+            ).join("")}
+            <tr class="is-total"><th scope="row">All</th>${SHOT_LANES.map((l) => cell(laneTot[l.id], "is-total")).join("")}${cell(all, "is-total")}</tr>
+          </tbody>
+        </table>
+      </div>`;
+  }
+
   function unitsMarkup(events) {
     const { topPos, topPairs, missRows } = unitsBreakdown(events);
     if (!topPos.length && !topPairs.length && !missRows.length) {
@@ -5550,7 +5664,7 @@
             <td>${escapeHtml(assistType)}${
               secondType ? `<br /><span class="muted">2nd: ${escapeHtml(secondType)}</span>` : ""
             }</td>
-            <td class="tracker-coord-cell">${escapeHtml(formatLoc(ev.shot))}<br /><span class="muted">${escapeHtml(formatXY(ev.shot))}</span></td>
+            <td class="tracker-coord-cell">${locFlagMarkup(ev.shot)}${escapeHtml(formatLoc(ev.shot))}<br /><span class="muted">${escapeHtml(formatXY(ev.shot))}</span></td>
             <td class="tracker-coord-cell">${assistCell}</td>
             <td class="tracker-delete-cell">
               <button type="button" class="icon-btn tracker-delete" data-delete-shot="${escapeHtml(ev.id)}" aria-label="Delete shot">×</button>
@@ -7003,7 +7117,10 @@
     }
     try {
       const rows = await API.queryShots(filters);
-      f.rows = rows.map(historyViewRow);
+      f.rows = rows
+        .map(historyViewRow)
+        .filter((ev) => !f.lane || shotLane(ev.shot)?.id === f.lane)
+        .filter((ev) => !f.range || shotRange(ev.shot)?.id === f.range);
       f.loading = false;
     } catch (err) {
       st.error = err.message || "Query failed";
@@ -7223,6 +7340,18 @@
               <option value="DEF" ${f.depth === "DEF" ? "selected" : ""}>Defensive half</option>
             </select>
           </label>
+          <label class="shots-field">Lane
+            <select id="hist-lane">
+              <option value="">All lanes</option>
+              ${SHOT_LANES.map((l) => `<option value="${l.id}" ${f.lane === l.id ? "selected" : ""}>${escapeHtml(l.label)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="shots-field">Range
+            <select id="hist-range">
+              <option value="">All ranges</option>
+              ${SHOT_RANGES.map((r) => `<option value="${r.id}" ${f.range === r.id ? "selected" : ""}>${escapeHtml(r.label)}</option>`).join("")}
+            </select>
+          </label>
           <button type="submit" class="btn btn-primary">Run query</button>
         </form>
         ${
@@ -7231,6 +7360,14 @@
             <span class="pill">Matches <strong>${rows.length}</strong></span>
             <button type="button" class="btn btn-ghost" id="hist-export" ${rows.length ? "" : "disabled"}>CSV of this view</button>
           </div>
+          <section class="tracker-units">
+            <h2>Shot locations</h2>
+            <p class="muted">Goals / shots by lane and yards from the goal line. Penalty kicks excluded.</p>
+            <h3 class="tracker-half-heading">Brighton</h3>
+            ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "us"))}
+            <h3 class="tracker-half-heading">Against</h3>
+            ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "opp"))}
+          </section>
           <section class="tracker-units">
             <h2>Units &amp; trends (Brighton)</h2>
             ${unitsMarkup(rows.filter((e) => eventTeam(e) === "us"))}
@@ -7267,6 +7404,8 @@
       st.history.playerId = $("#hist-player").value;
       st.history.opponentId = $("#hist-opp").value;
       st.history.depth = $("#hist-depth").value;
+      st.history.lane = $("#hist-lane").value;
+      st.history.range = $("#hist-range").value;
       runHistoryQuery();
     });
     $("#hist-export")?.addEventListener("click", () => {

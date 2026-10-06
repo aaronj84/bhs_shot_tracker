@@ -940,6 +940,14 @@ body.is-recording-play .app-header {
   pointer-events: none;
 }
 
+.tracker-grid-label {
+  fill: rgba(255, 255, 255, 0.6);
+  font-size: 1.5px;
+  font-weight: 700;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
 .tracker-goal-label {
   fill: rgba(255, 255, 255, 0.78);
   font-size: 1.55px;
@@ -2202,6 +2210,71 @@ button.formation-card.is-empty {
 
 .tracker-units {
   margin: 1.25rem 0 0.5rem;
+}
+
+.loc-flag {
+  display: inline-block;
+  margin: 0 0 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--brand-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tracker-coord-cell .loc-flag {
+  display: table;
+}
+
+.lane-matrix-wrap {
+  overflow-x: auto;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.lane-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.78rem;
+}
+
+.lane-matrix th {
+  padding: 0.3rem 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.lane-matrix tbody th {
+  width: 3rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lane-matrix-cell {
+  padding: 0.3rem 0.1rem;
+  border: 1px solid var(--border);
+  text-align: center;
+  line-height: 1.15;
+  background: rgba(26, 77, 124, calc(var(--heat, 0) * 0.35));
+}
+
+.lane-matrix-cell strong {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.lane-matrix-cell span {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.lane-matrix .is-total {
+  font-weight: 700;
+  background-color: var(--bg-soft);
 }
 
 .tracker-units h2 {

@@ -56,6 +56,7 @@ ASCII only. Python 3.9+. Requires requests and beautifulsoup4.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import datetime as dt
 import json
@@ -63,6 +64,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urljoin
 
@@ -83,6 +85,14 @@ REGION_SCORES = (
     "https://www.maxpreps.com/{state}/soccer/{gender}/26-27/region/"
     "{slug}/scores/?leagueid={lid}{date_q}"
 )
+# Any class rankings page links to every class's rankings (with its division id).
+RANKINGS_SEED = (
+    "https://www.maxpreps.com/ut/soccer/girls/26-27/class/class-5a/rankings/1/"
+    "?statedivisionid=8fd8bb6b-6430-463a-915b-1e02dba437c1"
+)
+RANKINGS_LINK_RE = re.compile(
+    r"/(\w{2})/soccer/(\w+)/26-27/class/class-(\d)a/rankings/1/"
+    r"\?statedivisionid=([0-9a-f-]{36})", re.I)
 
 SEASON_OPENER = dt.date(2026, 8, 3)  # first UT girls game this year
 OUR_TEAM_NAMES = {"brighton"}
@@ -702,6 +712,61 @@ def attach_meta(session: requests.Session, html: str, state: str, gender: str,
                              % (label, " " + d.isoformat() if d else "", n))
 
 
+def team_id_from_school_id(school_id: str) -> str:
+    """MaxPreps school GUID -> the 22-char id used in contest/team links."""
+    return base64.urlsafe_b64encode(uuid.UUID(school_id).bytes_le).decode().rstrip("=")
+
+
+def attach_rank_classes(session: requests.Session, state: str, gender: str,
+                        teams: Dict[str, dict], delay: float) -> None:
+    """Set classification from the class rankings pages.
+
+    Scoreboard class/region dropdowns only list teams that played on the
+    page's date, so some teams (Brighton, Pleasant Grove) never get a class
+    there. The rankings pages list every ranked team in the class.
+    """
+    seed = fetch(session, RANKINGS_SEED)
+    time.sleep(delay)
+    if not seed:
+        sys.stderr.write("rank classes: seed page failed, keeping scoreboard classes\n")
+        return
+    links = {}
+    for st, gen, num, did in RANKINGS_LINK_RE.findall(seed):
+        if st.lower() == state.lower() and gen.lower() == gender.lower():
+            links["%sA" % num] = did
+    filled = changed = 0
+    for label, did in sorted(links.items()):
+        n = 0
+        for page in range(1, 9):
+            url = ("https://www.maxpreps.com/%s/soccer/%s/26-27/class/class-%sa/"
+                   "rankings/%d/?statedivisionid=%s"
+                   % (state.lower(), gender, label[0], page, did))
+            html = fetch(session, url)
+            time.sleep(delay)
+            data = parse_next_data(html) if html else None
+            rows = (((data or {}).get("props") or {}).get("pageProps") or {}) \
+                .get("rankingsListData", {}).get("rankings") or []
+            for r in rows:
+                try:
+                    tid = team_id_from_school_id(r.get("schoolId") or "")
+                except ValueError:
+                    continue
+                rec = teams.get(tid)
+                if not rec:
+                    continue
+                n += 1
+                old = rec.get("classification") or ""
+                if not old:
+                    filled += 1
+                elif old != label:
+                    changed += 1
+                rec["classification"] = label
+            if len(rows) < 25:
+                break
+        sys.stderr.write("  rank class %s: %d teams\n" % (label, n))
+    sys.stderr.write("rank classes: %d filled, %d corrected\n" % (filled, changed))
+
+
 def collect_state(session: requests.Session, state: str, gender: str,
                   start: dt.date, end: dt.date, delay: float,
                   skip_sundays: bool, use_calendar: bool,
@@ -980,6 +1045,7 @@ def main() -> int:
                 busy = max(cal, key=cal.get) if cal else None
                 attach_meta(session, first_html, state, args.gender, teams,
                             args.delay, busy_date=busy)
+                attach_rank_classes(session, state, args.gender, teams, args.delay)
         if fetch_schedules:
             seeds = []
             if state.lower() == "ut" and args.gender == "girls":
