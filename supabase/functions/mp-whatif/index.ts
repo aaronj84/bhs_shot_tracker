@@ -1,16 +1,18 @@
 /**
- * mp-whatif — Freeman (MaxPreps.com family) scenario ratings.
+ * mp-whatif — Freeman (MaxPreps.com family) scenario ratings + NL dialogue.
  *
  * POST JSON:
- *   { mode: "baseline" }
+ *   { mode: "ask", question, history? }  — Gemini parses + Freeman + Gemini narrates
+ *   { mode: "baseline", team? }
  *   { mode: "add", team?, opponent, goals_for, goals_against }
  *   { mode: "swap", team?, drop, add, goals_for, goals_against }
- *   { mode: "teams" }  — list teams for pickers
+ *   { mode: "teams" }
  *
- * Data: prefers mp_games / mp_teams when populated; else bundled season snapshot.
+ * Secrets: GEMINI_API_KEY (required for mode=ask). Optional: PREP_GEMINI_MODEL.
  * Auto: SUPABASE_URL, SUPABASE_ANON_KEY. Requires staff PIN session.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createGeminiProvider } from "../_shared/explore/providers/gemini.ts";
 import {
   marginPowerRating,
   poolFor,
@@ -19,18 +21,15 @@ import {
   whatIf,
   swapResult,
 } from "../_shared/mp/freeman.mjs";
-// Imported (not read from disk) so `supabase functions deploy` bundles it.
-import seasonSnapshot from "../_shared/mp/season_snapshot.json" with { type: "json" };
-
-type SeasonSnap = {
-  games: Game[];
-  teams: TeamRow[];
-  as_of?: string;
-};
-
-function getBundledSnapshot(): SeasonSnap {
-  return seasonSnapshot as SeasonSnap;
-}
+import {
+  brightonSchedule,
+  classesFromTeams,
+  loadSeason,
+  ourTeamName,
+  resolveTeamName,
+  type SeasonLoad,
+} from "../_shared/mp/season.ts";
+import { narrateScenario, parseScenarioQuestion } from "../_shared/mp/ask.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -41,23 +40,6 @@ const corsHeaders: Record<string, string> = {
 const RATING_OPTS = { cap: 5, ridge: 1, resultBonus: 1, homeAdv: null as null };
 const DEFAULT_TEAM = "Brighton";
 
-type Game = {
-  date: string;
-  home: string;
-  away: string;
-  home_score: number;
-  away_score: number;
-  neutral?: boolean;
-  is_forfeit?: boolean;
-};
-
-type TeamRow = {
-  team_id: string;
-  display_name: string;
-  classification: string;
-  is_our_team: boolean;
-};
-
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -65,78 +47,28 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function classesFromTeams(teams: TeamRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const t of teams) {
-    if (t.display_name && t.classification) out[t.display_name] = t.classification;
-  }
-  return out;
-}
-
-function ourTeamName(teams: TeamRow[]): string {
-  const ours = teams.find((t) => t.is_our_team);
-  return ours?.display_name || DEFAULT_TEAM;
-}
-
-async function loadFromDb(userClient: ReturnType<typeof createClient>): Promise<{
-  games: Game[];
-  teams: TeamRow[];
-  source: string;
-} | null> {
-  const { data: teamRows, error: teamErr } = await userClient
-    .from("mp_teams")
-    .select("team_id, display_name, classification, is_our_team");
-  if (teamErr || !teamRows?.length) return null;
-
-  const { data: gameRows, error: gameErr } = await userClient
-    .from("mp_games")
-    .select(
-      "played_on, home_team_id, away_team_id, home_score, away_score, neutral, is_forfeit",
-    )
-    .not("home_score", "is", null)
-    .not("away_score", "is", null);
-  if (gameErr || !gameRows?.length) return null;
-
-  const idToName = new Map(
-    (teamRows as TeamRow[]).map((t) => [t.team_id, t.display_name]),
-  );
-
-  const games: Game[] = [];
-  for (const g of gameRows as Record<string, unknown>[]) {
-    const home = idToName.get(String(g.home_team_id));
-    const away = idToName.get(String(g.away_team_id));
-    if (!home || !away) continue;
-    if (g.home_score == null || g.away_score == null) continue;
-    games.push({
-      date: String(g.played_on),
-      home,
-      away,
-      home_score: Number(g.home_score),
-      away_score: Number(g.away_score),
-      neutral: Boolean(g.neutral),
-      is_forfeit: Boolean(g.is_forfeit),
-    });
-  }
-  if (!games.length) return null;
+function baselineFor(
+  loaded: SeasonLoad,
+  team: string,
+  classes: Record<string, string>,
+  ratings: Record<string, number>,
+) {
+  const pool = poolFor(team, classes);
   return {
-    games,
-    teams: teamRows as TeamRow[],
-    source: "mp_games",
+    team,
+    rating: Math.round((ratings[team] ?? 0) * 10000) / 10000,
+    rank: rankInPool(team, ratings, pool),
+    classification: classes[team] || null,
+    standings: standings(ratings, pool, 16),
   };
 }
 
-async function loadSnapshot(): Promise<{
-  games: Game[];
-  teams: TeamRow[];
-  source: string;
-  as_of?: string;
-}> {
-  const snap = getBundledSnapshot();
+function meta(loaded: SeasonLoad) {
   return {
-    games: snap.games,
-    teams: snap.teams,
-    source: "bundled_snapshot",
-    as_of: snap.as_of,
+    model: "freeman",
+    source: loaded.source,
+    as_of: loaded.as_of ?? null,
+    games_count: loaded.games.length,
   };
 }
 
@@ -169,10 +101,9 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const mode = String(body.mode || "baseline").toLowerCase();
 
-    const fromDb = await loadFromDb(userClient);
-    const loaded = fromDb || (await loadSnapshot());
+    const loaded = await loadSeason(userClient);
     const classes = classesFromTeams(loaded.teams);
-    const team = String(body.team || ourTeamName(loaded.teams)).trim() || DEFAULT_TEAM;
+    const defaultTeam = ourTeamName(loaded.teams, DEFAULT_TEAM);
 
     if (mode === "teams") {
       const names = loaded.teams
@@ -181,33 +112,253 @@ Deno.serve(async (req) => {
         .sort((a, b) => a.localeCompare(b));
       return jsonResponse({
         ok: true,
-        team,
+        team: defaultTeam,
         teams: names,
-        source: loaded.source,
-        as_of: "as_of" in loaded ? loaded.as_of : null,
-        games_count: loaded.games.length,
+        ...meta(loaded),
       });
     }
 
+    if (mode === "ask") {
+      const question = String(body.question || "").trim();
+      if (!question) return jsonResponse({ error: "Ask a what-if question" }, 400);
+      if (question.length > 2000) {
+        return jsonResponse({ error: "Question is too long" }, 400);
+      }
+
+      const geminiKey = Deno.env.get("GEMINI_API_KEY");
+      if (!geminiKey) {
+        return jsonResponse({ error: "GEMINI_API_KEY is not configured" }, 500);
+      }
+      const model = Deno.env.get("PREP_GEMINI_MODEL") || "gemini-3.6-flash";
+      const provider = createGeminiProvider(geminiKey);
+      const teamNames = loaded.teams
+        .map((t) => t.display_name)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      const schedule = brightonSchedule(loaded.games, defaultTeam);
+      const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
+
+      const plan = await parseScenarioQuestion(provider, model, {
+        question,
+        teams: teamNames,
+        ourTeam: defaultTeam,
+        schedule,
+        history,
+      });
+
+      const focus =
+        resolveTeamName(plan.focus_team, loaded.teams) || defaultTeam;
+      const ratings = marginPowerRating(loaded.games, RATING_OPTS);
+      const baseline = baselineFor(loaded, focus, classes, ratings);
+
+      if (plan.intent === "clarify") {
+        const clarify =
+          plan.clarify_question ||
+          "Which teams and score should I use for this scenario?";
+        const answer = await narrateScenario(provider, model, {
+          question,
+          payload: {
+            intent: "clarify",
+            clarify_question: clarify,
+            baseline,
+            ...meta(loaded),
+          },
+        });
+        return jsonResponse({
+          ok: true,
+          mode: "ask",
+          answer,
+          plan: { ...plan, focus_team: focus, intent: "clarify", clarify_question: clarify },
+          baseline,
+          result: null,
+          ...meta(loaded),
+        });
+      }
+
+      if (plan.intent === "baseline") {
+        const answer = await narrateScenario(provider, model, {
+          question,
+          payload: {
+            intent: "baseline",
+            assumptions: plan.assumptions || "",
+            baseline,
+            ...meta(loaded),
+          },
+        });
+        return jsonResponse({
+          ok: true,
+          mode: "ask",
+          answer,
+          plan: { ...plan, focus_team: focus, intent: "baseline" },
+          baseline,
+          result: null,
+          ...meta(loaded),
+        });
+      }
+
+      if (plan.intent === "add") {
+        const opponent = resolveTeamName(plan.opponent, loaded.teams);
+        const gf = Number(plan.goals_for);
+        const ga = Number(plan.goals_against);
+        if (!opponent) {
+          return jsonResponse({
+            ok: true,
+            mode: "ask",
+            answer:
+              "I need a school name from this season’s team list for the opponent. Who should the result be against?",
+            plan: { ...plan, focus_team: focus, intent: "clarify" },
+            baseline,
+            result: null,
+            ...meta(loaded),
+          });
+        }
+        if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
+          return jsonResponse({
+            ok: true,
+            mode: "ask",
+            answer: "What score should I use (us–them from the focus team’s view)?",
+            plan: { ...plan, focus_team: focus, intent: "clarify" },
+            baseline,
+            result: null,
+            ...meta(loaded),
+          });
+        }
+        const result = whatIf(loaded.games, focus, opponent, Math.round(gf), Math.round(ga), {
+          classes,
+          ratingOpts: RATING_OPTS,
+          baseline: { ratings, rank: baseline.rank },
+        });
+        const answer = await narrateScenario(provider, model, {
+          question,
+          payload: {
+            intent: "add",
+            assumptions: plan.assumptions || "",
+            focus_team: focus,
+            baseline,
+            result,
+            ...meta(loaded),
+          },
+        });
+        return jsonResponse({
+          ok: true,
+          mode: "ask",
+          answer,
+          plan: {
+            ...plan,
+            focus_team: focus,
+            opponent,
+            goals_for: Math.round(gf),
+            goals_against: Math.round(ga),
+          },
+          baseline,
+          result,
+          ...meta(loaded),
+        });
+      }
+
+      if (plan.intent === "swap") {
+        const drop = resolveTeamName(plan.drop, loaded.teams);
+        const add = resolveTeamName(plan.add || plan.opponent, loaded.teams);
+        const gf = Number(plan.goals_for);
+        const ga = Number(plan.goals_against);
+        if (!drop || !add) {
+          return jsonResponse({
+            ok: true,
+            mode: "ask",
+            answer:
+              "For a swap I need the win to drop and the team to add (both from the season list). Can you name both?",
+            plan: { ...plan, focus_team: focus, intent: "clarify" },
+            baseline,
+            result: null,
+            ...meta(loaded),
+          });
+        }
+        if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
+          return jsonResponse({
+            ok: true,
+            mode: "ask",
+            answer: "What score should I use for the replacement game?",
+            plan: { ...plan, focus_team: focus, intent: "clarify" },
+            baseline,
+            result: null,
+            ...meta(loaded),
+          });
+        }
+        const result = swapResult(
+          loaded.games,
+          focus,
+          drop,
+          add,
+          Math.round(gf),
+          Math.round(ga),
+          { classes, ratingOpts: RATING_OPTS },
+        );
+        if (!result.ok) {
+          const answer = await narrateScenario(provider, model, {
+            question,
+            payload: {
+              intent: "swap_failed",
+              error: result.error,
+              assumptions: plan.assumptions || "",
+              focus_team: focus,
+              drop,
+              add,
+              baseline,
+              ...meta(loaded),
+            },
+          });
+          return jsonResponse({
+            ok: true,
+            mode: "ask",
+            answer,
+            plan: { ...plan, focus_team: focus, drop, add },
+            baseline,
+            result,
+            ...meta(loaded),
+          });
+        }
+        const answer = await narrateScenario(provider, model, {
+          question,
+          payload: {
+            intent: "swap",
+            assumptions: plan.assumptions || "",
+            focus_team: focus,
+            baseline,
+            result,
+            ...meta(loaded),
+          },
+        });
+        return jsonResponse({
+          ok: true,
+          mode: "ask",
+          answer,
+          plan: {
+            ...plan,
+            focus_team: focus,
+            drop,
+            add,
+            goals_for: Math.round(gf),
+            goals_against: Math.round(ga),
+          },
+          baseline,
+          result,
+          ...meta(loaded),
+        });
+      }
+
+      return jsonResponse({ error: "Could not interpret that scenario" }, 400);
+    }
+
+    const team = String(body.team || defaultTeam).trim() || DEFAULT_TEAM;
     const ratings = marginPowerRating(loaded.games, RATING_OPTS);
-    const pool = poolFor(team, classes);
-    const baseline = {
-      team,
-      rating: Math.round((ratings[team] ?? 0) * 10000) / 10000,
-      rank: rankInPool(team, ratings, pool),
-      classification: classes[team] || null,
-      standings: standings(ratings, pool, 16),
-    };
+    const baseline = baselineFor(loaded, team, classes, ratings);
 
     if (mode === "baseline") {
       return jsonResponse({
         ok: true,
         mode,
-        model: "freeman",
-        source: loaded.source,
-        as_of: "as_of" in loaded ? loaded.as_of : null,
-        games_count: loaded.games.length,
         baseline,
+        ...meta(loaded),
       });
     }
 
@@ -227,12 +378,9 @@ Deno.serve(async (req) => {
       return jsonResponse({
         ok: true,
         mode,
-        model: "freeman",
-        source: loaded.source,
-        as_of: "as_of" in loaded ? loaded.as_of : null,
-        games_count: loaded.games.length,
         baseline,
         result,
+        ...meta(loaded),
       });
     }
 
@@ -260,16 +408,13 @@ Deno.serve(async (req) => {
       return jsonResponse({
         ok: true,
         mode,
-        model: "freeman",
-        source: loaded.source,
-        as_of: "as_of" in loaded ? loaded.as_of : null,
-        games_count: loaded.games.length,
         baseline,
         result,
+        ...meta(loaded),
       });
     }
 
-    return jsonResponse({ error: "mode must be baseline, add, swap, or teams" }, 400);
+    return jsonResponse({ error: "mode must be ask, baseline, add, swap, or teams" }, 400);
   } catch (e) {
     return jsonResponse(
       { error: e instanceof Error ? e.message : "Scenario failed" },

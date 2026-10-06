@@ -517,25 +517,51 @@
       return { ok: true, data: boxed };
     },
 
-    /** Freeman what-if scenarios via Edge Function mp-whatif. Requires staff PIN. */
+    /** Freeman what-if / NL scenarios via Edge Function mp-whatif. Requires staff PIN + Gemini for ask. */
     async mpWhatIf(payload) {
-      const body = payload && typeof payload === "object" ? payload : { mode: "baseline" };
+      const body = payload && typeof payload === "object" ? payload : { mode: "ask" };
       const sb = getClient();
-      if (sb && isConfigured() && !isPlaceholderConfig()) {
-        const { data, error } = await sb.functions.invoke("mp-whatif", { body });
-        const boxed = await functionPayload(data, error);
-        if (!error && boxed && !boxed.error) return { ok: true, data: boxed };
-        // Fall through to local Freeman when the edge function is missing/undeployed.
-        if (boxed && boxed.error && !/not configured|Deploy|Failed to send|404|non-2xx/i.test(String(boxed.error))) {
-          return { ok: false, error: friendlyMpError(boxed.error), data: boxed };
+      if (!sb || isPlaceholderConfig()) {
+        return {
+          ok: false,
+          error:
+            "Scenarios need a live Supabase project with the mp-whatif Edge Function and GEMINI_API_KEY.",
+        };
+      }
+      const { data, error } = await sb.functions.invoke("mp-whatif", { body });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyMpError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
+
+    /** MaxPreps datastore freshness / scrape trigger via Edge Function mp-refresh. */
+    async mpRefresh(payload) {
+      const sb = getClient();
+      if (!sb || isPlaceholderConfig()) {
+        return { ok: false, error: "Refreshing MaxPreps data needs a live Supabase project." };
+      }
+      const { data, error } = await sb.functions.invoke("mp-refresh", {
+        body: payload && typeof payload === "object" ? payload : { action: "status" },
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        const text = String((boxed && boxed.error) || error?.message || "").trim();
+        let msg = text || "Could not check MaxPreps data.";
+        if (/Sign in with the staff PIN/i.test(text)) msg = "Enter the staff PIN first.";
+        else if (/MP_REFRESH_GITHUB_TOKEN/i.test(text)) {
+          msg = "Auto-refresh is not set up on this project (MP_REFRESH_GITHUB_TOKEN secret is missing).";
+        } else if (/non-2xx status code|Failed to send|404/i.test(text)) {
+          msg = "Could not reach the mp-refresh Edge Function. Deploy it to this project.";
         }
+        return { ok: false, error: msg, data: boxed };
       }
-      try {
-        const local = await runLocalMpWhatIf(body);
-        return { ok: true, data: local };
-      } catch (e) {
-        return { ok: false, error: friendlyMpError(e.message || String(e)) };
-      }
+      return { ok: true, data: boxed };
     },
 
     /** Class rankings via Edge Function maxpreps-rankings. Requires staff PIN session. */
@@ -588,137 +614,13 @@
     if (/Sign in with the staff PIN/i.test(text)) {
       return "Enter the staff PIN first — scenarios need a signed-in session.";
     }
-    if (/non-2xx status code/i.test(text)) {
-      return "Scenario request failed. Deploy the mp-whatif Edge Function on this Supabase project.";
+    if (/GEMINI_API_KEY is not configured/i.test(text)) {
+      return "Gemini is not configured on this Supabase project. Run: supabase secrets set GEMINI_API_KEY=… then redeploy mp-whatif.";
+    }
+    if (/non-2xx status code|Failed to send|404/i.test(text)) {
+      return "Scenario request failed. Deploy the mp-whatif Edge Function and set GEMINI_API_KEY on this project.";
     }
     return text || "Scenario request failed.";
-  }
-
-  const RATING_OPTS = { cap: 5, ridge: 1, resultBonus: 1, homeAdv: null };
-  let localFreeman = null;
-  let localSnapshot = null;
-
-  async function loadLocalFreeman() {
-    if (localFreeman && localSnapshot) return { freeman: localFreeman, snap: localSnapshot };
-    const base = new URL(".", global.location.href);
-    const freemanUrl = new URL("supabase/functions/_shared/mp/freeman.mjs", base).href;
-    const snapUrl = new URL("supabase/functions/_shared/mp/season_snapshot.json", base).href;
-    const [freeman, snap] = await Promise.all([
-      import(freemanUrl),
-      fetch(snapUrl).then((r) => {
-        if (!r.ok) throw new Error("Could not load season snapshot");
-        return r.json();
-      }),
-    ]);
-    localFreeman = freeman;
-    localSnapshot = snap;
-    return { freeman, snap };
-  }
-
-  async function runLocalMpWhatIf(body) {
-    const { freeman, snap } = await loadLocalFreeman();
-    const {
-      marginPowerRating,
-      poolFor,
-      rankInPool,
-      standings,
-      whatIf,
-      swapResult,
-    } = freeman;
-    const classes = {};
-    for (const t of snap.teams || []) {
-      if (t.display_name && t.classification) classes[t.display_name] = t.classification;
-    }
-    const ours = (snap.teams || []).find((t) => t.is_our_team);
-    const team = String(body.team || ours?.display_name || "Brighton").trim() || "Brighton";
-    const mode = String(body.mode || "baseline").toLowerCase();
-    const games = snap.games || [];
-
-    if (mode === "teams") {
-      return {
-        ok: true,
-        team,
-        teams: (snap.teams || []).map((t) => t.display_name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
-        source: "bundled_snapshot",
-        as_of: snap.as_of || null,
-        games_count: games.length,
-      };
-    }
-
-    const ratings = marginPowerRating(games, RATING_OPTS);
-    const pool = poolFor(team, classes);
-    const baseline = {
-      team,
-      rating: Math.round((ratings[team] ?? 0) * 10000) / 10000,
-      rank: rankInPool(team, ratings, pool),
-      classification: classes[team] || null,
-      standings: standings(ratings, pool, 16),
-    };
-
-    if (mode === "baseline") {
-      return {
-        ok: true,
-        mode,
-        model: "freeman",
-        source: "bundled_snapshot",
-        as_of: snap.as_of || null,
-        games_count: games.length,
-        baseline,
-      };
-    }
-
-    if (mode === "add") {
-      const opponent = String(body.opponent || "").trim();
-      const gf = Number(body.goals_for);
-      const ga = Number(body.goals_against);
-      if (!opponent) throw new Error("opponent is required");
-      if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
-        throw new Error("goals_for and goals_against must be non-negative numbers");
-      }
-      const result = whatIf(games, team, opponent, Math.round(gf), Math.round(ga), {
-        classes,
-        ratingOpts: RATING_OPTS,
-        baseline: { ratings, rank: baseline.rank },
-      });
-      return {
-        ok: true,
-        mode,
-        model: "freeman",
-        source: "bundled_snapshot",
-        as_of: snap.as_of || null,
-        games_count: games.length,
-        baseline,
-        result,
-      };
-    }
-
-    if (mode === "swap") {
-      const drop = String(body.drop || "").trim();
-      const add = String(body.add || "").trim();
-      const gf = Number(body.goals_for);
-      const ga = Number(body.goals_against);
-      if (!drop || !add) throw new Error("drop and add team names are required");
-      if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
-        throw new Error("goals_for and goals_against must be non-negative numbers");
-      }
-      const result = swapResult(games, team, drop, add, Math.round(gf), Math.round(ga), {
-        classes,
-        ratingOpts: RATING_OPTS,
-      });
-      if (!result.ok) throw new Error(result.error || "Swap failed");
-      return {
-        ok: true,
-        mode,
-        model: "freeman",
-        source: "bundled_snapshot",
-        as_of: snap.as_of || null,
-        games_count: games.length,
-        baseline,
-        result,
-      };
-    }
-
-    throw new Error("mode must be baseline, add, swap, or teams");
   }
 
   function normalizeNoteTags(raw) {
