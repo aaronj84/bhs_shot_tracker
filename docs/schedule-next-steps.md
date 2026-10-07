@@ -1,6 +1,9 @@
 # Postseason Meeting Scheduler — next steps
 
-Resume notes for the **Schedule** module (`#schedule` for parents, `#schedule-admin` for coaches).
+Resume notes for the **Schedule** module.
+
+- **Parents:** isolated page at `blue26/schedule/`. Live link after PROD deploy: <https://aaronj84.github.io/bhs_shot_tracker/blue26/schedule/> (`/blue26/` redirects there). It has no tracker header or nav and no links back into the app.
+- **Coaches (Aaron, Ryan, Sarah):** the **Schedule** tab in the tracker (`#schedule`) opens the PIN-gated coach view. Its **Parent page** button opens the parent page.
 
 - Branch: `cursor/postseason-schedule`
 - PR: [#20 → `dev`](https://github.com/aaronj84/bhs_shot_tracker/pull/20) (CI green as of Oct 7, 2026)
@@ -15,8 +18,9 @@ npm ci
 # UI against a local mock backend (PGlite running the real migration, seeded with times)
 echo 'window.SHOTS_CONFIG = { supabaseUrl: "http://127.0.0.1:8787", supabaseAnonKey: "local-mock", pin: "KEPPA" };' > shots-config.js
 npm run schedule:mock            # terminal 1 → http://127.0.0.1:8787
-python3 -m http.server 8080      # terminal 2 → http://127.0.0.1:8080/#schedule
-# Coach view: http://127.0.0.1:8080/#schedule-admin  (PIN: KEPPA)
+python3 -m http.server 8080      # terminal 2
+# Parent page: http://127.0.0.1:8080/blue26/schedule/
+# Coach view:  http://127.0.0.1:8080/#schedule  (PIN: KEPPA)
 # Delete or regenerate shots-config.js (node scripts/write-shots-config.js) before testing the tracker against DEV.
 
 # Tests
@@ -28,8 +32,8 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
 
 1. **Review + merge PR #20 into `dev`.** CI applies both migrations and deploys `schedule-worker` and `schedule-ics` to DEV.
 2. **Smoke test on DEV** (not yet verified against real Supabase):
-   - Open `#schedule-admin`, sign in with `KEPPA`. This registers the worker URL. The Calendar tab should say "Reminder service: on".
-   - Add a few times, book one from `#schedule` on a phone, then move and cancel it in admin.
+   - Open the **Schedule** tab (`#schedule`), sign in with `KEPPA`. This registers the worker URL. The Calendar tab should say "Reminder service: on".
+   - Add a few times, book one from the parent page on a phone, then move and cancel it in admin. DEV has no hosted site, so serve locally with a DEV `shots-config.js` (`node scripts/write-shots-config.js`) and open `/blue26/schedule/`.
    - Open the feed link from the Calendar tab in a browser: it should download `text/calendar`.
    - If the cron migration failed in CI, check that `pg_cron` / `pg_net` are enabled (Dashboard → Database → Extensions).
 3. **Change the scheduler PIN** (Calendar tab → Scheduler PIN). It starts as `KEPPA`, which is readable in the shipped `shots-config.js`.
@@ -51,6 +55,7 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
       ```
    Use PROD only, or a separate test calendar on DEV, so test bookings stay off the real calendar.
 6. **Ship to PROD:** PR `dev` → `main`. After deploy, repeat steps 2–5 on PROD and send the feed link to Sarah and Ryan.
+7. **Send parents** <https://aaronj84.github.io/bhs_shot_tracker/blue26/schedule/>. Before sending, check on a phone that it loads and shows only the booking form.
 
 ## Open questions
 
@@ -60,7 +65,8 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
 
 | Piece | Path |
 | --- | --- |
-| Parent + coach UI | `schedule.js`, styles at the end of `styles.css`, route in `app.js` |
+| Parent + coach UI | `schedule.js`, styles at the end of `styles.css`, coach route in `app.js` |
+| Parent page (isolated) | `blue26/schedule/index.html` (+ `blue26/index.html` redirect); shipped by `.github/workflows/pages.yml` |
 | Schema + RPCs | `supabase/migrations/20261007160000_postseason_schedule.sql` |
 | Every-minute reminder cron | `supabase/migrations/20261007160100_schedule_worker_cron.sql` |
 | Texts + Google sync | `supabase/functions/schedule-worker/` |

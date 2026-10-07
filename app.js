@@ -14,15 +14,15 @@
     if (path === "shots-prep" || path === "shots-explore") return "shots-prep";
     if (path === "shots-scoreboard") return "shots-scoreboard";
     if (path === "shots-bracket") return "shots-bracket";
-    if (path === "schedule") return "schedule";
-    if (path === "schedule-admin") return "schedule-admin";
+    // Parents book at blue26/schedule/; inside the tracker, Schedule is the coach view.
+    if (path === "schedule" || path === "schedule-admin") return "schedule-admin";
     if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
   }
 
   function isSchedule(view) {
-    return view === "schedule" || view === "schedule-admin";
+    return view === "schedule-admin";
   }
 
   function updateChrome(view) {
@@ -76,7 +76,7 @@
     const view = parseHash();
     updateChrome(view);
     const root = $("#app-root");
-    // Schedule is public: it never boots the tracker or its PIN gate.
+    // Schedule has its own server-checked PIN; it never boots the tracker or its PIN gate.
     if (isSchedule(view)) {
       if (window.Schedule) window.Schedule.render(view);
       else if (root) root.innerHTML = '<p class="empty-state">Scheduler failed to load.</p>';

@@ -13,13 +13,15 @@
 
   const TZ = "America/Denver";
   const LS_ADMIN_TOKEN = "bhs-schedule-admin-token";
+  // Isolated parent page, relative to the tracker's index.html.
+  const PARENT_PAGE = "blue26/schedule/";
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const root = () => document.getElementById("app-root");
 
   const st = {
-    view: "schedule",
+    view: "schedule-admin",
     pub: {
       loading: false,
       loaded: false,
@@ -298,13 +300,11 @@
     root().innerHTML = `
       <div class="schedule-page">
         <header class="schedule-hero">
-          <p class="schedule-kicker">Brighton Blue ’26</p>
           <h1>Postseason Meetings</h1>
           <p class="muted">Pick a time for your player and a parent/guardian to meet with the coaching staff.</p>
         </header>
         ${p.error ? `<p class="shots-error">${escapeHtml(p.error)}</p>` : ""}
         ${body}
-        <p class="schedule-footer"><a href="#schedule-admin">Coach login</a></p>
       </div>`;
     bindPublic();
   }
@@ -536,7 +536,7 @@
             <button type="submit" class="btn btn-primary">Open scheduler</button>
           </form>
           ${a.pinError ? `<p class="shots-error" role="alert">${escapeHtml(a.pinError)}</p>` : ""}
-          <p class="schedule-footer"><a href="#schedule">Back to booking page</a></p>
+          <p class="schedule-footer"><a href="${escapeHtml(PARENT_PAGE)}">Open the parent page</a></p>
         </div>
       </div>`;
     $("#sched-pin-form").addEventListener("submit", async (e) => {
@@ -591,7 +591,7 @@
       <div class="schedule-page schedule-admin shots-admin">
         <div class="schedule-admin-head">
           <h1>Postseason Meetings</h1>
-          <a class="btn btn-ghost schedule-public-link" href="#schedule">Parent page</a>
+          <a class="btn btn-ghost schedule-public-link" href="${escapeHtml(PARENT_PAGE)}">Parent page</a>
         </div>
         <p class="muted schedule-summary">${booked} booked · ${d.slots.filter((s) => !s.booking && s.status === "open" && new Date(s.starts_at) > new Date()).length} open · ${unbookedPlayers.length} player${unbookedPlayers.length === 1 ? "" : "s"} not booked</p>
         <nav class="prep-tabs schedule-tabs" aria-label="Scheduler">
@@ -1165,9 +1165,9 @@
   }
 
   global.Schedule = {
+    /** "schedule-public" only from blue26/schedule/; everything else is the coach view. */
     render(view) {
-      const prev = st.view;
-      st.view = view === "schedule-admin" ? "schedule-admin" : "schedule";
+      st.view = view === "schedule-public" ? "schedule-public" : "schedule-admin";
       if (!client()) {
         root().innerHTML = `<div class="schedule-page"><p class="empty-state">Scheduling isn’t configured on this site yet.</p></div>`;
         return;
@@ -1176,7 +1176,6 @@
         draw();
         if (st.admin.token) loadAdmin();
       } else {
-        if (prev !== "schedule" || !st.pub.loaded) st.pub.done = null;
         draw();
         loadPublic();
       }

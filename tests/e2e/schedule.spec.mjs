@@ -39,10 +39,13 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("parents book without the staff PIN; slot and player disappear", async ({ page }) => {
-  await page.goto("/#schedule");
+test("parents book on the isolated page; slot and player disappear", async ({ page }) => {
+  await page.goto("/blue26/schedule/");
   await expect(page.locator(".schedule-hero h1")).toHaveText("Postseason Meetings");
-  await expect(page.locator("#shots-pin")).toHaveCount(0);
+  await expect(page.locator(".schedule-standalone-header")).toContainText("Brighton Blue ’26");
+  // No tracker chrome or links back into the app.
+  await expect(page.locator("#shots-pin, #menu-btn, .nav-desktop, #nav-drawer")).toHaveCount(0);
+  await expect(page.locator("a[href]")).toHaveCount(0);
   await expect(page.locator(".schedule-time")).toHaveCount(3);
 
   await page.selectOption("#sched-player", { label: "Lucy" });
@@ -69,7 +72,7 @@ test("parents book without the staff PIN; slot and player disappear", async ({ p
 });
 
 test("losing a race refreshes availability with a friendly message", async ({ page }) => {
-  await page.goto("/#schedule");
+  await page.goto("/blue26/schedule/");
   await page.selectOption("#sched-player", { label: "Skye" });
   await page.locator(".schedule-time").first().click();
   await page.fill("#sched-email", "skye@example.com");
@@ -101,13 +104,16 @@ test("coach signs in with the PIN, moves and cancels a booking", async ({ page }
     p_consent: true,
   });
 
-  await page.goto("/#schedule-admin");
+  // The tracker's Schedule tab is the coach view.
+  await page.goto("/#schedule");
+  await expect(page.locator(".schedule-hero")).toHaveCount(0);
   await page.fill("#sched-pin", "wrong");
   await page.click("#sched-pin-form button");
   await expect(page.locator(".shots-gate .shots-error")).toHaveText("Wrong PIN");
   await page.fill("#sched-pin", "keppa");
   await page.click("#sched-pin-form button");
 
+  await expect(page.locator(".schedule-public-link")).toHaveAttribute("href", "blue26/schedule/");
   const booked = page.locator(".schedule-slot.is-booked");
   await expect(booked).toHaveCount(1);
   await expect(booked).toContainText("Moira");

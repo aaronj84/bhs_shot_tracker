@@ -5075,3 +5075,25 @@ body.schedule-view .app-main {
   font-size: 0.8rem;
   font-family: ui-monospace, Menlo, monospace;
 }
+
+/* blue26/schedule/: parent-only page, no tracker chrome */
+.schedule-standalone-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: calc(0.55rem + env(safe-area-inset-top, 0px)) 1rem 0.55rem;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.schedule-standalone-header img {
+  width: 32px;
+  height: 32px;
+}
