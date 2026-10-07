@@ -7,6 +7,6 @@ import type { Booking, NoticeKind } from "./format.ts";
 
 export type EmailResult = { status: "sent" | "failed" | "skipped"; error?: string };
 
-export async function sendBookingEmail(_booking: Booking, _kind: NoticeKind): Promise<EmailResult> {
-  return { status: "skipped" };
+export function sendBookingEmail(_booking: Booking, _kind: NoticeKind): Promise<EmailResult> {
+  return Promise.resolve({ status: "skipped" });
 }
