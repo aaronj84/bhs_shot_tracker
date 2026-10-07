@@ -3,8 +3,8 @@
 -- Durable: state lives in meeting_bookings, so a missed run just catches up.
 -- The worker URL is registered from #schedule-admin on coach sign-in.
 
-create extension if not exists pg_net;
-create extension if not exists pg_cron;
+create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
 
 select cron.schedule(
   'schedule-worker',
