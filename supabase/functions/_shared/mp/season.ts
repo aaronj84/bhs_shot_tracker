@@ -14,6 +14,8 @@ export type Game = {
   away_score: number;
   neutral?: boolean;
   is_forfeit?: boolean;
+  is_deleted?: boolean;
+  pk_winner?: "home" | "away" | null;
 };
 
 export type TeamRow = {
@@ -76,7 +78,7 @@ async function loadFromDb(userClient: SupabaseClient): Promise<SeasonLoad | null
   const { data: gameRows, error: gameErr } = await userClient
     .from("mp_games")
     .select(
-      "played_on, home_team_id, away_team_id, home_score, away_score, neutral, is_forfeit",
+      "played_on, home_team_id, away_team_id, home_score, away_score, neutral, is_forfeit, is_deleted, pk_winner_team_id",
     )
     .not("home_score", "is", null)
     .not("away_score", "is", null);
@@ -92,6 +94,7 @@ async function loadFromDb(userClient: SupabaseClient): Promise<SeasonLoad | null
     const away = idToName.get(String(g.away_team_id));
     if (!home || !away) continue;
     if (g.home_score == null || g.away_score == null) continue;
+    const pk = g.pk_winner_team_id == null ? null : String(g.pk_winner_team_id);
     games.push({
       date: String(g.played_on),
       home,
@@ -100,6 +103,12 @@ async function loadFromDb(userClient: SupabaseClient): Promise<SeasonLoad | null
       away_score: Number(g.away_score),
       neutral: Boolean(g.neutral),
       is_forfeit: Boolean(g.is_forfeit),
+      is_deleted: Boolean(g.is_deleted),
+      pk_winner: pk === String(g.home_team_id)
+        ? "home"
+        : pk === String(g.away_team_id)
+        ? "away"
+        : null,
     });
   }
   if (!games.length) return null;
@@ -131,6 +140,12 @@ export function resolveTeamName(
 export function brightonSchedule(games: Game[], team: string) {
   const rows = [];
   for (const g of games) {
+    if (g.is_deleted) continue;
+    const pk = g.pk_winner == null
+      ? null
+      : (g.pk_winner === "home") === (g.home === team)
+      ? "W"
+      : "L";
     if (g.home === team) {
       rows.push({
         date: g.date,
@@ -138,6 +153,7 @@ export function brightonSchedule(games: Game[], team: string) {
         gf: g.home_score,
         ga: g.away_score,
         ha: "H",
+        pk,
       });
     } else if (g.away === team) {
       rows.push({
@@ -146,6 +162,7 @@ export function brightonSchedule(games: Game[], team: string) {
         gf: g.away_score,
         ga: g.home_score,
         ha: "A",
+        pk,
       });
     }
   }

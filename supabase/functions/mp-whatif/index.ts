@@ -4,8 +4,10 @@
  * POST JSON:
  *   { mode: "ask", question, history? }  — Gemini parses + Freeman + Gemini narrates
  *   { mode: "baseline", team? }
- *   { mode: "add", team?, opponent, goals_for, goals_against }
- *   { mode: "swap", team?, drop, add, goals_for, goals_against }
+ *   { mode: "add", team?, opponent, goals_for, goals_against, pk_win? }
+ *   { mode: "swap", team?, drop, add, goals_for, goals_against, pk_win? }
+ *   pk_win is required when the score is level (UHSAA games go to PKs).
+ *   Ratings are on the MaxPreps RTG scale (MAXPREPS_RATING_OPTS).
  *   { mode: "teams" }
  *
  * Secrets: GEMINI_API_KEY (required for mode=ask). Optional: PREP_GEMINI_MODEL.
@@ -14,6 +16,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { createGeminiProvider } from "../_shared/explore/providers/gemini.ts";
 import {
+  MAXPREPS_RATING_OPTS,
   marginPowerRating,
   poolFor,
   rankInPool,
@@ -37,8 +40,18 @@ const corsHeaders: Record<string, string> = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const RATING_OPTS = { cap: 5, ridge: 1, resultBonus: 1, homeAdv: null as null };
+const RATING_OPTS = MAXPREPS_RATING_OPTS;
 const DEFAULT_TEAM = "Brighton";
+
+/** Level scores need a shootout result; anything else ignores pk_win. */
+function pkWinFor(gf: number, ga: number, raw: unknown): boolean | null | undefined {
+  if (Math.round(gf) !== Math.round(ga)) return null;
+  if (typeof raw === "boolean") return raw;
+  return undefined;
+}
+
+const LEVEL_NEEDS_PK =
+  "Utah games can't end tied. For a level score, say whether the team won or lost on PKs (pk_win).";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -238,10 +251,12 @@ Deno.serve(async (req) => {
             ...meta(loaded),
           });
         }
+        const pkWin = pkWinFor(gf, ga, plan.pk_win) ?? true;
         const result = whatIf(loaded.games, focus, opponent, Math.round(gf), Math.round(ga), {
           classes,
           ratingOpts: RATING_OPTS,
           baseline: { ratings, rank: baseline.rank },
+          pkWin,
         });
         const answer = await narrateScenario(provider, model, {
           question,
@@ -264,6 +279,7 @@ Deno.serve(async (req) => {
             opponent,
             goals_for: Math.round(gf),
             goals_against: Math.round(ga),
+            pk_win: pkWin,
           },
           baseline,
           result,
@@ -299,6 +315,7 @@ Deno.serve(async (req) => {
             ...meta(loaded),
           });
         }
+        const pkWin = pkWinFor(gf, ga, plan.pk_win) ?? true;
         const result = swapResult(
           loaded.games,
           focus,
@@ -306,7 +323,7 @@ Deno.serve(async (req) => {
           add,
           Math.round(gf),
           Math.round(ga),
-          { classes, ratingOpts: RATING_OPTS },
+          { classes, ratingOpts: RATING_OPTS, pkWin },
         );
         if (!result.ok) {
           const answer = await narrateScenario(provider, model, {
@@ -354,6 +371,7 @@ Deno.serve(async (req) => {
             add,
             goals_for: Math.round(gf),
             goals_against: Math.round(ga),
+            pk_win: pkWin,
           },
           baseline,
           result,
@@ -388,10 +406,13 @@ Deno.serve(async (req) => {
       if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
         return jsonResponse({ error: "goals_for and goals_against must be non-negative numbers" }, 400);
       }
+      const pkWin = pkWinFor(gf, ga, body.pk_win);
+      if (pkWin === undefined) return jsonResponse({ error: LEVEL_NEEDS_PK }, 400);
       const result = whatIf(loaded.games, team, opponent, Math.round(gf), Math.round(ga), {
         classes,
         ratingOpts: RATING_OPTS,
         baseline: { ratings, rank: baseline.rank },
+        pkWin,
       });
       return jsonResponse({
         ok: true,
@@ -413,6 +434,8 @@ Deno.serve(async (req) => {
       if (!Number.isFinite(gf) || !Number.isFinite(ga) || gf < 0 || ga < 0) {
         return jsonResponse({ error: "goals_for and goals_against must be non-negative numbers" }, 400);
       }
+      const pkWin = pkWinFor(gf, ga, body.pk_win);
+      if (pkWin === undefined) return jsonResponse({ error: LEVEL_NEEDS_PK }, 400);
       const result = swapResult(
         loaded.games,
         team,
@@ -420,7 +443,7 @@ Deno.serve(async (req) => {
         add,
         Math.round(gf),
         Math.round(ga),
-        { classes, ratingOpts: RATING_OPTS },
+        { classes, ratingOpts: RATING_OPTS, pkWin },
       );
       if (!result.ok) return jsonResponse(result, 400);
       return jsonResponse({

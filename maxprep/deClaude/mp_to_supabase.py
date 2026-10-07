@@ -111,18 +111,26 @@ def games_payload(rows: List[dict]) -> List[dict]:
         away_id = (r.get("away_team_id") or "").strip()
         if not home_id or not away_id or not r.get("date"):
             continue
+        home_score = _int(r.get("home_score"))
+        away_score = _int(r.get("away_score"))
+        side = (r.get("pk_winner") or "").strip().lower()
+        pk_winner = None
+        if home_score is not None and home_score == away_score:
+            pk_winner = {"home": home_id, "away": away_id}.get(side)
         out.append({
             "game_id": gid,
             "played_on": r["date"],
             "home_team_id": home_id,
             "away_team_id": away_id,
-            "home_score": _int(r.get("home_score")),
-            "away_score": _int(r.get("away_score")),
+            "home_score": home_score,
+            "away_score": away_score,
             "home_rank": _int(r.get("home_rank")),
             "away_rank": _int(r.get("away_rank")),
             "neutral": _bool01(r.get("neutral")),
             "is_forfeit": _bool01(r.get("is_forfeit")),
             "source_url": (r.get("match_url") or "").strip() or None,
+            "pk_winner_team_id": pk_winner,
+            "is_deleted": _bool01(r.get("is_deleted")),
         })
     return out
 
@@ -202,7 +210,7 @@ def render_sql(teams: List[dict], games: List[dict],
         games, "mp_games", "game_id",
         ["played_on", "home_team_id", "away_team_id", "home_score",
          "away_score", "home_rank", "away_rank", "neutral", "is_forfeit",
-         "source_url"]))
+         "source_url", "pk_winner_team_id", "is_deleted"]))
     if snaps:
         parts.append(
             "delete from public.mp_snapshots where taken_on in (%s);"
@@ -279,7 +287,8 @@ def diff_games(existing: List[dict], incoming: List[dict]) -> dict:
     removed = [gid for gid in before if gid not in after]
     updated = []
     score_changes = []
-    score_keys = ("home_score", "away_score", "is_forfeit", "neutral")
+    score_keys = ("home_score", "away_score", "is_forfeit", "neutral",
+                  "pk_winner_team_id", "is_deleted")
     for gid, neu in after.items():
         old = before.get(gid)
         if not old:
@@ -451,7 +460,8 @@ def sync(url: str, key: str, teams: List[dict], games: List[dict],
     try:
         existing = rest_select_all(
             url, key, "mp_games",
-            "game_id,home_score,away_score,neutral,is_forfeit")
+            "game_id,home_score,away_score,neutral,is_forfeit,"
+            "pk_winner_team_id,is_deleted")
         diff = diff_games(existing, games)
         sys.stderr.write(
             "diff: before=%d after=%d added=%d updated=%d removed=%d score_changes=%d\n"

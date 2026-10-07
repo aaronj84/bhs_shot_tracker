@@ -5,15 +5,47 @@
  */
 
 /**
- * @typedef {{ date: string, home: string, away: string, home_score: number, away_score: number, neutral?: boolean, is_forfeit?: boolean }} Game
+ * pk_winner: UHSAA has no ties. A level game goes to PKs; MaxPreps keeps the
+ * level score and credits the shootout winner. null only for a true draw.
+ * is_deleted: contest MaxPreps deleted (still on a team schedule); not rated.
+ *
+ * @typedef {{ date: string, home: string, away: string, home_score: number, away_score: number, neutral?: boolean, is_forfeit?: boolean, is_deleted?: boolean, pk_winner?: "home"|"away"|null }} Game
  */
 
 /**
+ * Fit against MaxPreps' published UT girls ratings (5A on 2026-10-07 and the
+ * statewide 2026-09-13 snapshot): RMSE 0.14 rating points on 5A. A win is
+ * worth ~13.7 MaxPreps points, each goal of margin ~1.4 up to 4 goals, a PK
+ * win about like a 1-goal win, no home edge.
+ */
+export const MAXPREPS_RATING_OPTS = Object.freeze({
+  cap: 4,
+  ridge: 1,
+  resultBonus: 10,
+  pkMargin: 1,
+  homeAdv: 0,
+  scale: Object.freeze({ slope: 1.366, offset: 0.238 }),
+});
+
+/**
+ * Games MaxPreps rates: no forfeits, no deleted contests.
  * @param {Game[]} games
  * @returns {Game[]}
  */
 export function dropForfeits(games) {
-  return games.filter((g) => !g.is_forfeit);
+  return games.filter((g) => !g.is_forfeit && !g.is_deleted);
+}
+
+/**
+ * +1 home won (in regulation, overtime, or on PKs), -1 away won, 0 true draw.
+ * @param {Game} g
+ */
+export function resultSign(g) {
+  const m = g.home_score - g.away_score;
+  if (m !== 0) return Math.sign(m);
+  if (g.pk_winner === "home") return 1;
+  if (g.pk_winner === "away") return -1;
+  return 0;
 }
 
 /**
@@ -33,26 +65,38 @@ export function teamIndex(games) {
 }
 
 /**
+ * Margin fed to the fit: capped goal difference, a PK win counted as
+ * pkMargin goals, plus resultBonus toward the winner.
+ *
  * @param {Game} g
+ * @param {number} cap
+ * @param {number} resultBonus
+ * @param {number} pkMargin
  * @returns {number}
  */
-function margin(g) {
-  return g.home_score - g.away_score;
+function fitMargin(g, cap, resultBonus, pkMargin) {
+  const s = resultSign(g);
+  const raw = g.home_score - g.away_score;
+  const goals = raw === 0 ? pkMargin * s : raw;
+  return Math.max(-cap, Math.min(cap, goals)) + resultBonus * s;
 }
 
 /**
- * Ratings on a goals scale. Predicted margin for home = r_h - r_a + hfa.
+ * Ratings on a goals scale, or on the MaxPreps rating scale when
+ * opts.scale is set. Predicted margin for home = r_h - r_a + hfa.
  * Observed margin is clipped to +/- cap before fitting.
  *
  * @param {Game[]} games
- * @param {{ cap?: number, ridge?: number, homeAdv?: number|null, resultBonus?: number, maxIter?: number }} [opts]
+ * @param {{ cap?: number, ridge?: number, homeAdv?: number|null, resultBonus?: number, pkMargin?: number, scale?: { slope: number, offset: number }|null, maxIter?: number }} [opts]
  * @returns {Record<string, number>}
  */
 export function marginPowerRating(games, opts = {}) {
   const cap = opts.cap ?? 5.0;
   const ridge = opts.ridge ?? 1.0;
   const resultBonus = opts.resultBonus ?? 0.0;
-  const maxIter = opts.maxIter ?? 200;
+  const pkMargin = opts.pkMargin ?? 0.0;
+  const scale = opts.scale ?? null;
+  const maxIter = opts.maxIter ?? 1000;
   const homeAdvOpt = opts.homeAdv === undefined ? null : opts.homeAdv;
 
   const clean = dropForfeits(games);
@@ -76,12 +120,7 @@ export function marginPowerRating(games, opts = {}) {
     ai[i] = idx[g.away];
     atHome[i] = g.neutral ? 0.0 : 1.0;
     weights[i] = 1.0;
-    let marg = Math.max(-cap, Math.min(cap, margin(g)));
-    if (resultBonus) {
-      const s = Math.sign(margin(g));
-      marg += resultBonus * s;
-    }
-    y[i] = marg;
+    y[i] = fitMargin(g, cap, resultBonus, pkMargin);
   }
 
   let r = new Float64Array(n);
@@ -124,9 +163,11 @@ export function marginPowerRating(games, opts = {}) {
     if (delta < 1e-10) break;
   }
 
+  const slope = scale ? scale.slope : 1;
+  const offset = scale ? scale.offset : 0;
   /** @type {Record<string, number>} */
   const out = {};
-  for (const [name, i] of Object.entries(idx)) out[name] = r[i];
+  for (const [name, i] of Object.entries(idx)) out[name] = slope * r[i] + offset;
   return out;
 }
 
@@ -163,10 +204,13 @@ export function poolFor(team, classes) {
  * @param {string} opponent
  * @param {number} goalsFor
  * @param {number} goalsAgainst
- * @param {{ date?: string, neutral?: boolean }} [opts]
+ * @param {{ date?: string, neutral?: boolean, pkWin?: boolean|null }} [opts]
+ *   pkWin: for a level score, whether `team` won the shootout.
  * @returns {Game[]}
  */
 export function addGame(games, team, opponent, goalsFor, goalsAgainst, opts = {}) {
+  const level = goalsFor === goalsAgainst;
+  const pkWin = opts.pkWin ?? null;
   return [
     ...games,
     {
@@ -177,8 +221,20 @@ export function addGame(games, team, opponent, goalsFor, goalsAgainst, opts = {}
       away_score: goalsAgainst,
       neutral: opts.neutral !== false,
       is_forfeit: false,
+      pk_winner: level && pkWin !== null ? (pkWin ? "home" : "away") : null,
     },
   ];
+}
+
+/**
+ * @param {number} goalsFor
+ * @param {number} goalsAgainst
+ * @param {boolean|null|undefined} pkWin
+ */
+export function scoreLabel(goalsFor, goalsAgainst, pkWin) {
+  const base = `${goalsFor}-${goalsAgainst}`;
+  if (goalsFor !== goalsAgainst || pkWin == null) return base;
+  return `${base} (${pkWin ? "won" : "lost"} on PKs)`;
 }
 
 /**
@@ -187,9 +243,9 @@ export function addGame(games, team, opponent, goalsFor, goalsAgainst, opts = {}
  * @param {string} opponent
  */
 function teamWon(game, team, opponent) {
-  if (game.is_forfeit) return false;
-  if (game.home === team && game.away === opponent) return game.home_score > game.away_score;
-  if (game.away === team && game.home === opponent) return game.away_score > game.home_score;
+  if (game.is_forfeit || game.is_deleted) return false;
+  if (game.home === team && game.away === opponent) return resultSign(game) > 0;
+  if (game.away === team && game.home === opponent) return resultSign(game) < 0;
   return false;
 }
 
@@ -219,11 +275,12 @@ export function dropWinsVs(games, team, opponent) {
  * @param {string} opponent
  * @param {number} goalsFor
  * @param {number} goalsAgainst
- * @param {{ classes?: Record<string, string>|null, ratingOpts?: object, baseline?: { ratings: Record<string, number>, rank: number }|null }} [opts]
+ * @param {{ classes?: Record<string, string>|null, ratingOpts?: object, baseline?: { ratings: Record<string, number>, rank: number }|null, pkWin?: boolean|null }} [opts]
  */
 export function whatIf(games, team, opponent, goalsFor, goalsAgainst, opts = {}) {
   const classes = opts.classes ?? null;
-  const ratingOpts = opts.ratingOpts || { cap: 5, ridge: 1, resultBonus: 1, homeAdv: null };
+  const ratingOpts = opts.ratingOpts || MAXPREPS_RATING_OPTS;
+  const pkWin = opts.pkWin ?? null;
   const pool = poolFor(team, classes);
 
   let baseR;
@@ -237,7 +294,7 @@ export function whatIf(games, team, opponent, goalsFor, goalsAgainst, opts = {})
   }
 
   const newR = marginPowerRating(
-    addGame(games, team, opponent, goalsFor, goalsAgainst),
+    addGame(games, team, opponent, goalsFor, goalsAgainst, { pkWin }),
     ratingOpts,
   );
   const newRank = rankInPool(team, newR, pool);
@@ -246,7 +303,7 @@ export function whatIf(games, team, opponent, goalsFor, goalsAgainst, opts = {})
     model: "freeman",
     opponent,
     opp_rating: round4(baseR[opponent]),
-    score: `${goalsFor}-${goalsAgainst}`,
+    score: scoreLabel(goalsFor, goalsAgainst, pkWin),
     rating_before: round4(baseR[team] ?? 0),
     rating_after: round4(newR[team] ?? 0),
     rating_delta: round4((newR[team] ?? 0) - (baseR[team] ?? 0)),
@@ -265,11 +322,12 @@ export function whatIf(games, team, opponent, goalsFor, goalsAgainst, opts = {})
  * @param {string} add
  * @param {number} goalsFor
  * @param {number} goalsAgainst
- * @param {{ classes?: Record<string, string>|null, ratingOpts?: object }} [opts]
+ * @param {{ classes?: Record<string, string>|null, ratingOpts?: object, pkWin?: boolean|null }} [opts]
  */
 export function swapResult(games, team, drop, add, goalsFor, goalsAgainst, opts = {}) {
   const classes = opts.classes ?? null;
-  const ratingOpts = opts.ratingOpts || { cap: 5, ridge: 1, resultBonus: 1, homeAdv: null };
+  const ratingOpts = opts.ratingOpts || MAXPREPS_RATING_OPTS;
+  const pkWin = opts.pkWin ?? null;
   const pool = poolFor(team, classes);
   const { kept, dropped } = dropWinsVs(games, team, drop);
   if (!dropped.length) {
@@ -278,7 +336,7 @@ export function swapResult(games, team, drop, add, goalsFor, goalsAgainst, opts 
       error: `No win vs ${drop} in the season data. Cannot swap a result that is not there.`,
     };
   }
-  const swapped = addGame(kept, team, add, goalsFor, goalsAgainst);
+  const swapped = addGame(kept, team, add, goalsFor, goalsAgainst, { pkWin });
   const baseR = marginPowerRating(games, ratingOpts);
   const newR = marginPowerRating(swapped, ratingOpts);
   const before = rankInPool(team, baseR, pool);
@@ -288,7 +346,7 @@ export function swapResult(games, team, drop, add, goalsFor, goalsAgainst, opts 
     model: "freeman",
     drop,
     add,
-    score: `${goalsFor}-${goalsAgainst}`,
+    score: scoreLabel(goalsFor, goalsAgainst, pkWin),
     dropped: dropped.length,
     rating_before: round4(baseR[team] ?? 0),
     rating_after: round4(newR[team] ?? 0),

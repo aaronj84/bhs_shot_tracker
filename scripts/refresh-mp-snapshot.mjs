@@ -13,7 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const py = `
 import csv, json, sys, os
 sys.path.insert(0, os.path.join(${JSON.stringify(root)}, "maxprep", "deClaude"))
-from mp_rating import Game, margin_power_rating
+from mp_rating import Game, MAXPREPS_PARAMS, margin_power_rating, to_maxpreps_scale
 from mp_whatif import what_if, pool_for, rank_in_pool, drop_wins_vs, add_game
 
 root = ${JSON.stringify(root)}
@@ -30,6 +30,8 @@ with open(os.path.join(root, "maxprep/data/ut_girls_soccer_2026.csv")) as fh:
             "away_score": int(row["away_score"]),
             "neutral": str(row.get("neutral", "")).lower() in ("1", "true", "yes"),
             "is_forfeit": str(row.get("is_forfeit", "")).lower() in ("1", "true", "yes"),
+            "is_deleted": str(row.get("is_deleted", "")).lower() in ("1", "true", "yes"),
+            "pk_winner": (row.get("pk_winner") or "").strip().lower() or None,
         })
 teams = []
 with open(os.path.join(root, "maxprep/data/ut_girls_soccer_2026_teams.csv")) as fh:
@@ -43,11 +45,12 @@ with open(os.path.join(root, "maxprep/data/ut_girls_soccer_2026_teams.csv")) as 
 
 gobjs = [Game(**g) for g in games]
 classes = {t["display_name"]: t["classification"] for t in teams if t["classification"]}
-base = margin_power_rating(gobjs, cap=5, ridge=1, result_bonus=1, home_adv=None)
+rate = lambda gs: to_maxpreps_scale(margin_power_rating(gs, **MAXPREPS_PARAMS))
+base = rate(gobjs)
 team = "Brighton"
 pool = pool_for(team, classes)
 fixtures = {
-    "params": {"cap": 5.0, "ridge": 1.0, "result_bonus": 1.0},
+    "params": MAXPREPS_PARAMS,
     "baseline": {
         "team": team,
         "rating": round(base[team], 6),
@@ -57,12 +60,15 @@ fixtures = {
     },
     "what_if": [],
 }
-for opp, gf, ga in [("Lone Peak", 2, 1), ("Lone Peak", 1, 2), ("Cyprus", 5, 0), ("Orem", 1, 2)]:
-    fixtures["what_if"].append(what_if(gobjs, team, opp, gf, ga, model="margin", classes=classes))
+for opp, gf, ga, pk in [("Lone Peak", 2, 1, None), ("Lone Peak", 1, 2, None), ("Cyprus", 5, 0, None),
+                        ("Orem", 1, 2, None), ("Lone Peak", 1, 1, True), ("Lone Peak", 1, 1, False)]:
+    row = what_if(gobjs, team, opp, gf, ga, model="margin", classes=classes, pk_win=pk)
+    row["pk_win"] = pk
+    fixtures["what_if"].append(row)
 
 remaining, dropped = drop_wins_vs(gobjs, team, "Orem")
 swapped = add_game(remaining, team, "Lone Peak", 1, 2)
-new_r = margin_power_rating(swapped, cap=5, ridge=1, result_bonus=1, home_adv=None)
+new_r = rate(swapped)
 fixtures["swap_orem_for_lone_peak_loss"] = {
     "drop": "Orem",
     "add": "Lone Peak",

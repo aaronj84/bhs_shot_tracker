@@ -1,13 +1,15 @@
 {
   "params": {
-    "cap": 5.0,
+    "cap": 4.0,
     "ridge": 1.0,
-    "result_bonus": 1.0
+    "result_bonus": 10.0,
+    "pk_margin": 1.0,
+    "home_adv": 0.0
   },
   "baseline": {
     "team": "Brighton",
-    "rating": 3.899419,
-    "rank": 9,
+    "rating": 14.718927,
+    "rank": 11,
     "n_games": 899,
     "n_teams": 117
   },
@@ -15,50 +17,80 @@
     {
       "model": "margin",
       "opponent": "Lone Peak",
-      "opp_rating": 4.2944,
+      "opp_rating": 20.8475,
       "score": "2-1",
-      "rating_before": 3.8994,
-      "rating_after": 4.0447,
-      "rating_delta": 0.1453,
-      "rank_before": 9,
-      "rank_after": 5,
-      "rank_delta": 4
+      "rating_before": 14.7189,
+      "rating_after": 16.0773,
+      "rating_delta": 1.3584,
+      "rank_before": 11,
+      "rank_after": 9,
+      "rank_delta": 2,
+      "pk_win": null
     },
     {
       "model": "margin",
       "opponent": "Lone Peak",
-      "opp_rating": 4.2944,
+      "opp_rating": 20.8475,
       "score": "1-2",
-      "rating_before": 3.8994,
-      "rating_after": 3.8021,
-      "rating_delta": -0.0974,
-      "rank_before": 9,
-      "rank_after": 9,
-      "rank_delta": 0
+      "rating_before": 14.7189,
+      "rating_after": 14.1476,
+      "rating_delta": -0.5713,
+      "rank_before": 11,
+      "rank_after": 11,
+      "rank_delta": 0,
+      "pk_win": null
     },
     {
       "model": "margin",
       "opponent": "Cyprus",
-      "opp_rating": -1.6829,
+      "opp_rating": -5.5087,
       "score": "5-0",
-      "rating_before": 3.8994,
-      "rating_after": 3.9224,
-      "rating_delta": 0.023,
-      "rank_before": 9,
-      "rank_after": 9,
-      "rank_delta": 0
+      "rating_before": 14.7189,
+      "rating_after": 14.6504,
+      "rating_delta": -0.0685,
+      "rank_before": 11,
+      "rank_after": 11,
+      "rank_delta": 0,
+      "pk_win": null
     },
     {
       "model": "margin",
       "opponent": "Orem",
-      "opp_rating": 0.1437,
+      "opp_rating": -0.5152,
       "score": "1-2",
-      "rating_before": 3.8994,
-      "rating_after": 3.5652,
-      "rating_delta": -0.3342,
-      "rank_before": 9,
+      "rating_before": 14.7189,
+      "rating_after": 12.8579,
+      "rating_delta": -1.861,
+      "rank_before": 11,
+      "rank_after": 14,
+      "rank_delta": -3,
+      "pk_win": null
+    },
+    {
+      "model": "margin",
+      "opponent": "Lone Peak",
+      "opp_rating": 20.8475,
+      "score": "1-1 (won on PKs)",
+      "rating_before": 14.7189,
+      "rating_after": 16.0773,
+      "rating_delta": 1.3584,
+      "rank_before": 11,
+      "rank_after": 9,
+      "rank_delta": 2,
+      "pk_win": true
+    },
+    {
+      "model": "margin",
+      "opponent": "Lone Peak",
+      "opp_rating": 20.8475,
+      "score": "1-1 (lost on PKs)",
+      "rating_before": 14.7189,
+      "rating_after": 14.1476,
+      "rating_delta": -0.5713,
+      "rank_before": 11,
       "rank_after": 11,
-      "rank_delta": -2
+      "rank_delta": 0,
+      "pk_win": false
     }
   ],
   "swap_orem_for_lone_peak_loss": {
@@ -66,9 +98,9 @@
     "add": "Lone Peak",
     "score": "1-2",
     "dropped": 1,
-    "rank_before": 9,
-    "rank_after": 9,
-    "rating_before": 3.899419,
-    "rating_after": 3.656898
+    "rank_before": 11,
+    "rank_after": 11,
+    "rating_before": 14.718927,
+    "rating_after": 13.814285
   }
 }

@@ -8255,12 +8255,19 @@
     return `#${rank}`;
   }
 
-  function scenarioDeltaHtml(delta) {
+  function scenarioDeltaHtml(delta, digits = null) {
     if (delta == null || Number.isNaN(Number(delta))) return "";
-    const n = Number(delta);
+    const n = digits == null ? Number(delta) : Number(Number(delta).toFixed(digits));
     const cls = n > 0 ? "is-up" : n < 0 ? "is-down" : "is-flat";
-    const sign = n > 0 ? `+${n}` : String(n);
+    const text = digits == null ? String(n) : n.toFixed(digits);
+    const sign = n > 0 ? `+${text}` : text;
     return `<span class="scenario-delta ${cls}">${escapeHtml(sign)}</span>`;
+  }
+
+  /** MaxPreps shows RTG to one decimal. */
+  function scenarioRating(value) {
+    if (value == null || Number.isNaN(Number(value))) return "—";
+    return Number(value).toFixed(1);
   }
 
   function scenarioResultChips(data) {
@@ -8273,11 +8280,11 @@
         `<span class="scenario-chip">Seed ${scenarioRankLabel(result.rank_before)} → ${scenarioRankLabel(result.rank_after)} ${scenarioDeltaHtml(result.rank_delta)}</span>`,
       );
       bits.push(
-        `<span class="scenario-chip">Rtg ${escapeHtml(String(result.rating_before))} → ${escapeHtml(String(result.rating_after))} ${scenarioDeltaHtml(result.rating_delta)}</span>`,
+        `<span class="scenario-chip">Rtg ${escapeHtml(scenarioRating(result.rating_before))} → ${escapeHtml(scenarioRating(result.rating_after))} ${scenarioDeltaHtml(result.rating_delta, 1)}</span>`,
       );
     } else if (base) {
       bits.push(
-        `<span class="scenario-chip">${escapeHtml(base.team || "Team")} ${scenarioRankLabel(base.rank)} · ${escapeHtml(String(base.rating))}</span>`,
+        `<span class="scenario-chip">${escapeHtml(base.team || "Team")} ${scenarioRankLabel(base.rank)} · ${escapeHtml(scenarioRating(base.rating))}</span>`,
       );
     }
     return bits.length ? `<div class="scenario-chips">${bits.join("")}</div>` : "";

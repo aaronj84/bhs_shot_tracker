@@ -187,7 +187,7 @@ def bethel_strengths(
     # degree-of-win function rejects (strict Bethel drops ties)
     entries: List[Tuple[str, str, float]] = []
     for g in games:
-        w = degree_of_win(g.margin)
+        w = degree_of_win(g.decided_margin)
         if w is None:
             continue
         entries.append((g.home, g.away, float(w)))
@@ -336,7 +336,7 @@ def schedule_strength_indicator(
     proj = projected_winning_percentage(strengths)
     acc: Dict[str, List[float]] = {}
     for g in drop_forfeits(games):
-        w = degree_of_win(g.margin)
+        w = degree_of_win(g.decided_margin)
         if w is None:
             continue
         acc.setdefault(g.home, []).append(w)
@@ -355,7 +355,7 @@ def bethel_table(games: Sequence[Game], strengths: Dict[str, float],
     sos = schedule_strength_indicator(games, strengths, degree_of_win)
     rec: Dict[str, List[int]] = {}
     for g in drop_forfeits(games):
-        for t, m in ((g.home, g.margin), (g.away, -g.margin)):
+        for t, m in ((g.home, g.decided_margin), (g.away, -g.decided_margin)):
             r = rec.setdefault(t, [0, 0, 0])
             if m > 0:
                 r[0] += 1
