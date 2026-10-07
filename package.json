@@ -17,6 +17,7 @@
     "mp:refresh-snapshot": "node scripts/refresh-mp-snapshot.mjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.55.0",
     "@supabase/supabase-js": "^2.57.0",
     "vitest": "^3.2.4"
