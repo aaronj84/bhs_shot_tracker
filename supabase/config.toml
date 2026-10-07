@@ -6,6 +6,10 @@
 #   supabase secrets set OPENAI_API_KEY=sk-...   # explore-shots
 #   supabase secrets set GEMINI_API_KEY=...      # prep-opponent
 #   supabase secrets set MP_REFRESH_GITHUB_TOKEN=...  # mp-refresh (Actions r/w PAT)
+#   schedule-worker (all optional; missing ones are skipped):
+#   supabase secrets set TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=+1...
+#   supabase secrets set GOOGLE_CALENDAR_ID=...@group.calendar.google.com
+#   supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON="$(cat service-account.json)"
 
 project_id = "bhs_shot_tracker"
 
@@ -27,3 +31,11 @@ verify_jwt = true
 
 [functions.mp-refresh]
 verify_jwt = true
+
+# Called by pg_cron (no JWT) and the public booking page. Idempotent claims.
+[functions.schedule-worker]
+verify_jwt = false
+
+# Calendar apps can't send a JWT; the URL's feed token is the credential.
+[functions.schedule-ics]
+verify_jwt = false

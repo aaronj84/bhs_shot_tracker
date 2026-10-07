@@ -9513,6 +9513,8 @@
   function draw(opts = {}) {
     const el = root();
     if (!el) return;
+    // #schedule owns #app-root; late tracker async work must not paint over it.
+    if (/^#schedule/.test(global.location.hash || "")) return;
     const scrollY = window.scrollY;
     document.body.classList.remove("is-recording-play");
     if (!API || !API.isConfigured()) {
