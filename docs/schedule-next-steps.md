@@ -54,7 +54,6 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
 
 ## Open questions
 
-- SMS text still starts with "Brighton Soccer:". Switch to the friendlier "Aaron's code bot" tone? Edit `smsText` in `supabase/functions/_shared/schedule/format.ts` and its test.
 - Email confirmations: not built. Fill in `supabase/functions/_shared/schedule/email.ts` (e.g. Resend) if wanted.
 
 ## Where things live

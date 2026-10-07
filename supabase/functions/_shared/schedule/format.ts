@@ -56,12 +56,12 @@ export function smsText(kind: NoticeKind, b: Pick<Booking, "player_name" | "star
   const date = denverDate(b.starts_at);
   const time = denverTime(b.starts_at);
   if (kind === "reminder") {
-    return `Reminder: ${name}'s Brighton Soccer postseason meeting starts at ${time} today.`;
+    return `Reminder: ${name}'s Brighton Blue '26 postseason meeting starts at ${time} today.`;
   }
   if (kind === "update") {
-    return `Brighton Soccer: ${name}'s postseason meeting has moved to ${date} at ${time}.`;
+    return `Brighton Blue '26: ${name}'s postseason meeting has moved to ${date} at ${time}.`;
   }
-  return `Brighton Soccer: ${name}'s postseason meeting is scheduled for ${date} at ${time}.`;
+  return `Brighton Blue '26: ${name}'s postseason meeting is scheduled for ${date} at ${time}.`;
 }
 
 /** E.164 US number → (801) 555-0123. Anything else passes through. */
@@ -91,6 +91,6 @@ export function meetingDescription(b: Booking): string {
   if (b.phone_1) lines.push(`Mobile 1: ${prettyPhone(b.phone_1)}`);
   if (b.phone_2) lines.push(`Mobile 2: ${prettyPhone(b.phone_2)}`);
   lines.push(`Booked: ${denverStamp(b.booked_at)}`);
-  lines.push("Brighton Soccer postseason player/parent meeting.");
+  lines.push("Brighton Blue '26 postseason player/parent meeting.");
   return lines.join("\n");
 }

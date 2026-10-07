@@ -55,11 +55,11 @@ describe("schedule format", () => {
 
   it("builds the three SMS messages", () => {
     expect(smsText("confirmation", booking)).toBe(
-      "Brighton Soccer: Kali-Shea's postseason meeting is scheduled for Tuesday, October 27 at 3:20 PM."
+      "Brighton Blue '26: Kali-Shea's postseason meeting is scheduled for Tuesday, October 27 at 3:20 PM."
     );
     expect(smsText("update", booking)).toMatch(/has moved to Tuesday, October 27 at 3:20 PM\.$/);
     expect(smsText("reminder", booking)).toBe(
-      "Reminder: Kali-Shea's Brighton Soccer postseason meeting starts at 3:20 PM today."
+      "Reminder: Kali-Shea's Brighton Blue '26 postseason meeting starts at 3:20 PM today."
     );
   });
 

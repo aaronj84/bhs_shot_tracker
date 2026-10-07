@@ -184,7 +184,7 @@
       `DTSTAMP:${stamp(new Date().toISOString())}`,
       `DTSTART:${stamp(done.starts_at)}`,
       `DTEND:${stamp(endIso(done))}`,
-      `SUMMARY:${esc(`Brighton Soccer postseason meeting – ${done.player_name}`)}`,
+      `SUMMARY:${esc(`Brighton Blue ’26 postseason meeting – ${done.player_name}`)}`,
       "END:VEVENT",
       "END:VCALENDAR",
       "",
@@ -277,7 +277,7 @@
             </label>
             <label class="schedule-consent">
               <input type="checkbox" id="sched-consent"${p.consent ? " checked" : ""} />
-              <span>I understand I’m reserving this meeting time. If I entered a phone number, I agree Aaron’s code bot can send me a couple texts to remind me.</span>
+              <span>I understand I’m reserving this meeting time. If I entered a phone number, I agree Brighton Blue ’26 can send me a couple texts to remind me.</span>
             </label>
           </section>
 
@@ -298,7 +298,7 @@
     root().innerHTML = `
       <div class="schedule-page">
         <header class="schedule-hero">
-          <p class="schedule-kicker">Brighton Soccer</p>
+          <p class="schedule-kicker">Brighton Blue ’26</p>
           <h1>Postseason Meetings</h1>
           <p class="muted">Pick a time for your player and a parent/guardian to meet with the coaching staff.</p>
         </header>
