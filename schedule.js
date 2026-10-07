@@ -277,7 +277,7 @@
             </label>
             <label class="schedule-consent">
               <input type="checkbox" id="sched-consent"${p.consent ? " checked" : ""} />
-              <span>I understand I’m reserving this meeting time. If I entered a phone number, I agree to receive scheduling-related text messages from Brighton Soccer.</span>
+              <span>I understand I’m reserving this meeting time. If I entered a phone number, I agree Aaron’s code bot can send me a couple texts to remind me.</span>
             </label>
           </section>
 
@@ -438,7 +438,7 @@
                     .join(" and ")}</li>`
                 : ""
             }
-            <li>Need to change it? Contact the coaching staff.</li>
+            <li>Need to change it? Contact Aaron.</li>
           </ul>
           <div class="schedule-done-actions">
             <a class="btn btn-secondary" id="sched-add-cal" download="brighton-postseason-meeting.ics">Add to my calendar</a>
