@@ -14,9 +14,11 @@
     "db:sync-history": "node scripts/migrate.mjs sync-history",
     "backup:prod": "./scripts/backup-db.sh --env prod",
     "backup:dev": "./scripts/backup-db.sh --env dev",
-    "mp:refresh-snapshot": "node scripts/refresh-mp-snapshot.mjs"
+    "mp:refresh-snapshot": "node scripts/refresh-mp-snapshot.mjs",
+    "schedule:mock": "node tests/fixtures/schedule-dev-server.mjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.55.0",
     "@supabase/supabase-js": "^2.57.0",
     "vitest": "^3.2.4"

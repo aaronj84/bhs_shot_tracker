@@ -11,6 +11,7 @@ export type ScenarioPlan = {
   add?: string | null;
   goals_for?: number | null;
   goals_against?: number | null;
+  pk_win?: boolean | null;
   assumptions?: string;
   clarify_question?: string;
 };
@@ -26,6 +27,7 @@ Return ONLY JSON with this shape:
   "add": "team we add a game vs (swap only) or null",
   "goals_for": number or null,
   "goals_against": number or null,
+  "pk_win": true | false | null,
   "assumptions": "short note of any score/defaults you assumed",
   "clarify_question": "ask this if intent is clarify, else empty"
 }
@@ -37,7 +39,9 @@ Rules:
 - intent add: add one hypothetical result for focus_team vs opponent (future or counterfactual add without removing a game).
 - intent swap: replace an existing win (drop) with a different opponent/result (add + score). Use when they say "instead of", "rather than", "had we played X instead of Y".
 - intent clarify: missing opponent, ambiguous teams, or cannot map to one scenario. Ask one short clarify_question.
-- Scores: if they name a score, use it. If they say win/beat with no score, default goals_for=2, goals_against=1. Loss/lost → 1-2. Draw/tie → 1-1. Blowout/mercy win → 5-0.
+- Scores: if they name a score, use it. If they say win/beat with no score, default goals_for=2, goals_against=1. Loss/lost → 1-2. Blowout/mercy win → 5-0.
+- Utah high school soccer has no ties: a level game after two overtimes goes to PKs. For a level score set pk_win true if focus_team wins the shootout, false if it loses. "Draw/tie" with no shootout result → 1-1 with pk_win true, and say so in assumptions. pk_win is null whenever the score is not level.
+- Schedule lines marked (PK W) / (PK L) were level games settled on PKs.
 - goals_* are from focus_team's perspective.
 - Do not invent teams outside the list. Prefer clarify over guessing.`;
 
@@ -45,6 +49,8 @@ const NARRATE_SYSTEM = `You are answering a high-school soccer coach about Utah 
 
 Rules:
 - Use ONLY the numbers in the data payload. Never invent ranks, ratings, or opponents.
+- Ratings are estimates on the MaxPreps rating (RTG) scale, calibrated to the published MaxPreps ratings.
+- Utah games never end tied; a level score was settled on PKs and counts as a win or loss.
 - Lead with the seed move (or current seed for baseline). Mention rating delta briefly.
 - Say clearly this is the Freeman model estimate, not the live MaxPreps page.
 - If assumptions are listed, state them in one short clause.
@@ -78,7 +84,14 @@ export async function parseScenarioQuestion(
     question: string;
     teams: string[];
     ourTeam: string;
-    schedule: { date: string; opponent: string; gf: number; ga: number; ha: string }[];
+    schedule: {
+      date: string;
+      opponent: string;
+      gf: number;
+      ga: number;
+      ha: string;
+      pk?: "W" | "L" | null;
+    }[];
     history?: { role?: string; content?: string }[];
   },
 ): Promise<ScenarioPlan> {
@@ -92,7 +105,9 @@ export async function parseScenarioQuestion(
     `Teams (exact names):\n${args.teams.join("\n")}`,
     `${args.ourTeam} schedule (gf-ga):\n${
       args.schedule
-        .map((g) => `${g.date} ${g.ha} vs ${g.opponent} ${g.gf}-${g.ga}`)
+        .map((g) =>
+          `${g.date} ${g.ha} vs ${g.opponent} ${g.gf}-${g.ga}${g.pk ? ` (PK ${g.pk})` : ""}`
+        )
         .join("\n") || "(none)"
     }`,
     history ? `Recent chat:\n${history}` : "",
@@ -127,6 +142,7 @@ export async function parseScenarioQuestion(
     add: raw.add == null ? null : String(raw.add),
     goals_for: raw.goals_for == null ? null : Number(raw.goals_for),
     goals_against: raw.goals_against == null ? null : Number(raw.goals_against),
+    pk_win: typeof raw.pk_win === "boolean" ? raw.pk_win : null,
     assumptions: String(raw.assumptions || ""),
     clarify_question: String(raw.clarify_question || ""),
   };

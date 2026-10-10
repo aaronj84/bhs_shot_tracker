@@ -25,7 +25,12 @@ The scoreboard calendar exposes data-contest-count per day and marks
 Sundays. A season pull uses that calendar so empty weekdays and Sundays
 are not requested. Contests MaxPreps flags deleted (Brighton 8 @ Cyprus
 0 on 2026-08-13) never appear on the day board; --season also reads
-team schedule pages so those scores are not dropped.
+team schedule pages so those scores are not dropped. They are written
+with is_deleted=1 so ratings can skip them, as MaxPreps does.
+
+UHSAA has no ties: a level game goes to PKs and MaxPreps keeps the level
+score with the shootout winner marked. pk_winner records that side
+(home / away); it stays empty only for a true draw (out-of-state games).
 
 Usage:
     # Utah girls 2026, Aug 3 through today, skip Sundays/empty days,
@@ -124,6 +129,7 @@ GAME_COLS = [
     "date", "state", "home_team", "away_team", "home_score", "away_score",
     "neutral", "is_forfeit", "name_source", "match_url", "contest_id",
     "home_team_id", "away_team_id", "home_rank", "away_rank",
+    "pk_winner", "is_deleted",
 ]
 TEAM_COLS = [
     "team_id", "display_name", "state", "classification", "region",
@@ -274,14 +280,15 @@ def _parse_contest_boxes(html: str, date: dt.date, state: str) -> List[dict]:
         if len(items) < 2:
             continue
 
-        def one(item: Tag) -> Tuple[str, Optional[int], Optional[int]]:
+        def one(item: Tag) -> Tuple[str, Optional[int], Optional[int], bool]:
             name, rank = _name_and_rank(item.find("div", class_="name"))
             score_el = item.find("div", class_="score")
             score = _int_or_none(score_el.get_text() if score_el else None)
-            return name, score, rank
+            won = "winner" in (item.get("class") or []) or item.get("data-result") == "2"
+            return name, score, rank, won
 
-        away_name, away_score, away_rank = one(items[0])
-        home_name, home_score, home_rank = one(items[1])
+        away_name, away_score, away_rank, away_won = one(items[0])
+        home_name, home_score, home_rank, home_won = one(items[1])
         if any(s in (away_name or "").lower() or s in (home_name or "").lower()
                for s in SKIP_NAMES):
             continue
@@ -315,8 +322,21 @@ def _parse_contest_boxes(html: str, date: dt.date, state: str) -> List[dict]:
             "away_team_id": away_id,
             "home_rank": home_rank,
             "away_rank": away_rank,
+            "pk_winner": _pk_winner(home_score, away_score, home_won, away_won),
+            "is_deleted": 0,
         })
     return out
+
+
+def _pk_winner(home_score: Optional[int], away_score: Optional[int],
+               home_won: bool, away_won: bool) -> Optional[str]:
+    """'home' / 'away' when a level score was settled on PKs, else None.
+
+    UHSAA has no ties; MaxPreps keeps the level score and marks the winner.
+    """
+    if home_score is None or home_score != away_score or home_won == away_won:
+        return None
+    return "home" if home_won else "away"
 
 
 def _parse_day_fallback(html: str, date: dt.date, state: str) -> List[dict]:
@@ -379,6 +399,8 @@ def _parse_day_fallback(html: str, date: dt.date, state: str) -> List[dict]:
             "away_team_id": slugify(away),
             "home_rank": None,
             "away_rank": None,
+            "pk_winner": None,
+            "is_deleted": 0,
         })
     return out
 
@@ -424,6 +446,7 @@ def _schedule_team(t: list) -> Optional[dict]:
     return {
         "name": clean(str(t[14] or "")),
         "score": score if isinstance(score, int) else None,
+        "won": t[5] == "W",
         "url": t[13] if isinstance(t[13], str) else "",
         "school_uuid": t[1] if isinstance(t[1], str) else "",
         "is_home": homeish == 0,
@@ -497,6 +520,9 @@ def parse_team_schedule(html: str, state: str) -> Tuple[List[dict], List[str]]:
             "away_team_id": "",
             "home_rank": None,
             "away_rank": None,
+            "pk_winner": _pk_winner(home["score"], away["score"],
+                                    home["won"], away["won"]),
+            "is_deleted": 1 if deleted else 0,
             "_home_url": home["url"],
             "_away_url": away["url"],
         })
@@ -575,7 +601,7 @@ def read_games_csv(path: str) -> List[dict]:
     with open(path, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     int_cols = ("home_score", "away_score", "home_rank", "away_rank",
-                "neutral", "is_forfeit")
+                "neutral", "is_forfeit", "is_deleted")
     for r in rows:
         for k in int_cols:
             v = (r.get(k) or "").strip()
@@ -849,6 +875,8 @@ EXPECTED_AUG29 = {
     ("Meridian", "Box Elder", 0, 2),
     ("Meridian", "Logan", 2, 2),
 }
+# Level after overtime; MaxPreps credits Meridian (away) with the PK win.
+EXPECTED_PK = (dt.date(2026, 8, 29), "Logan", "Meridian", "away")
 # Deleted on the day board; still on Brighton's team schedule.
 EXPECTED_CYPRUS = ("Brighton", "Cyprus", 8, 0)
 
@@ -872,8 +900,16 @@ def self_test(delay: float) -> int:
         if not html:
             sys.stderr.write("self-test: failed to fetch %s\n" % url)
             return 1
-        got = {_as_tuple(r) for r in parse_day(html, day, "ut")
-               if r["home_score"] is not None}
+        rows = parse_day(html, day, "ut")
+        got = {_as_tuple(r) for r in rows if r["home_score"] is not None}
+        pk_day, pk_home, pk_away, pk_side = EXPECTED_PK
+        if day == pk_day:
+            pk = [r.get("pk_winner") for r in rows
+                  if r["home_team"] == pk_home and r["away_team"] == pk_away]
+            if pk != [pk_side]:
+                sys.stderr.write("  %s v %s PK winner should be %s, got %s\n"
+                                 % (pk_home, pk_away, pk_side, pk))
+                ok = False
         missing = expected - got
         extra = got - expected
         sys.stderr.write("%s: parsed %d scored, expected %d\n"
@@ -898,9 +934,10 @@ def self_test(delay: float) -> int:
     if EXPECTED_CYPRUS not in got_s:
         sys.stderr.write("  MISSING Cyprus 8-0 on Brighton schedule\n")
         ok = False
-    elif cyprus and cyprus[0].get("name_source") != "team-schedule-deleted":
-        sys.stderr.write("  Cyprus row should be marked deleted, got %s\n"
-                         % cyprus[0].get("name_source"))
+    elif cyprus and (cyprus[0].get("name_source") != "team-schedule-deleted"
+                     or cyprus[0].get("is_deleted") != 1):
+        sys.stderr.write("  Cyprus row should be marked deleted, got %s / %s\n"
+                         % (cyprus[0].get("name_source"), cyprus[0].get("is_deleted")))
         ok = False
     if ok:
         sys.stderr.write("self-test passed\n")

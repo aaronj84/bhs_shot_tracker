@@ -39,7 +39,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mp_rating import Game, load_games, margin_power_rating
+from mp_rating import (MAXPREPS_PARAMS, Game, load_games, margin_power_rating,
+                       to_maxpreps_scale)
 from mp_bethel import (bethel_strengths, make_dow_result_dominant,
                        projected_winning_percentage)
 
@@ -59,10 +60,9 @@ def rate_bethel(games: Sequence[Game], cap: float = SOCCER_CAP,
     return projected_winning_percentage(s)
 
 
-def rate_margin(games: Sequence[Game], cap: float = SOCCER_CAP,
-                ridge: float = 1.0, result_bonus: float = 1.0) -> Dict[str, float]:
-    return margin_power_rating(games, cap=cap, ridge=ridge,
-                               result_bonus=result_bonus, home_adv=None)
+def rate_margin(games: Sequence[Game]) -> Dict[str, float]:
+    """Freeman fit calibrated to MaxPreps, reported on the MaxPreps RTG scale."""
+    return to_maxpreps_scale(margin_power_rating(games, **MAXPREPS_PARAMS))
 
 
 MODELS: Dict[str, Callable[[Sequence[Game]], Dict[str, float]]] = {
@@ -108,9 +108,15 @@ def pool_for(team: str, classes: Optional[Dict[str, str]]) -> Optional[List[str]
 
 def add_game(games: Sequence[Game], team: str, opponent: str,
              goals_for: int, goals_against: int,
-             date: str = "2099-01-01", neutral: bool = True) -> List[Game]:
+             date: str = "2099-01-01", neutral: bool = True,
+             pk_win: Optional[bool] = None) -> List[Game]:
+    """pk_win: for a level score, whether `team` won the shootout."""
+    pk = None
+    if goals_for == goals_against and pk_win is not None:
+        pk = "home" if pk_win else "away"
     g = list(games)
-    g.append(Game(date, team, opponent, goals_for, goals_against, neutral=neutral))
+    g.append(Game(date, team, opponent, goals_for, goals_against,
+                  neutral=neutral, pk_winner=pk))
     return g
 
 
@@ -118,9 +124,12 @@ def what_if(games: Sequence[Game], team: str, opponent: str,
             goals_for: int, goals_against: int,
             model: str = "bethel",
             classes: Optional[Dict[str, str]] = None,
-            baseline: Optional[Tuple[Dict[str, float], int]] = None) -> dict:
+            baseline: Optional[Tuple[Dict[str, float], int]] = None,
+            pk_win: Optional[bool] = None) -> dict:
     """
     Effect of one hypothetical result on `team`'s rating and seed.
+
+    A level score needs pk_win: UHSAA games go to PKs, never end tied.
 
     Note this holds the rest of the world fixed, which is not quite what
     happens in reality: your opponent's own future games also move, and
@@ -137,14 +146,18 @@ def what_if(games: Sequence[Game], team: str, opponent: str,
     else:
         base_r, base_rank = baseline
 
-    new_r = rater(add_game(games, team, opponent, goals_for, goals_against))
+    new_r = rater(add_game(games, team, opponent, goals_for, goals_against,
+                           pk_win=pk_win))
     new_rank = rank_in_pool(team, new_r, pool)
 
+    score = "%d-%d" % (goals_for, goals_against)
+    if goals_for == goals_against and pk_win is not None:
+        score += " (%s on PKs)" % ("won" if pk_win else "lost")
     return {
         "model": model,
         "opponent": opponent,
         "opp_rating": round(base_r.get(opponent, float("nan")), 4),
-        "score": "%d-%d" % (goals_for, goals_against),
+        "score": score,
         "rating_before": round(base_r.get(team, 0.0), 4),
         "rating_after": round(new_r.get(team, 0.0), 4),
         "rating_delta": round(new_r.get(team, 0.0) - base_r.get(team, 0.0), 4),
@@ -268,12 +281,12 @@ def team_from_snapshot(path: str, rank: int) -> str:
 
 
 def brighton_won(game: Game, team: str, opponent: str) -> bool:
-    if game.is_forfeit:
+    if game.is_forfeit or game.is_deleted:
         return False
     if game.home == team and game.away == opponent:
-        return game.home_score > game.away_score
+        return game.sign > 0
     if game.away == team and game.home == opponent:
-        return game.away_score > game.home_score
+        return game.sign < 0
     return False
 
 

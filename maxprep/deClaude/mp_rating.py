@@ -38,6 +38,12 @@ class Game:
     away_score: int
     neutral: bool = False
     is_forfeit: bool = False
+    # UHSAA has no ties: level after two overtimes goes to PKs. MaxPreps keeps
+    # the level score and credits the shootout winner ("home" / "away").
+    # None only for a true draw (out-of-state games).
+    pk_winner: Optional[str] = None
+    # Contest MaxPreps deleted (still on a team schedule). Not rated.
+    is_deleted: bool = False
 
     @property
     def margin(self) -> int:
@@ -45,13 +51,40 @@ class Game:
         return self.home_score - self.away_score
 
     @property
+    def sign(self) -> int:
+        """+1 home won (regulation, overtime, or PKs), -1 away won, 0 draw."""
+        if self.margin:
+            return 1 if self.margin > 0 else -1
+        if self.pk_winner == "home":
+            return 1
+        if self.pk_winner == "away":
+            return -1
+        return 0
+
+    @property
     def result(self) -> float:
-        """1.0 home win, 0.5 draw, 0.0 home loss."""
-        if self.home_score > self.away_score:
-            return 1.0
-        if self.home_score < self.away_score:
-            return 0.0
-        return 0.5
+        """1.0 home win, 0.5 draw, 0.0 home loss. PK wins count as wins."""
+        return {1: 1.0, -1: 0.0}.get(self.sign, 0.5)
+
+    @property
+    def decided_margin(self) -> int:
+        """Goal margin, with a PK win counted as a 1-goal win."""
+        return self.margin or self.sign
+
+
+# Fit against MaxPreps' published UT girls ratings (5A on 2026-10-07, statewide
+# 2026-09-13): RMSE 0.14 rating points on 5A. Keep in sync with
+# supabase/functions/_shared/mp/freeman.mjs MAXPREPS_RATING_OPTS.
+MAXPREPS_PARAMS = {
+    "cap": 4.0, "ridge": 1.0, "result_bonus": 10.0, "pk_margin": 1.0,
+    "home_adv": 0.0,
+}
+MAXPREPS_SCALE = (1.366, 0.238)  # rating = slope * r + offset
+
+
+def to_maxpreps_scale(ratings: Dict[str, float]) -> Dict[str, float]:
+    slope, offset = MAXPREPS_SCALE
+    return {t: slope * r + offset for t, r in ratings.items()}
 
 
 def load_games(path: str) -> List[Game]:
@@ -70,6 +103,8 @@ def load_games(path: str) -> List[Game]:
                     away_score=int(row["away_score"]),
                     neutral=str(row.get("neutral", "")).lower() in ("1", "true", "yes"),
                     is_forfeit=str(row.get("is_forfeit", "")).lower() in ("1", "true", "yes"),
+                    pk_winner=(row.get("pk_winner") or "").strip().lower() or None,
+                    is_deleted=str(row.get("is_deleted", "")).lower() in ("1", "true", "yes"),
                 )
             )
     return out
@@ -81,8 +116,11 @@ def team_index(games: Sequence[Game]) -> Dict[str, int]:
 
 
 def drop_forfeits(games: Sequence[Game]) -> List[Game]:
-    """MaxPreps and the AIA both state forfeits are excluded from ratings."""
-    return [g for g in games if not g.is_forfeit]
+    """MaxPreps and the AIA both state forfeits are excluded from ratings.
+
+    Deleted contests are excluded too: MaxPreps leaves them out of records.
+    """
+    return [g for g in games if not g.is_forfeit and not g.is_deleted]
 
 
 # ----------------------------------------------------------------------
@@ -228,7 +266,8 @@ def margin_power_rating(
     home_adv: Optional[float] = None,
     result_bonus: float = 0.0,
     recency_halflife_days: Optional[float] = None,
-    max_iter: int = 200,
+    max_iter: int = 1000,
+    pk_margin: float = 0.0,
 ) -> Dict[str, float]:
     """
     Ratings on a goals scale. Predicted margin for home team = r_h - r_a + hfa.
@@ -247,6 +286,9 @@ def margin_power_rating(
     Set it to 0 for a pure margin fit; 0.5 to 1.5 makes results dominate.
 
     home_adv: pass a float to fix it, or None to estimate it jointly.
+
+    pk_margin: goals credited for a level game won on PKs (UHSAA has no
+    ties). The result bonus applies to PK wins like any other win.
     """
     games = drop_forfeits(games)
     idx = team_index(games)
@@ -284,9 +326,10 @@ def margin_power_rating(
         hi[i] = idx[g.home]
         ai[i] = idx[g.away]
         at_home[i] = 0.0 if g.neutral else 1.0
-        m = float(np.clip(g.margin, -cap, cap))
+        goals = g.margin if g.margin else pk_margin * g.sign
+        m = float(np.clip(goals, -cap, cap))
         if result_bonus:
-            m += result_bonus * np.sign(g.margin)
+            m += result_bonus * g.sign
         y[i] = m
 
     r = np.zeros(n)

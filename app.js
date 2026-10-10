@@ -14,9 +14,15 @@
     if (path === "shots-prep" || path === "shots-explore") return "shots-prep";
     if (path === "shots-scoreboard") return "shots-scoreboard";
     if (path === "shots-bracket") return "shots-bracket";
+    // Parents book at blue26/schedule/; inside the tracker, Schedule is the coach view.
+    if (path === "schedule" || path === "schedule-admin") return "schedule-admin";
     if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
+  }
+
+  function isSchedule(view) {
+    return view === "schedule-admin";
   }
 
   function updateChrome(view) {
@@ -24,6 +30,7 @@
     document.body.classList.toggle("shots-record-view", view === "shots");
     document.body.classList.toggle("shot-map-view", view === "shots-map");
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
+    document.body.classList.toggle("schedule-view", isSchedule(view));
     document.body.classList.toggle(
       "shots-admin-view",
       view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
@@ -49,7 +56,8 @@
         (view === "shots-history" && key === "shots-history") ||
         (view === "shots-prep" && key === "shots-prep") ||
         (view === "shots-map" && key === "shots-map") ||
-        (view === "shots-bracket" && key === "shots-bracket");
+        (view === "shots-bracket" && key === "shots-bracket") ||
+        (isSchedule(view) && key === "schedule");
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");
     });
@@ -68,7 +76,11 @@
     const view = parseHash();
     updateChrome(view);
     const root = $("#app-root");
-    if (window.ShotTracker) window.ShotTracker.render(view);
+    // Schedule has its own server-checked PIN; it never boots the tracker or its PIN gate.
+    if (isSchedule(view)) {
+      if (window.Schedule) window.Schedule.render(view);
+      else if (root) root.innerHTML = '<p class="empty-state">Scheduler failed to load.</p>';
+    } else if (window.ShotTracker) window.ShotTracker.render(view);
     else if (root) root.innerHTML = '<p class="empty-state">Shot tracker failed to load.</p>';
     window.scrollTo(0, 0);
   }

@@ -37,7 +37,8 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/assets
-          cp index.html styles.css app.js shots.js shots-api.js shots-config.js .nojekyll _site/
+          cp index.html styles.css app.js shots.js shots-api.js schedule.js shots-config.js .nojekyll _site/
+          cp -R blue26 _site/
           cp -R assets/* _site/assets/ 2>/dev/null || true
 
       - name: Setup Pages
