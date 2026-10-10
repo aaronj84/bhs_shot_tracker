@@ -10,7 +10,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const MIGRATION = path.join(ROOT, "supabase/migrations/20261007160000_postseason_schedule.sql");
+const MIGRATIONS = ["20261007160000_postseason_schedule.sql", "20261010150000_schedule_manual_reminders.sql"].map((f) =>
+  path.join(ROOT, "supabase/migrations", f)
+);
 
 export async function createScheduleDb() {
   const db = new PGlite({ extensions: { pgcrypto } });
@@ -20,7 +22,7 @@ export async function createScheduleDb() {
     create role service_role nologin;
     grant usage on schema public to anon, authenticated, service_role;
   `);
-  await db.exec(readFileSync(MIGRATION, "utf8"));
+  for (const file of MIGRATIONS) await db.exec(readFileSync(file, "utf8"));
   const argTypes = new Map();
 
   async function typesFor(fn) {

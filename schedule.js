@@ -12,6 +12,7 @@
   "use strict";
 
   const TZ = "America/Denver";
+  const MEETING_LOCATION = "Shed @ Game Field";
   const LS_ADMIN_TOKEN = "bhs-schedule-admin-token";
   // Isolated parent page, relative to the tracker's index.html.
   const PARENT_PAGE = "blue26/schedule/";
@@ -29,7 +30,6 @@
       data: null,
       playerId: "",
       slotId: "",
-      email: "",
       phone1: "",
       phone2: "",
       consent: false,
@@ -80,6 +80,18 @@
     } catch (_) {
       return "";
     }
+  }
+
+  /** Parents never see a link out; a browser signed in to the scheduler gets the header as a way back. */
+  function coachBackLink() {
+    const header = $(".schedule-standalone-header");
+    if (!header || !readToken() || $("a", header)) return;
+    const link = document.createElement("a");
+    link.href = "../../#schedule";
+    link.className = "schedule-coach-back";
+    link.setAttribute("aria-label", "Back to the coach schedule");
+    link.append(...header.childNodes);
+    header.append(link);
   }
 
   function writeToken(token) {
@@ -168,12 +180,6 @@
     return data;
   }
 
-  function pokeWorker() {
-    const sb = client();
-    if (!sb || !sb.functions) return;
-    sb.functions.invoke("schedule-worker", { body: { source: "booking" } }).catch(() => {});
-  }
-
   function icsForFamily(done) {
     const stamp = (iso) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const esc = (t) => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,");
@@ -187,6 +193,12 @@
       `DTSTART:${stamp(done.starts_at)}`,
       `DTEND:${stamp(endIso(done))}`,
       `SUMMARY:${esc(`Brighton Blue ’26 postseason meeting – ${done.player_name}`)}`,
+      `LOCATION:${esc(MEETING_LOCATION)}`,
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "TRIGGER:-PT30M",
+      `DESCRIPTION:${esc(`Postseason meeting – ${done.player_name}`)}`,
+      "END:VALARM",
       "END:VEVENT",
       "END:VCALENDAR",
       "",
@@ -265,11 +277,7 @@
 
           <section class="schedule-step">
             <h2><span class="schedule-step-num">3</span> Contact</h2>
-            <label class="schedule-field">Parent/guardian email
-              <input type="email" id="sched-email" class="text-gate-input" autocomplete="email" inputmode="email"
-                autocapitalize="off" spellcheck="false" required value="${escapeHtml(p.email)}" placeholder="you@example.com" />
-            </label>
-            <label class="schedule-field">Mobile phone <span class="schedule-optional">optional · for text reminders</span>
+            <label class="schedule-field">Mobile phone <span class="schedule-optional">optional · for a reminder text</span>
               <input type="tel" id="sched-phone1" class="text-gate-input" autocomplete="tel" inputmode="tel"
                 value="${escapeHtml(p.phone1)}" placeholder="801-555-0123" />
             </label>
@@ -279,7 +287,7 @@
             </label>
             <label class="schedule-consent">
               <input type="checkbox" id="sched-consent"${p.consent ? " checked" : ""} />
-              <span>I understand I’m reserving this meeting time. If I entered a phone number, I agree Brighton Blue ’26 can send me a couple texts to remind me.</span>
+              <span>I understand I’m reserving this meeting time. If I entered a phone number, the coaches may text me a reminder.</span>
             </label>
           </section>
 
@@ -339,9 +347,6 @@
     $("#sched-player")?.addEventListener("change", (e) => {
       p.playerId = e.target.value;
     });
-    $("#sched-email")?.addEventListener("input", (e) => {
-      p.email = e.target.value;
-    });
     $("#sched-phone1")?.addEventListener("input", (e) => {
       p.phone1 = e.target.value;
     });
@@ -372,9 +377,7 @@
       ? "Choose your player."
       : !p.slotId
         ? "Pick a meeting time."
-        : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email.trim())
-          ? "Enter a valid parent/guardian email."
-          : phoneProblem(p.phone1) || phoneProblem(p.phone2) || (!p.consent ? "Check the box to confirm your reservation." : "");
+        : phoneProblem(p.phone1) || phoneProblem(p.phone2) || (!p.consent ? "Check the box to confirm your reservation." : "");
     if (problem) {
       p.formError = problem;
       draw();
@@ -388,18 +391,12 @@
       const res = await rpc("schedule_book", {
         p_player_id: p.playerId,
         p_slot_id: p.slotId,
-        p_email: p.email.trim(),
         p_phone_1: p.phone1.trim() || null,
         p_phone_2: p.phone2.trim() || null,
-        p_consent: true,
+        p_confirm: true,
       });
-      p.done = {
-        ...res,
-        email: p.email.trim().toLowerCase(),
-        phones: [p.phone1, p.phone2].filter((x) => digits(x)).map(prettyPhone),
-      };
+      p.done = { ...res, phones: [...new Set([p.phone1, p.phone2].filter((x) => digits(x)).map(prettyPhone))] };
       p.submitting = false;
-      pokeWorker();
       draw();
       window.scrollTo(0, 0);
     } catch (err) {
@@ -428,20 +425,18 @@
           </div>
           <h1>You’re booked</h1>
           <p class="schedule-done-player">${escapeHtml(d.player_name)}</p>
-          <p class="schedule-done-when">${escapeHtml(dayLabel(d.starts_at))}<br><strong>${escapeHtml(rangeLabel(d))}</strong> Mountain Time</p>
+          <p class="schedule-done-when">${escapeHtml(dayLabel(d.starts_at))}<br><strong>${escapeHtml(rangeLabel(d))}</strong> Mountain Time<br>${escapeHtml(MEETING_LOCATION)}</p>
           <ul class="schedule-done-notes">
-            <li>Coaches will use <strong>${escapeHtml(d.email)}</strong> for any scheduling updates.</li>
+            <li>Add it to your calendar — it includes a reminder 30 minutes before.</li>
             ${
-              d.phones.length
-                ? `<li>Text confirmation and a reminder 30 minutes before go to ${d.phones
-                    .map((ph) => `<strong>${escapeHtml(ph)}</strong>`)
-                    .join(" and ")}</li>`
+              d.phones?.length
+                ? `<li>The coaches may text a reminder to ${d.phones.map((ph) => `<strong>${escapeHtml(ph)}</strong>`).join(" and ")}.</li>`
                 : ""
             }
             <li>Need to change it? Contact Aaron.</li>
           </ul>
           <div class="schedule-done-actions">
-            <a class="btn btn-secondary" id="sched-add-cal" download="brighton-postseason-meeting.ics">Add to my calendar</a>
+            <a class="btn btn-primary" id="sched-add-cal" download="brighton-postseason-meeting.ics">Add to my calendar</a>
             <button type="button" class="btn btn-ghost" id="sched-another">Book another player</button>
           </div>
         </div>
@@ -481,28 +476,9 @@
       a.data = await rpc("schedule_admin_state", { p_token: a.token });
       a.loading = false;
       draw({ keepScroll: true });
-      registerWorker();
     } catch (err) {
       a.loading = false;
       adminFail(err);
-    }
-  }
-
-  function workerUrl() {
-    const url = String(global.SHOTS_CONFIG?.supabaseUrl || "").replace(/\/+$/, "");
-    return url ? `${url}/functions/v1/schedule-worker` : "";
-  }
-
-  async function registerWorker() {
-    const want = workerUrl();
-    const have = st.admin.data?.settings?.worker_url || "";
-    if (!want || want === have) return;
-    try {
-      await rpc("schedule_admin_set_worker_url", { p_token: st.admin.token, p_url: want });
-      st.admin.data.settings.worker_url = want;
-      if (st.admin.tab === "calendar") draw({ keepScroll: true });
-    } catch (_) {
-      /* shown as "not registered" on the Calendar tab */
     }
   }
 
@@ -607,16 +583,6 @@
     bindAdmin();
   }
 
-  function bookingStatusLine(b) {
-    const bits = [];
-    if (b.pending_notice) bits.push("Text queued");
-    else if (b.phone_1 && b.confirmation_sent_at) bits.push(`Text ${stampLabel(b.confirmation_sent_at)}`);
-    if (b.reminder_sent_at) bits.push("Reminder sent");
-    if (b.gcal_error) bits.push(`<span class="schedule-warn">Google Calendar: ${escapeHtml(b.gcal_error)}</span>`);
-    else if (b.gcal_synced_at && !b.gcal_dirty) bits.push("On Google Calendar");
-    return bits.join(" · ");
-  }
-
   function playerOptions(selectedId, includeId) {
     return st.admin.data.players
       .filter((p) => (p.active && !p.booked) || p.id === includeId)
@@ -626,17 +592,21 @@
       .join("");
   }
 
-  function contactFields(prefix, b) {
+  function contactFields(b) {
     return `
-      <label class="schedule-field">Parent email
-        <input type="email" class="text-gate-input" name="email" autocomplete="off" value="${escapeHtml(b?.parent_email || "")}" required />
-      </label>
       <label class="schedule-field">Mobile 1
         <input type="tel" class="text-gate-input" name="phone1" value="${escapeHtml(b?.phone_1 ? prettyPhone(b.phone_1) : "")}" />
       </label>
       <label class="schedule-field">Mobile 2
         <input type="tel" class="text-gate-input" name="phone2" value="${escapeHtml(b?.phone_2 ? prettyPhone(b.phone_2) : "")}" />
       </label>`;
+  }
+
+  function formContact(form) {
+    return {
+      p_phone_1: form.phone1.value.trim() || null,
+      p_phone_2: form.phone2.value.trim() || null,
+    };
   }
 
   function renderSlotCard(s) {
@@ -657,7 +627,7 @@
           <label class="schedule-field">Player
             <select name="player" class="schedule-select">${playerOptions(b.player_id, b.player_id)}</select>
           </label>
-          ${contactFields("edit", b)}
+          ${contactFields(b)}
           <div class="schedule-row-actions">
             <button type="submit" class="btn btn-primary">Save</button>
             <button type="button" class="btn btn-ghost" data-act="close-inline">Cancel</button>
@@ -676,7 +646,7 @@
                   .join("")}
               </select>
             </label>
-            <p class="muted schedule-small">The family gets a text with the new time.</p>
+            <p class="muted schedule-small">Let the family know the new time — their calendar won’t update on its own.</p>
             <div class="schedule-row-actions">
               <button type="submit" class="btn btn-primary">Move</button>
               <button type="button" class="btn btn-ghost" data-act="close-inline">Cancel</button>
@@ -687,22 +657,14 @@
     } else if (b) {
       inner = `
         <p class="schedule-booked-name">${escapeHtml(b.player_name)}</p>
-        <p class="schedule-contact"><a href="mailto:${escapeHtml(b.parent_email)}">${escapeHtml(b.parent_email)}</a></p>
         ${[b.phone_1, b.phone_2]
           .filter(Boolean)
           .map((ph) => `<p class="schedule-contact"><a href="tel:${escapeHtml(ph)}">${escapeHtml(prettyPhone(ph))}</a></p>`)
           .join("")}
-        <p class="muted schedule-small">Booked ${escapeHtml(stampLabel(b.booked_at))}${
-          bookingStatusLine(b) ? ` · ${bookingStatusLine(b)}` : ""
-        }</p>
+        <p class="muted schedule-small">Booked ${escapeHtml(stampLabel(b.booked_at))}</p>
         <div class="schedule-row-actions">
           <button type="button" class="btn btn-secondary" data-act="edit" data-id="${escapeHtml(b.id)}">Edit</button>
           <button type="button" class="btn btn-secondary" data-act="move" data-id="${escapeHtml(b.id)}">Move</button>
-          ${
-            b.phone_1
-              ? `<button type="button" class="btn btn-ghost" data-act="resend" data-id="${escapeHtml(b.id)}">Resend text</button>`
-              : ""
-          }
           <button type="button" class="btn btn-ghost schedule-danger" data-act="cancel" data-id="${escapeHtml(b.id)}" data-name="${escapeHtml(b.player_name)}">Cancel</button>
         </div>`;
     } else if (a.booking === s.id) {
@@ -714,7 +676,7 @@
               ${playerOptions("", null)}
             </select>
           </label>
-          ${contactFields("book", null)}
+          ${contactFields(null)}
           <div class="schedule-row-actions">
             <button type="submit" class="btn btn-primary">Book</button>
             <button type="button" class="btn btn-ghost" data-act="close-inline">Cancel</button>
@@ -926,33 +888,60 @@
       </ul>`;
   }
 
+  /** One group text per upcoming meeting day: numbers to paste into Messages, plus a draft. */
+  function renderTextGroups() {
+    const today = todayDenver();
+    const booked = st.admin.data.slots.filter((x) => x.booking && dayKey(x.starts_at) >= today);
+    const days = groupByDay(booked);
+    const body = days.length
+      ? days
+          .map((g) => {
+            const numbers = [];
+            const missing = [];
+            for (const s of g.slots) {
+              const phones = [s.booking.phone_1, s.booking.phone_2].filter(Boolean);
+              if (!phones.length) missing.push(s.booking.player_name);
+              for (const ph of phones) if (!numbers.includes(ph)) numbers.push(ph);
+            }
+            const list = numbers.join(", ");
+            const times = g.slots.map((s) => `${s.booking.player_name} ${timeLabel(s.starts_at)}`).join(", ");
+            const message = `Reminder: Brighton Blue ’26 postseason meetings are ${g.label}. ${times}. See you there!`;
+            return `
+              <div class="schedule-text-day">
+                <h3>${escapeHtml(g.label)} <span class="muted">· ${g.slots.length} meeting${g.slots.length === 1 ? "" : "s"}</span></h3>
+                ${
+                  numbers.length
+                    ? `<textarea class="text-gate-input schedule-copy" readonly rows="2" aria-label="Phone numbers for ${escapeHtml(g.label)}">${escapeHtml(list)}</textarea>
+                       <div class="schedule-row-actions">
+                         <button type="button" class="btn btn-secondary" data-act="copy" data-copy="${escapeHtml(list)}" data-done="Numbers copied">Copy ${numbers.length} number${numbers.length === 1 ? "" : "s"}</button>
+                         <button type="button" class="btn btn-ghost" data-act="copy" data-copy="${escapeHtml(message)}" data-done="Message copied">Copy message</button>
+                       </div>`
+                    : `<p class="muted schedule-small">No numbers for this day.</p>`
+                }
+                ${missing.length ? `<p class="muted schedule-small">No number: ${escapeHtml(missing.join(", "))}</p>` : ""}
+              </div>`;
+          })
+          .join("")
+      : `<p class="muted">No upcoming meetings.</p>`;
+    return `
+      <section class="schedule-card">
+        <h2>Text messages</h2>
+        <p class="muted schedule-small">One group text per day. Copy the numbers and paste them into the To field of a new message.</p>
+        ${body}
+      </section>`;
+  }
+
   function renderCalendarTab() {
     const d = st.admin.data;
     const s = d.settings || {};
     const base = String(global.SHOTS_CONFIG?.supabaseUrl || "").replace(/\/+$/, "");
     const feed = s.feed_token ? `${base}/functions/v1/schedule-ics/${s.feed_token}.ics` : "";
     const webcal = feed.replace(/^https?:/, "webcal:");
-    const bookings = d.slots.map((x) => x.booking).filter(Boolean);
-    const gcalErrors = bookings.filter((b) => b.gcal_error);
-    const gcalSynced = bookings.filter((b) => b.gcal_synced_at && !b.gcal_dirty).length;
-    const workerOk = s.worker_url && s.worker_url === workerUrl();
     return `
-      <section class="schedule-card">
-        <h2>Team Google Calendar</h2>
-        <p class="muted schedule-small">Bookings are added, moved, and removed on the team Google Calendar automatically (within about a minute).</p>
-        <p>${
-          gcalErrors.length
-            ? `<span class="schedule-warn">${gcalErrors.length} booking${gcalErrors.length === 1 ? "" : "s"} failed to sync: ${escapeHtml(gcalErrors[0].gcal_error)}</span>`
-            : bookings.length
-              ? gcalSynced
-                ? `${gcalSynced} of ${bookings.length} bookings on Google Calendar.`
-                : "Not synced yet. If this persists, the Google service-account secrets aren’t set."
-              : "No bookings yet."
-        }</p>
-      </section>
+      ${renderTextGroups()}
       <section class="schedule-card">
         <h2>Private calendar feed</h2>
-        <p class="muted schedule-small">Subscribe in Apple Calendar, Google Calendar (“From URL”), or Outlook. Anyone with this link can see parent contact info. Share it only with staff.</p>
+        <p class="muted schedule-small">Subscribe in Apple Calendar or Outlook. Alerts: 60 and 15 minutes before each day’s first meeting (30 and 5 after an hour-plus break), 5 minutes before the rest. On a Mac, uncheck “Remove alerts” when subscribing. Anyone with this link can see parent phone numbers. Share it only with staff.</p>
         <label class="sr-only" for="sched-feed">Feed URL</label>
         <input id="sched-feed" class="text-gate-input schedule-feed" readonly value="${escapeHtml(feed)}" />
         <div class="schedule-row-actions">
@@ -960,24 +949,6 @@
           <a class="btn btn-ghost" href="${escapeHtml(webcal)}">Subscribe on this device</a>
           <button type="button" class="btn btn-ghost schedule-danger" data-act="rotate-feed">New link</button>
         </div>
-      </section>
-      <section class="schedule-card">
-        <h2>Text messages</h2>
-        <p class="muted schedule-small">Confirmation right after booking, an update text when a meeting moves, and a reminder 30 minutes before.
-          Reminder service: ${workerOk ? "<strong>on</strong>" : `<span class="schedule-warn">not registered yet</span>`}.</p>
-        ${
-          d.sms.length
-            ? `<ul class="schedule-sms">${d.sms
-                .map(
-                  (m) => `<li>
-                    <span class="schedule-chip ${m.status === "sent" ? "is-open" : m.status === "failed" ? "is-error" : "is-closed"}">${escapeHtml(m.status)}</span>
-                    <span>${escapeHtml(m.kind)} · ${escapeHtml(m.player_name || "—")} · …${escapeHtml(m.to_last4 || "")}</span>
-                    <span class="muted">${escapeHtml(stampLabel(m.created_at))}${m.error ? ` · ${escapeHtml(m.error)}` : ""}</span>
-                  </li>`
-                )
-                .join("")}</ul>`
-            : `<p class="muted">No texts yet.</p>`
-        }
       </section>
       <section class="schedule-card">
         <h2>Scheduler PIN</h2>
@@ -989,14 +960,6 @@
         </form>
       </section>
       <button type="button" class="btn btn-ghost schedule-wide" data-act="logout">Sign out of scheduler</button>`;
-  }
-
-  function formContact(form) {
-    return {
-      p_email: form.email.value.trim(),
-      p_phone_1: form.phone1.value.trim() || null,
-      p_phone_2: form.phone2.value.trim() || null,
-    };
   }
 
   function bindAdmin() {
@@ -1033,11 +996,9 @@
       } else if (act === "close-inline") {
         a.editing = a.moving = a.booking = null;
         keep();
-      } else if (act === "resend") {
-        if (await adminAction("schedule_admin_resend", { p_booking_id: id }, "Confirmation text queued")) pokeWorker();
       } else if (act === "cancel") {
         if (!confirm(`Cancel ${btn.getAttribute("data-name")}'s meeting? The time opens back up for other families.`)) return;
-        if (await adminAction("schedule_admin_cancel_booking", { p_booking_id: id }, "Booking cancelled")) pokeWorker();
+        adminAction("schedule_admin_cancel_booking", { p_booking_id: id }, "Booking cancelled");
       } else if (act === "close-slot" || act === "open-slot") {
         adminAction(
           "schedule_admin_set_slot_status",
@@ -1057,6 +1018,13 @@
       } else if (act === "drop-date") {
         a.dates = a.dates.filter((k) => k !== btn.getAttribute("data-date"));
         keep();
+      } else if (act === "copy") {
+        try {
+          await navigator.clipboard.writeText(btn.getAttribute("data-copy") || "");
+          showToast(btn.getAttribute("data-done") || "Copied");
+        } catch (_) {
+          btn.closest(".schedule-text-day")?.querySelector("textarea")?.select();
+        }
       } else if (act === "copy-feed") {
         const v = $("#sched-feed")?.value || "";
         try {
@@ -1102,7 +1070,6 @@
         if (ok) {
           a.editing = null;
           draw({ keepScroll: true });
-          pokeWorker();
         }
       } else if (form.matches("[data-move-form]")) {
         const ok = await adminAction(
@@ -1113,7 +1080,6 @@
         if (ok) {
           a.moving = null;
           draw({ keepScroll: true });
-          pokeWorker();
         }
       } else if (form.matches("[data-book-form]")) {
         if (!form.player.value) return showToast("Choose a player");
@@ -1125,7 +1091,6 @@
         if (ok) {
           a.booking = null;
           draw({ keepScroll: true });
-          pokeWorker();
         }
       } else if (form.id === "sched-player-add") {
         const name = form.pname.value.trim();
@@ -1176,6 +1141,7 @@
         draw();
         if (st.admin.token) loadAdmin();
       } else {
+        coachBackLink();
         draw();
         loadPublic();
       }

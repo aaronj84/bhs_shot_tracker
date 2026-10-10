@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
   const { data, error } = await sb
     .from("meeting_bookings")
     .select(
-      "id, status, booked_at, updated_at, calendar_uid, ics_sequence, parent_email, phone_1, phone_2, slot:meeting_slots (starts_at, duration_minutes), player:schedule_players (name)",
+      "id, status, booked_at, updated_at, calendar_uid, ics_sequence, phone_1, phone_2, slot:meeting_slots (starts_at, duration_minutes), player:schedule_players (name)",
     )
     .eq("status", "confirmed");
   if (error) {
@@ -60,7 +60,6 @@ Deno.serve(async (req) => {
     starts_at: r.slot.starts_at,
     duration_minutes: r.slot.duration_minutes,
     player_name: r.player.name,
-    parent_email: r.parent_email,
     phone_1: r.phone_1,
     phone_2: r.phone_2,
     booked_at: r.booked_at,
