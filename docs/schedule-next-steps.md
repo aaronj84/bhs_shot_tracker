@@ -30,36 +30,12 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
 
 ## Still to do
 
-1. **Review + merge PR #20 into `dev`.** CI applies both migrations and deploys `schedule-worker` and `schedule-ics` to DEV.
-2. **Smoke test on DEV** (not yet verified against real Supabase):
-   - Open the **Schedule** tab (`#schedule`), sign in with `KEPPA`. This registers the worker URL. The Calendar tab should say "Reminder service: on".
-   - Add a few times, book one from the parent page on a phone, then move and cancel it in admin. DEV has no hosted site, so serve locally with a DEV `shots-config.js` (`node scripts/write-shots-config.js`) and open `/blue26/schedule/`.
-   - Open the feed link from the Calendar tab in a browser: it should download `text/calendar`.
-   - If the cron migration failed in CI, check that `pg_cron` / `pg_net` are enabled (Dashboard → Database → Extensions).
-3. **Change the scheduler PIN** (Calendar tab → Scheduler PIN). It starts as `KEPPA`, which is readable in the shipped `shots-config.js`.
-4. **Twilio** (texts are logged as `skipped` until this is done):
-   ```bash
-   supabase secrets set --project-ref <ref> \
-     TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=+1XXXXXXXXXX
-   ```
-   US 10-digit numbers need A2P 10DLC registration in Twilio (can take days). Start it early.
-5. **Google Calendar** (team calendar `274f71a749b3c3deb6c6f09de7ed5dc47b915cf91f1c6b21ff949003085be79f@group.calendar.google.com`):
-   1. In Google Cloud Console, enable the **Google Calendar API**.
-   2. Create a service account, then add a JSON key and download it.
-   3. Share the calendar with the service account's email, using **Make changes to events**.
-   4. Set the secrets:
-      ```bash
-      supabase secrets set --project-ref <ref> \
-        GOOGLE_CALENDAR_ID=274f71a749b3c3deb6c6f09de7ed5dc47b915cf91f1c6b21ff949003085be79f@group.calendar.google.com \
-        GOOGLE_SERVICE_ACCOUNT_JSON="$(cat service-account.json)"
-      ```
-   Use PROD only, or a separate test calendar on DEV, so test bookings stay off the real calendar.
-6. **Ship to PROD:** PR `dev` → `main`. After deploy, repeat steps 2–5 on PROD and send the feed link to Sarah and Ryan.
-7. **Send parents** <https://aaronj84.github.io/bhs_shot_tracker/blue26/schedule/>. Before sending, check on a phone that it loads and shows only the booking form.
-
-## Open questions
-
-- Email confirmations: not built. Fill in `supabase/functions/_shared/schedule/email.ts` (e.g. Resend) if wanted.
+1. **Smoke test on DEV:** serve locally with a DEV `shots-config.js` (`node scripts/write-shots-config.js`). Add a few times in the **Schedule** tab (`#schedule`, PIN `KEPPA`), book one from `/blue26/schedule/` with a phone number, then move and cancel it. Open the feed link from the Calendar tab in a browser: it should download `text/calendar`.
+2. **Change the scheduler PIN** (Calendar tab → Scheduler PIN). It starts as `KEPPA`, which is readable in the shipped `shots-config.js`.
+3. **Coaches subscribe to the private feed** (Calendar tab → Private calendar feed) in Apple Calendar or Outlook. Each event carries alerts: 60 and 15 minutes before the first meeting of the day, 30 and 5 after a break of an hour or more, and 5 before every other meeting (`alertMinutes` in `_shared/schedule/ics.ts`). On a Mac, uncheck **Remove: Alerts** when subscribing or the alerts get stripped.
+4. **No automated texts, email, or Google Calendar sync** (`20261010150000_schedule_manual_reminders`). Families pick a player and a time and can leave up to two mobile numbers. Then they tap **Add to my calendar** on the confirmation screen; that event includes a 30-minute reminder. To text reminders by hand, use Calendar tab → **Text messages**: each upcoming day has a comma-separated list of numbers to paste into Messages, plus a draft reminder to copy. When a coach moves or cancels a meeting, tell the family directly; their calendar won't update.
+5. **Ship to PROD:** PR `dev` → `main`, then send the feed link to Sarah and Ryan.
+6. **Send parents** <https://aaronj84.github.io/bhs_shot_tracker/blue26/schedule/>. Before sending, check on a phone that it loads and shows only the booking form.
 
 ## Where things live
 
@@ -67,9 +43,7 @@ npx playwright test tests/e2e/schedule.spec.mjs # 390x844, mocked RPCs, no DEV n
 | --- | --- |
 | Parent + coach UI | `schedule.js`, styles at the end of `styles.css`, coach route in `app.js` |
 | Parent page (isolated) | `blue26/schedule/index.html` (+ `blue26/index.html` redirect); shipped by `.github/workflows/pages.yml` |
-| Schema + RPCs | `supabase/migrations/20261007160000_postseason_schedule.sql` |
-| Every-minute reminder cron | `supabase/migrations/20261007160100_schedule_worker_cron.sql` |
-| Texts + Google sync | `supabase/functions/schedule-worker/` |
-| ICS feed | `supabase/functions/schedule-ics/` |
+| Schema + RPCs | `supabase/migrations/20261007160000_postseason_schedule.sql`, then `20261010150000_schedule_manual_reminders.sql` |
+| Coach calendar feed (with alerts) | `supabase/functions/schedule-ics/` |
 | Shared logic | `supabase/functions/_shared/schedule/` |
 | Tests | `tests/unit/schedule-*.test.mjs`, `tests/e2e/schedule.spec.mjs`, `tests/fixtures/schedule-*.mjs` |

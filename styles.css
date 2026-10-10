@@ -4883,11 +4883,6 @@ body.schedule-view .app-main {
   color: var(--correct);
 }
 
-.schedule-chip.is-error {
-  background: var(--incorrect-bg);
-  color: var(--incorrect);
-}
-
 .schedule-booked-name {
   margin: 0.35rem 0 0.15rem;
   font-size: 1.05rem;
@@ -4903,6 +4898,30 @@ body.schedule-view .app-main {
 .schedule-small {
   margin: 0.3rem 0 0;
   font-size: 0.8rem;
+}
+
+.schedule-text-day {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.schedule-text-day h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.95rem;
+}
+
+.schedule-text-day h3 .muted {
+  font-weight: 500;
+}
+
+.schedule-copy {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 .schedule-warn {
@@ -4943,24 +4962,15 @@ body.schedule-view .app-main {
   font-size: 0.92rem;
 }
 
-.schedule-cancelled ul,
-.schedule-sms {
+.schedule-cancelled ul {
   margin: 0.5rem 0 0;
   padding: 0;
   list-style: none;
   font-size: 0.88rem;
 }
 
-.schedule-cancelled li + li,
-.schedule-sms li + li {
+.schedule-cancelled li + li {
   margin-top: 0.45rem;
-}
-
-.schedule-sms li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.15rem 0.45rem;
 }
 
 .schedule-allset {
@@ -5096,4 +5106,14 @@ body.schedule-view .app-main {
 .schedule-standalone-header img {
   width: 32px;
   height: 32px;
+}
+
+.schedule-coach-back {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
 }

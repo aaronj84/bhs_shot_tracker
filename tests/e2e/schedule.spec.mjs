@@ -8,11 +8,9 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
 let sched;
-let workerPokes;
 
 test.beforeEach(async ({ page }) => {
   sched = await createScheduleDb();
-  workerPokes = 0;
   const login = await sched.rpc("schedule_admin_login", { p_pin: "KEPPA" });
   await sched.rpc("schedule_admin_create_slots", {
     p_token: login.body.token,
@@ -23,7 +21,10 @@ test.beforeEach(async ({ page }) => {
   });
   await page.addInitScript(() => {
     try {
-      localStorage.clear();
+      if (!sessionStorage.getItem("e2e-cleared")) {
+        localStorage.clear();
+        sessionStorage.setItem("e2e-cleared", "1");
+      }
     } catch (_) {
       /* ignore */
     }
@@ -32,10 +33,6 @@ test.beforeEach(async ({ page }) => {
     const fn = new URL(route.request().url()).pathname.split("/").pop();
     const out = await sched.rpc(fn, route.request().postDataJSON() || {});
     await route.fulfill({ status: out.status, contentType: "application/json", body: JSON.stringify(out.body) });
-  });
-  await page.route(/\/functions\/v1\/schedule-worker/, async (route) => {
-    workerPokes += 1;
-    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
 });
 
@@ -51,7 +48,7 @@ test("parents book on the isolated page; slot and player disappear", async ({ pa
   await page.selectOption("#sched-player", { label: "Lucy" });
   await page.locator(".schedule-time").nth(1).click();
   await expect(page.locator(".schedule-time").nth(1)).toHaveClass(/is-on/);
-  await page.fill("#sched-email", "parent@example.com");
+  await expect(page.locator("input[type=email]")).toHaveCount(0);
   await page.fill("#sched-phone1", "801 555 0123");
   await page.click(".schedule-submit-btn");
   await expect(page.locator("#sched-error")).toContainText("Check the box");
@@ -61,7 +58,11 @@ test("parents book on the isolated page; slot and player disappear", async ({ pa
   await expect(page.locator(".schedule-done h1")).toHaveText("You’re booked");
   await expect(page.locator(".schedule-done-player")).toHaveText("Lucy");
   await expect(page.locator(".schedule-done-when")).toContainText("3:20 PM–3:40 PM");
-  await expect.poll(() => workerPokes).toBeGreaterThan(0);
+  await expect(page.locator(".schedule-done-notes")).toContainText("(801) 555-0123");
+  const ics = decodeURIComponent((await page.locator("#sched-add-cal").getAttribute("href")).split(",")[1]);
+  expect(ics).toContain("TRIGGER:-PT30M");
+  expect(ics).toContain("LOCATION:Shed @ Game Field");
+  await expect(page.locator(".schedule-done-when")).toContainText("Shed @ Game Field");
 
   await page.click("#sched-another");
   await expect(page.locator(".schedule-time.is-booked")).toHaveCount(1);
@@ -75,7 +76,6 @@ test("losing a race refreshes availability with a friendly message", async ({ pa
   await page.goto("/blue26/schedule/");
   await page.selectOption("#sched-player", { label: "Skye" });
   await page.locator(".schedule-time").first().click();
-  await page.fill("#sched-email", "skye@example.com");
   await page.check("#sched-consent");
 
   const state = await sched.rpc("schedule_public_state");
@@ -83,8 +83,7 @@ test("losing a race refreshes availability with a friendly message", async ({ pa
   await sched.rpc("schedule_book", {
     p_player_id: other.id,
     p_slot_id: state.body.slots[0].id,
-    p_email: "beth@example.com",
-    p_consent: true,
+    p_confirm: true,
   });
 
   await page.click(".schedule-submit-btn");
@@ -99,9 +98,8 @@ test("coach signs in with the PIN, moves and cancels a booking", async ({ page }
   await sched.rpc("schedule_book", {
     p_player_id: player.id,
     p_slot_id: state.body.slots[0].id,
-    p_email: "moira@example.com",
     p_phone_1: "8015550144",
-    p_consent: true,
+    p_confirm: true,
   });
 
   // The tracker's Schedule tab is the coach view.
@@ -117,8 +115,8 @@ test("coach signs in with the PIN, moves and cancels a booking", async ({ page }
   const booked = page.locator(".schedule-slot.is-booked");
   await expect(booked).toHaveCount(1);
   await expect(booked).toContainText("Moira");
-  await expect(booked).toContainText("moira@example.com");
-  await expect(booked).toContainText("(801) 555-0144");
+  await expect(booked.locator('[data-act="resend"]')).toHaveCount(0);
+  await expect(booked.locator('a[href="tel:+18015550144"]')).toHaveText("(801) 555-0144");
   await expect(booked.locator(".schedule-slot-time")).toContainText("3:00 PM");
 
   await booked.locator('[data-act="move"]').click();
@@ -138,4 +136,44 @@ test("coach signs in with the PIN, moves and cancels a booking", async ({ page }
   await page.click('#sched-add-form button[type="submit"]');
   await expect(page.locator(".schedule-admin-day")).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+  // A signed-in coach can tap the parent page's header to get back.
+  await page.click(".schedule-public-link");
+  await expect(page.locator(".schedule-hero h1")).toHaveText("Postseason Meetings");
+  await page.click(".schedule-standalone-header a.schedule-coach-back");
+  await expect(page).toHaveURL(/#schedule$/);
+  await expect(page.locator(".schedule-public-link")).toBeVisible();
 });
+
+test("Calendar tab builds a copyable group text per day", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const state = await sched.rpc("schedule_public_state");
+  const pick = (name) => state.body.players.find((p) => p.name === name).id;
+  const book = (name, slot, p1, p2) =>
+    sched.rpc("schedule_book", {
+      p_player_id: pick(name),
+      p_slot_id: state.body.slots[slot].id,
+      p_phone_1: p1,
+      p_phone_2: p2,
+      p_confirm: true,
+    });
+  await book("Lucy", 0, "801-555-0123", "385-555-0199");
+  await book("Moira", 1, null, null);
+  await book("Skye", 2, "8015550123", null);
+
+  await page.goto("/#schedule");
+  await page.fill("#sched-pin", "keppa");
+  await page.click("#sched-pin-form button");
+  await page.click('[data-tab="calendar"]');
+
+  const dayCard = page.locator(".schedule-text-day");
+  await expect(dayCard).toHaveCount(1);
+  await expect(dayCard.locator("h3")).toContainText("3 meetings");
+  await expect(dayCard.locator("textarea")).toHaveValue("+18015550123, +13855550199");
+  await expect(dayCard).toContainText("No number: Moira");
+
+  await dayCard.getByRole("button", { name: "Copy 2 numbers" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("+18015550123, +13855550199");
+  await dayCard.getByRole("button", { name: "Copy message" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/Lucy 3:00 PM, Moira 3:20 PM, Skye 3:40 PM/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);});
