@@ -4939,7 +4939,7 @@
         return;
       }
       if (e.target.closest("[data-change-position]")) {
-        shotModalDraft.phase = "position";
+        shotModalDraft.phase = takerPhaseFor(recordingTeam());
         shotModalDraft.position = "";
         shotModalDraft.player = null;
         shotModalDraft.justAddedNumber = "";
