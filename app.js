@@ -8,6 +8,8 @@
   function parseHash() {
     const raw = (location.hash || "#shots").replace(/^#/, "");
     const path = raw.split("?")[0];
+    // Public scoreboard: #live/{gameId}
+    if (path.startsWith("live/")) return "live-scoreboard";
     if (path === "shots-map") return "shots-map";
     if (path === "shots-games") return "shots-games";
     if (path === "shots-history") return "shots-history";
@@ -29,14 +31,14 @@
     document.body.classList.add("shots-mode", "tracker-view");
     document.body.classList.toggle("shots-record-view", view === "shots");
     document.body.classList.toggle("shot-map-view", view === "shots-map");
-    document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard");
+    document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard" || view === "live-scoreboard");
     document.body.classList.toggle("schedule-view", isSchedule(view));
     document.body.classList.toggle(
       "shots-admin-view",
       view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
     );
     const theme = document.querySelector('meta[name="theme-color"]');
-    if (theme) theme.setAttribute("content", view === "shots-scoreboard" ? "#0b1f33" : "#f4f7fb");
+    if (theme) theme.setAttribute("content", view === "shots-scoreboard" || view === "live-scoreboard" ? "#0b1f33" : "#f4f7fb");
 
     const cfg = window.SHOTS_CONFIG || {};
     const brandName = $("#brand-name");
@@ -76,6 +78,13 @@
     const view = parseHash();
     updateChrome(view);
     const root = $("#app-root");
+    // Public live scoreboard bypasses PIN check
+    if (view === "live-scoreboard") {
+      if (window.ShotTracker) window.ShotTracker.renderLiveScoreboard();
+      else if (root) root.innerHTML = '<p class="empty-state">Shot tracker failed to load.</p>';
+      window.scrollTo(0, 0);
+      return;
+    }
     // Schedule has its own server-checked PIN; it never boots the tracker or its PIN gate.
     if (isSchedule(view)) {
       if (window.Schedule) window.Schedule.render(view);
