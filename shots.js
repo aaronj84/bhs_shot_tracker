@@ -2503,12 +2503,44 @@
       st.showGrid = !st.showGrid;
       saveUi();
       draw({ keepScroll: true });
-    }     else if (action === "csv") {
+    } else if (action === "csv") {
       exportShotsCsv(st.shots || []);
+    } else if (action === "share-live") {
+      shareLiveScoreboardLink();
     } else if (action === "final") {
       markGameFinal();
     } else if (action === "reopen") {
       reopenGame();
+    }
+  }
+
+  function shareLiveScoreboardLink() {
+    if (!st.gameId) {
+      showToast("No game selected");
+      return;
+    }
+    
+    const liveUrl = `${location.origin}${location.pathname}#live/${st.gameId}`;
+    
+    // Try to copy to clipboard
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(liveUrl)
+        .then(() => {
+          showToast("Live link copied to clipboard!");
+        })
+        .catch((err) => {
+          console.error("Failed to copy:", err);
+          showLiveLinkFallback(liveUrl);
+        });
+    } else {
+      showLiveLinkFallback(liveUrl);
+    }
+  }
+
+  function showLiveLinkFallback(url) {
+    const msg = `Share this link: ${url}`;
+    if (confirm(msg + "\n\nPress OK to open in new tab")) {
+      window.open(url, "_blank");
     }
   }
 
@@ -4939,7 +4971,7 @@
         return;
       }
       if (e.target.closest("[data-change-position]")) {
-        shotModalDraft.phase = "position";
+        shotModalDraft.phase = takerPhaseFor(recordingTeam());
         shotModalDraft.position = "";
         shotModalDraft.player = null;
         shotModalDraft.justAddedNumber = "";
@@ -9392,6 +9424,7 @@
           </button>
           <div class="scoreboard-menu-pop" id="scoreboard-menu-pop" hidden role="menu">
             <a class="scoreboard-menu-item" href="#shots" role="menuitem">Track shots</a>
+            <button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="share-live">Share live link</button>
             ${
               gameIsFinal()
                 ? `<button type="button" class="scoreboard-menu-item" role="menuitem" data-tracker-action="reopen">Reopen game</button>`
@@ -9582,6 +9615,116 @@
     renderRecorder(opts);
   }
 
+  async function bootLiveScoreboard() {
+    const hash = (location.hash || "").replace(/^#/, "");
+    const gameId = hash.replace(/^live\//, "").split("?")[0];
+    
+    if (!gameId) {
+      const root = $("#app-root");
+      if (root) root.innerHTML = '<div class="empty-state-block"><p class="empty-state">Invalid scoreboard link</p></div>';
+      return;
+    }
+
+    renderLoading("Loading scoreboard…");
+    
+    try {
+      // Sign in anonymously without PIN check
+      if (!st.session) {
+        const sb = API.getClient();
+        if (sb && !API.isPlaceholderConfig()) {
+          const { data, error } = await sb.auth.signInAnonymously();
+          if (!error && data.session) {
+            st.session = data.session;
+          }
+        } else {
+          st.session = { access_token: "local-demo", user: { id: "local-demo" } };
+        }
+      }
+
+      // Load metadata
+      await refreshMeta();
+      
+      // Load the specific game
+      const game = await API.fetchGame(gameId);
+      if (!game) {
+        const root = $("#app-root");
+        if (root) root.innerHTML = '<div class="empty-state-block"><p class="empty-state">Game not found</p></div>';
+        return;
+      }
+
+      st.gameId = gameId;
+      st.game = game;
+      st.booted = true;
+
+      // Load rosters
+      st.ourRoster = await API.ourRoster(gameId);
+      st.oppRoster = await API.oppRoster(gameId);
+
+      // Load shots/events
+      st.shots = await API.shots(gameId);
+      
+      // Render the public scoreboard
+      renderPublicScoreboard();
+      
+      // Set up auto-refresh
+      armScoreboardPoll(true);
+      
+    } catch (err) {
+      console.error("Live scoreboard boot failed:", err);
+      const root = $("#app-root");
+      if (root) root.innerHTML = `<div class="empty-state-block"><p class="empty-state">Failed to load scoreboard: ${escapeHtml(err.message || "Unknown error")}</p></div>`;
+    }
+  }
+
+  function renderPublicScoreboard() {
+    const root = $("#app-root");
+    if (!root) return;
+
+    const usLabel = ourTeamName();
+    const oppLabel = opponentOf(st.game)?.name || "Opponent";
+    
+    root.innerHTML = `
+      <div class="scoreboard-page">
+        <div class="scoreboard-content">
+          <div class="scoreboard-header-bar">
+            <h1 class="scoreboard-heading">Live Game</h1>
+            <div class="scoreboard-header-actions">
+              <button type="button" class="icon-btn" data-scoreboard-sync aria-label="Refresh scoreboard">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="scoreboard-hero-pin" data-scoreboard-hero-pin>
+            <div class="scoreboard-hero" data-scoreboard-hero>
+              ${scoreboardBoardMarkup("large")}
+            </div>
+          </div>
+          <div class="scoreboard-hero-spacer" data-scoreboard-hero-spacer aria-hidden="true"></div>
+          ${scoreboardBoxMarkup()}
+        </div>
+      </div>`;
+    
+    bindPublicScoreboardChrome();
+    bindScoreboardPinch();
+  }
+
+  function bindPublicScoreboardChrome() {
+    $("[data-scoreboard-sync]")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      refreshScoreboardLive();
+    });
+    
+    if (!scoreboardPoll.visBound) {
+      scoreboardPoll.visBound = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden || st.view !== "live-scoreboard") return;
+        refreshScoreboardLive();
+      });
+    }
+  }
+
   global.ShotTracker = {
     render(view) {
       st.view = view || "shots";
@@ -9591,6 +9734,10 @@
         return;
       }
       draw();
+    },
+    async renderLiveScoreboard() {
+      st.view = "live-scoreboard";
+      await bootLiveScoreboard();
     },
     onLeave() {
       closeShotModal();
