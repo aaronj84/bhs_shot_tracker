@@ -217,6 +217,10 @@
   // ---------------------------------------------------------------------------
 
   async function loadPlayers() {
+    if (api().isPlaceholderConfig?.()) {
+      st.players = [];
+      return;
+    }
     const sb = api().getClient();
     const { data, error } = await sb.from("players").select("id, name, short_name").order("name");
     if (error) throw error;
@@ -227,6 +231,10 @@
     if (!st.agenda.dateFrom) {
       st.agenda.dateFrom = todayLocal();
       st.agenda.dateTo = addDays(st.agenda.dateFrom, 7);
+    }
+    if (api().isPlaceholderConfig?.()) {
+      st.agenda.games = [];
+      return;
     }
     const res = await api().clubVisitation({
       mode: "tool",
@@ -315,6 +323,10 @@
   }
 
   async function loadItineraryList() {
+    if (api().isPlaceholderConfig?.()) {
+      st.itinerary.list = [];
+      return;
+    }
     const sb = api().getClient();
     const { data, error } = await sb
       .from("club_itineraries")
@@ -464,6 +476,17 @@
   }
 
   async function loadDataSection() {
+    if (api().isPlaceholderConfig?.()) {
+      st.data.teams = [];
+      st.data.affiliations = [];
+      st.data.competitions = [];
+      st.data.sources = [];
+      st.data.facilities = [];
+      st.data.fields = [];
+      st.data.games = [];
+      st.data.syncRuns = [];
+      return;
+    }
     const sb = api().getClient();
     const d = st.data;
     const [teams, aff, comps, sources, fac, fields, games, runs] = await Promise.all([
@@ -1554,7 +1577,9 @@
     st.error = "";
     paint();
     try {
-      await api().clubRegisterSyncWorker().catch(() => {});
+      if (!api().isPlaceholderConfig?.()) {
+        await api().clubRegisterSyncWorker().catch(() => {});
+      }
       if (!st.players.length) await loadPlayers();
       if (st.tab === "agenda") await loadAgenda();
       else if (st.tab === "itinerary") {
