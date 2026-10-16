@@ -124,4 +124,17 @@ Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../
 3. `python3 -m http.server 8080` → open `#shots`.
 4. Log in with PIN.
 
-Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-prep` opponent prep · `#shots-prep?tab=explore` AI explore · `#shots-map` game map.
+Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-prep` opponent prep · `#shots-prep?tab=explore` AI explore · `#shots-map` game map · `#club` club visitation planner.
+
+## Club Player Visitation Planner
+
+See [`docs/club-visitation.md`](../docs/club-visitation.md).
+
+```bash
+supabase secrets set GEMINI_API_KEY=…          # shared with prep-opponent
+# optional routed drive times + geocoding:
+supabase secrets set GOOGLE_MAPS_API_KEY=…
+supabase secrets set CLUB_SYNC_CRON_SECRET=$(openssl rand -hex 24)
+```
+
+Edge Functions: `club-visitation` (Gemini tools), `club-sync` (schedule ingest). Cron job `club-sync-worker` every 6 hours when `pg_cron` is available. DEV demo seed: `supabase/seed_club_demo.sql`.

@@ -31,9 +31,11 @@ Required env: `SHOTS_SUPABASE_URL`, `SHOTS_SUPABASE_ANON_KEY`. Optional: `SHOTS_
 
 ```bash
 npm ci
-npm run test:api    # Vitest vs DEV
+npm run test:api    # Vitest vs DEV (+ unit tests incl. club planner)
 npm run test:e2e    # Playwright smokes
 ```
+
+Club Player Visitation Planner (`#club`): see [`docs/club-visitation.md`](docs/club-visitation.md). Migration `club_visitation`, Edge Functions `club-visitation` + `club-sync`. Optional Supabase secret `GOOGLE_MAPS_API_KEY` for routed drive times.
 
 ## Cursor Cloud specific instructions
 

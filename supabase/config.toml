@@ -31,3 +31,10 @@ verify_jwt = true
 # Calendar apps can't send a JWT; the URL's feed token is the credential.
 [functions.schedule-ics]
 verify_jwt = false
+
+[functions.club-visitation]
+verify_jwt = true
+
+# Cron may call with CLUB_SYNC_CRON_SECRET bearer (not a user JWT).
+[functions.club-sync]
+verify_jwt = false

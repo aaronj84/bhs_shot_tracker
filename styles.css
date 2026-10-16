@@ -5117,3 +5117,284 @@ body.schedule-view .app-main {
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ---- Club Player Visitation Planner ---- */
+body.club-view .app-main {
+  padding-bottom: calc(1.5rem + var(--safe-bottom));
+}
+
+.club-shell {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 2rem;
+}
+
+.club-hero {
+  margin: 0 0 0.85rem;
+}
+
+.club-hero h1 {
+  margin: 0.15rem 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  letter-spacing: -0.02em;
+  color: var(--brand-strong);
+}
+
+.club-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.club-tabs {
+  margin: 0 0 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.club-pin-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 16rem;
+}
+
+.club-filters {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0 0 0.75rem;
+}
+
+.club-filters label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.club-filters input,
+.club-filters select,
+.club-itin-form input,
+.club-itin-form textarea,
+.club-mini-form input,
+.club-mini-form select,
+.club-mini-form textarea {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  min-height: 44px;
+}
+
+.club-check {
+  display: flex !important;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+}
+
+.club-count {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+}
+
+.club-day h2 {
+  margin: 1rem 0 0.45rem;
+  font-size: 1rem;
+  color: var(--brand-strong);
+}
+
+.club-game-card,
+.club-stop-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem;
+  margin: 0 0 0.55rem;
+  box-shadow: var(--shadow);
+}
+
+.club-game-card h3,
+.club-stop-card h3 {
+  margin: 0.25rem 0;
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+
+.club-game-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.club-players {
+  margin: 0.2rem 0;
+  font-size: 0.9rem;
+}
+
+.club-game-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.55rem;
+}
+
+.club-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--brand-strong);
+}
+
+.club-badge-both {
+  background: rgba(241, 90, 36, 0.14);
+  color: var(--accent-dim);
+}
+
+.club-badge-changed {
+  background: rgba(181, 69, 69, 0.12);
+  color: var(--incorrect);
+}
+
+.club-status {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.club-itin-toolbar,
+.club-itin-actions,
+.club-data-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+
+.club-itin-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.club-itin-form label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.club-stop-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.55rem;
+}
+
+.club-stop-ord {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.club-leg {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.club-leg.is-warn {
+  color: var(--incorrect);
+}
+
+.club-warn-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.1rem;
+  color: var(--incorrect);
+  font-size: 0.88rem;
+}
+
+.club-warn.is-bad {
+  font-weight: 700;
+}
+
+.club-gemini {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.club-gemini h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.club-mini-form {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+}
+
+.club-mini-form h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.club-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.club-list li {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.92rem;
+}
+
+.club-import-out {
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  background: var(--bg-soft);
+  padding: 0.65rem;
+  border-radius: var(--radius-sm);
+  max-height: 220px;
+  overflow: auto;
+}
+
+.club-banner-error,
+.club-loading {
+  margin: 0 0 0.65rem;
+}
+
+.club-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  margin-right: 0.5rem;
+}
+
+.club-inline input {
+  width: 4.5rem;
+  min-height: 36px;
+  padding: 0.3rem 0.4rem;
+}
