@@ -195,7 +195,7 @@ export function formatItineraryText(itin, stops, legs, warnings, opts = {}) {
   stops.forEach((s, i) => {
     const n = i + 1;
     lines.push(`${n}. ${s.team_line || s.label || "Game"}`);
-    if (s.brighton_line) lines.push(`   Brighton: ${s.brighton_line}`);
+    if (s.brighton_line) lines.push(`   Players: ${s.brighton_line}`);
     lines.push(`   Kickoff: ${formatLocalKickoff(s.kickoff_at, s.timezone || "America/Denver")}`);
     if (s.planned_arrival_at) {
       lines.push(`   Arrive ~ ${formatLocalKickoff(s.planned_arrival_at, s.timezone || "America/Denver")}`);

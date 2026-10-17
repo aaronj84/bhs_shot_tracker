@@ -597,6 +597,7 @@
         body: payload && typeof payload === "object" ? payload : {},
       });
       const boxed = await functionPayload(data, error);
+      logClubQueries(payload, boxed);
       if (error || (boxed && boxed.error)) {
         return {
           ok: false,
@@ -637,6 +638,31 @@
       return { ok: true, data };
     },
   };
+
+  function logClubQueries(payload, boxed) {
+    const question = payload && payload.question;
+    const tools = boxed && Array.isArray(boxed.tool_results) ? boxed.tool_results : [];
+    if (!tools.length) {
+      if (payload && payload.mode === "tool") {
+        console.info("[club]", payload.tool, payload.arguments || {}, {
+          count: boxed && boxed.result && boxed.result.count,
+          error: (boxed && boxed.result && boxed.result.error) || (boxed && boxed.error) || null,
+        });
+      } else if (question) {
+        console.info("[club] ask (no tools)", question, boxed && (boxed.answer || boxed.error));
+      }
+      return;
+    }
+    for (const t of tools) {
+      const result = (t && t.result) || {};
+      console.info("[club]", t.name, t.arguments || {}, {
+        date_from: result.date_from,
+        date_to: result.date_to,
+        count: result.count,
+        error: result.error || null,
+      });
+    }
+  }
 
   async function functionPayload(data, error) {
     if (data && typeof data === "object") return data;

@@ -13,6 +13,16 @@ export function createClubDb(sb) {
       const date_to = filters.date_to || addDaysIso(today, 7);
       const fromIso = startOfLocalDayUtc(date_from);
       const toIso = endOfLocalDayUtc(date_to);
+      console.log("[club] searchGames", JSON.stringify({
+        date_from,
+        date_to,
+        fromIso,
+        toIso,
+        player_ids: filters.player_ids || null,
+        team_ids: filters.team_ids || null,
+        city: filters.city || null,
+        both_sides: !!filters.both_sides,
+      }));
 
       let q = sb
         .from("club_games")
@@ -251,16 +261,30 @@ async function loadBrightonForGames(sb, gameIds) {
   }
   const { data: aff } = await sb
     .from("club_player_affiliations")
-    .select("club_team_id, player_id, player:players (id, name, short_name)")
+    .select("club_team_id, club_player_id, club_players (id, name, short_name)")
     .in("club_team_id", teamIds)
     .eq("active", true);
+  const clubIds = [...new Set((aff || []).map((a) => a.club_player_id).filter(Boolean))];
+  const linkByClub = new Map();
+  if (clubIds.length) {
+    const { data: links } = await sb
+      .from("club_player_links")
+      .select("club_player_id, player_id, players (name, short_name)")
+      .in("club_player_id", clubIds);
+    for (const link of links || []) linkByClub.set(link.club_player_id, link);
+  }
   const byTeam = new Map();
   for (const a of aff || []) {
     if (!byTeam.has(a.club_team_id)) byTeam.set(a.club_team_id, []);
+    const link = linkByClub.get(a.club_player_id);
+    const person = a.club_players || {};
     byTeam.get(a.club_team_id).push({
-      player_id: a.player_id,
-      name: a.player?.short_name || a.player?.name || "Player",
-      full_name: a.player?.name,
+      player_id: a.club_player_id,
+      name: person.short_name || person.name || "Player",
+      full_name: person.name,
+      short_name: person.short_name || "",
+      shot_player_id: link?.player_id || null,
+      shot_player_name: link?.players?.name || null,
     });
   }
   for (const g of games || []) {

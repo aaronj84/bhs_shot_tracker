@@ -13,6 +13,14 @@
   const TZ = "America/Denver";
   const DEFAULT_VISIT = 30;
   const WALK_MIN = 8;
+  const LOADING_LINES = [
+    "Don't you watch enough soccer",
+    "Another Saturday. Another patch of turf.",
+    "The games will still be there",
+    "Folding chairs were invented for this",
+    "Someone has to know which field",
+    "You could be watching film instead",
+  ];
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -34,17 +42,22 @@
       filterText: "",
       onlyBoth: false,
       filtersOpen: false,
+      addPrompt: null,
     },
     itinerary: {
       list: [],
       currentId: "",
       draft: null,
+      engaged: false,
       pickerOpen: false,
       stops: [],
       legs: [],
       warnings: [],
       gemini: { loading: false, error: "", messages: [], draft: "" },
       busy: false,
+      matchPrompt: [],
+      dismissedMatchIds: [],
+      scrollMatch: false,
     },
     data: {
       section: "teams",
@@ -61,6 +74,8 @@
       busy: false,
     },
     players: [],
+    shotPlayers: [],
+    links: [],
     settings: null,
   };
 
@@ -198,6 +213,37 @@
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>`;
   }
 
+  let loadTimer = null;
+  let loadIndex = 0;
+
+  function loadingMarkup() {
+    return `
+      <p class="club-loading" role="status">
+        <span class="club-spin" aria-hidden="true"></span>
+        <span id="club-loading-line">${escapeHtml(LOADING_LINES[0])}</span>
+      </p>`;
+  }
+
+  function stopLoadingLines() {
+    if (loadTimer) {
+      clearInterval(loadTimer);
+      loadTimer = null;
+    }
+  }
+
+  function startLoadingLines() {
+    stopLoadingLines();
+    loadIndex = 0;
+    const tick = () => {
+      const el = $("#club-loading-line");
+      if (!el) return;
+      el.textContent = LOADING_LINES[loadIndex % LOADING_LINES.length];
+      loadIndex += 1;
+    };
+    tick();
+    loadTimer = setInterval(tick, 2200);
+  }
+
   function iconFilter() {
     return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6.2 7.2V19l-3.6 2v-8.8L4 5z"/></svg>`;
   }
@@ -217,7 +263,7 @@
           <a class="club-data-link ${tab === "data" ? "is-on" : ""}" href="#club-data" role="tab" aria-selected="${tab === "data"}" aria-label="Club data" title="Club data">${iconDatabase()}</a>
         </nav>
         ${st.error ? `<p class="form-error club-banner-error">${escapeHtml(st.error)}</p>` : ""}
-        ${st.loading ? `<p class="muted club-loading">Loading…</p>` : ""}
+        ${st.loading ? loadingMarkup() : ""}
         ${inner}
       </section>`;
   }
@@ -232,9 +278,77 @@
       return;
     }
     const sb = api().getClient();
-    const { data, error } = await sb.from("players").select("id, name, short_name").order("name");
+    const { data, error } = await sb.from("club_players").select("id, name, short_name").order("name");
     if (error) throw error;
     st.players = data || [];
+  }
+
+  function normName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function nameTokens(value) {
+    return normName(value).split(" ").filter(Boolean);
+  }
+
+  function namesCouldMatch(club, shot) {
+    const clubFull = normName(club.full_name || club.name);
+    const shotFull = normName(shot.name);
+    if (clubFull && shotFull && clubFull === shotFull) return true;
+    const ct = nameTokens(club.full_name || club.name);
+    const stt = nameTokens(shot.name);
+    if (ct.length >= 2 && stt.length >= 2 && ct[0] === stt[0] && ct[ct.length - 1] === stt[stt.length - 1]) return true;
+    const clubShort = normName(club.short_name);
+    const shotShort = normName(shot.short_name);
+    if (clubShort && shotShort && clubShort === shotShort && ct.length && stt.length && ct[ct.length - 1] === stt[stt.length - 1]) {
+      return true;
+    }
+    return false;
+  }
+
+  function shotTrackerMatches(clubPlayers, shotPlayers, links, dismissedIds) {
+    const linkedClub = new Set((links || []).map((l) => l.club_player_id));
+    const linkedShot = new Set((links || []).map((l) => l.player_id));
+    const dismissed = new Set(dismissedIds || []);
+    const out = [];
+    for (const club of clubPlayers || []) {
+      const clubId = club.player_id || club.id;
+      if (!clubId || club.shot_player_id || linkedClub.has(clubId) || dismissed.has(clubId)) continue;
+      const candidates = (shotPlayers || []).filter((s) => s.id && !linkedShot.has(s.id) && namesCouldMatch(club, s));
+      if (!candidates.length) continue;
+      out.push({
+        clubPlayerId: clubId,
+        clubName: club.full_name || club.name || "Club player",
+        candidates: candidates.map((s) => ({ id: s.id, name: s.name || s.short_name || "Player" })),
+      });
+    }
+    return out;
+  }
+
+  async function collectShotMatches(clubPlayers) {
+    if (!clubPlayers?.length || api().isPlaceholderConfig?.()) return [];
+    const sb = api().getClient();
+    if (!st.shotPlayers.length) {
+      const { data, error } = await sb.from("players").select("id, name, short_name").order("name");
+      if (error) return [];
+      st.shotPlayers = data || [];
+    }
+    const { data: links, error: linkError } = await sb.from("club_player_links").select("player_id, club_player_id");
+    if (linkError) return [];
+    return shotTrackerMatches(clubPlayers, st.shotPlayers, links || [], st.itinerary.dismissedMatchIds);
+  }
+
+  function queueShotMatches(suggestions) {
+    if (!suggestions?.length) return;
+    const existing = new Set((st.itinerary.matchPrompt || []).map((row) => row.clubPlayerId));
+    const extra = suggestions.filter((row) => !existing.has(row.clubPlayerId));
+    if (!extra.length) return;
+    st.itinerary.matchPrompt = [...(st.itinerary.matchPrompt || []), ...extra];
+    st.itinerary.scrollMatch = true;
   }
 
   async function loadAgenda() {
@@ -246,22 +360,9 @@
       st.agenda.games = [];
       return;
     }
-    const res = await api().clubVisitation({
-      mode: "tool",
-      tool: "search_club_games",
-      arguments: {
-        date_from: st.agenda.dateFrom,
-        date_to: st.agenda.dateTo,
-        both_sides: st.agenda.onlyBoth || undefined,
-        include_cancelled: false,
-      },
-    });
-    if (!res.ok) {
-      // Fallback: direct table read if edge function not deployed yet
-      await loadAgendaDirect();
-      return;
-    }
-    st.agenda.games = res.data?.result?.games || [];
+    // The list is a direct read so it stays on club_players even when the
+    // deployed Ask Gemini function is a version behind.
+    await loadAgendaDirect();
   }
 
   async function loadAgendaDirect() {
@@ -283,17 +384,32 @@
     if (teamIds.length) {
       const { data } = await sb
         .from("club_player_affiliations")
-        .select("club_team_id, player_id, player:players (id, name, short_name)")
+        .select("club_team_id, club_player_id, club_players (id, name, short_name)")
         .in("club_team_id", teamIds)
         .eq("active", true);
       aff = data || [];
     }
+    const clubIds = [...new Set(aff.map((a) => a.club_player_id).filter(Boolean))];
+    const linkByClub = new Map();
+    if (clubIds.length) {
+      const { data: links } = await sb
+        .from("club_player_links")
+        .select("club_player_id, player_id, players (name)")
+        .in("club_player_id", clubIds);
+      for (const link of links || []) linkByClub.set(link.club_player_id, link);
+    }
     const byTeam = new Map();
     for (const a of aff) {
       if (!byTeam.has(a.club_team_id)) byTeam.set(a.club_team_id, []);
+      const person = a.club_players || {};
+      const link = linkByClub.get(a.club_player_id);
       byTeam.get(a.club_team_id).push({
-        player_id: a.player_id,
-        name: a.player?.short_name || a.player?.name,
+        player_id: a.club_player_id,
+        name: person.short_name || person.name,
+        full_name: person.name,
+        short_name: person.short_name || "",
+        shot_player_id: link?.player_id || null,
+        shot_player_name: link?.players?.name || null,
         side: null,
       });
     }
@@ -372,10 +488,10 @@
       if (teamIds.length) {
         const { data: aff } = await sb
           .from("club_player_affiliations")
-          .select("club_team_id, player:players (short_name, name)")
+          .select("club_team_id, club_players (short_name, name)")
           .in("club_team_id", teamIds)
           .eq("active", true);
-        players = (aff || []).map((a) => a.player?.short_name || a.player?.name).filter(Boolean);
+        players = (aff || []).map((a) => a.club_players?.short_name || a.club_players?.name).filter(Boolean);
       }
       out.push({
         stop_id: s.id,
@@ -499,9 +615,10 @@
     }
     const sb = api().getClient();
     const d = st.data;
-    const [teams, aff, comps, sources, fac, fields, games, runs] = await Promise.all([
+    const [teams, aff, links, comps, sources, fac, fields, games, runs] = await Promise.all([
       sb.from("club_teams").select("*").order("team_name"),
-      sb.from("club_player_affiliations").select("*, player:players (name, short_name), team:club_teams (team_name)").eq("active", true),
+      sb.from("club_player_affiliations").select("*, club_players (id, name, short_name), team:club_teams (team_name)").eq("active", true),
+      sb.from("club_player_links").select("id, player_id, club_player_id, players (name, short_name), club_players (name, short_name)"),
       sb.from("club_competitions").select("*").order("name"),
       sb.from("club_schedule_sources").select("*, team_competition:club_team_competitions (club_team_id, club_competition_id)").order("updated_at", { ascending: false }),
       sb.from("club_facilities").select("*").order("name"),
@@ -512,6 +629,7 @@
     if (teams.error) throw teams.error;
     d.teams = teams.data || [];
     d.affiliations = aff.data || [];
+    st.links = links.data || [];
     d.competitions = comps.data || [];
     d.sources = sources.data || [];
     d.facilities = fac.data || [];
@@ -603,7 +721,7 @@
             ${playerOpts}
           </select>
         </label>
-        <label class="club-check"><input type="checkbox" id="club-filter-both" ${st.agenda.onlyBoth ? "checked" : ""} /> Brighton vs Brighton</label>
+        <label class="club-check"><input type="checkbox" id="club-filter-both" ${st.agenda.onlyBoth ? "checked" : ""} /> Players on both teams</label>
         <label>Search<input type="search" id="club-filter-text" value="${escapeHtml(st.agenda.filterText)}" placeholder="Team, player, venue" /></label>
         <button type="submit" class="btn btn-primary" id="club-agenda-refresh">Apply</button>
       </form>`;
@@ -629,29 +747,31 @@
         const cards = items
           .map((g) => {
             const both = g.brighton_both_sides
-              ? `<span class="club-badge club-badge-both">Brighton both sides</span>`
+              ? `<span class="club-badge club-badge-both">Both teams</span>`
               : "";
             const changed = g.recently_changed ? `<span class="club-badge club-badge-changed">Updated</span>` : "";
             const players = (g.brighton_players || [])
-              .map((p) => `${escapeHtml(p.name)}${p.side ? ` (${p.side})` : ""}`)
+              .map((p) => `${escapeHtml(p.name)}${p.side ? ` (${p.side})` : ""}${p.shot_player_id ? " · shot tracker" : ""}`)
               .join(", ");
             const map = mapsLink(g.lat, g.lng, g.facility);
             const venue = [g.facility, g.field].filter(Boolean).join(" · ") || "Venue TBD";
-            const already = picked.has(g.game_id);
+            const onThis = picked.has(g.game_id) && (mode === "pick" || isEngaged());
             const addControl =
               mode === "pick"
-                ? already
+                ? onThis
                   ? `<button type="button" class="btn btn-ghost" disabled>Added</button>`
                   : `<button type="button" class="btn btn-secondary" data-add-itin="${escapeHtml(g.game_id)}">Add</button>`
-                : "";
+                : onThis
+                  ? `<button type="button" class="btn btn-ghost club-add-btn" disabled aria-label="Already on this itinerary">Added</button>`
+                  : `<button type="button" class="btn btn-secondary club-add-btn" data-agenda-add="${escapeHtml(g.game_id)}" aria-label="${isEngaged() ? `Add to ${escapeHtml(workingName())}` : "Add to an itinerary"}">+</button>`;
             return `
-              <article class="club-game-card${already && mode === "pick" ? " is-added" : ""}" data-game-id="${escapeHtml(g.game_id)}">
+              <article class="club-game-card${onThis ? " is-added" : ""}" data-game-id="${escapeHtml(g.game_id)}">
                 <div class="club-game-card-top">
                   <time>${escapeHtml(formatKickoff(g.kickoff_at))}</time>
                   <span class="club-status">${escapeHtml(g.status || "scheduled")}</span>
                 </div>
                 <h3>${escapeHtml(g.home_team)} <span class="muted">vs</span> ${escapeHtml(g.away_team)}</h3>
-                <p class="club-players">${players || "No Brighton players linked"} · ${g.brighton_player_count || 0} player${(g.brighton_player_count || 0) === 1 ? "" : "s"}</p>
+                <p class="club-players">${players || "No club players"} · ${g.brighton_player_count || 0} player${(g.brighton_player_count || 0) === 1 ? "" : "s"}</p>
                 <p class="muted">${escapeHtml(venue)}${g.city ? ` · ${escapeHtml(g.city)}` : ""}${g.competition ? ` · ${escapeHtml(g.competition)}` : ""}</p>
                 <div class="club-game-actions">
                   ${both}${changed}
@@ -665,11 +785,57 @@
       })
       .join("");
 
+    if (!dayBlocks && st.loading) return "";
     return dayBlocks || `<p class="empty-state">No upcoming club games in this range.</p>`;
   }
 
+  function isEngaged() {
+    return !!st.itinerary.engaged && !!st.itinerary.draft;
+  }
+
+  function workingName() {
+    return String(st.itinerary.draft?.name || "").trim() || "this itinerary";
+  }
+
+  function agendaWorkingMarkup() {
+    if (!isEngaged()) return "";
+    return `
+      <div class="club-working">
+        <p>Adding to <strong>${escapeHtml(workingName())}</strong></p>
+        <button type="button" class="btn btn-ghost" id="club-close-itin">Close</button>
+      </div>`;
+  }
+
+  function agendaAddChoiceMarkup() {
+    const prompt = st.agenda.addPrompt;
+    if (!prompt || isEngaged()) return "";
+    const game = (st.agenda.games || []).find((g) => g.game_id === prompt.gameId);
+    const title = game ? `${game.home_team || "TBD"} vs ${game.away_team || "TBD"}` : "This game";
+    const options = (st.itinerary.list || [])
+      .map(
+        (i) =>
+          `<option value="${escapeHtml(i.id)}">${escapeHtml(i.name)}${i.target_date ? ` (${i.target_date})` : ""}</option>`
+      )
+      .join("");
+    return `
+      <section class="club-add-choice" id="club-add-choice">
+        <h2>Where should this game go?</h2>
+        <p>${escapeHtml(title)}</p>
+        <button type="button" class="btn btn-primary" id="club-add-new">New itinerary</button>
+        ${
+          options
+            ? `<label>Existing itinerary
+                <select id="club-add-existing">${options}</select>
+              </label>
+              <button type="button" class="btn btn-secondary" id="club-add-existing-go">Add to this one</button>`
+            : `<p class="muted">No saved itineraries yet.</p>`
+        }
+        <button type="button" class="btn btn-ghost" id="club-add-cancel">Cancel</button>
+      </section>`;
+  }
+
   function agendaMarkup() {
-    return `${agendaFiltersMarkup()}${agendaListMarkup("browse")}`;
+    return `${agendaWorkingMarkup()}${matchPromptMarkup()}${agendaAddChoiceMarkup()}${agendaFiltersMarkup()}${agendaListMarkup("browse")}`;
   }
 
   function readAgendaFiltersFromForm() {
@@ -703,6 +869,76 @@
 
   function bindAgenda() {
     bindAgendaFilters();
+    bindMatchPrompt();
+    $("#club-close-itin")?.addEventListener("click", () => {
+      st.itinerary.engaged = false;
+      st.agenda.addPrompt = null;
+      paint();
+    });
+    $("#club-add-cancel")?.addEventListener("click", () => {
+      st.agenda.addPrompt = null;
+      paint();
+    });
+    $("#club-add-new")?.addEventListener("click", async () => {
+      const gameId = st.agenda.addPrompt?.gameId;
+      if (!gameId) return;
+      st.itinerary.currentId = "";
+      st.itinerary.draft = {
+        name: `Visits ${todayLocal()}`,
+        target_date: st.agenda.dateFrom || todayLocal(),
+        default_visit_minutes: DEFAULT_VISIT,
+        notes: "",
+      };
+      st.itinerary.stops = [];
+      st.itinerary.legs = [];
+      st.itinerary.warnings = [];
+      st.itinerary.matchPrompt = [];
+      st.itinerary.engaged = true;
+      st.agenda.addPrompt = null;
+      await addStop(gameId);
+      showToast(`Added to ${workingName()}`);
+      paint();
+    });
+    $("#club-add-existing-go")?.addEventListener("click", async () => {
+      const gameId = st.agenda.addPrompt?.gameId;
+      const id = $("#club-add-existing")?.value;
+      if (!gameId || !id) return;
+      st.loading = true;
+      paint();
+      try {
+        await loadItinerary(id);
+        st.itinerary.engaged = true;
+        st.agenda.addPrompt = null;
+        const added = await addStop(gameId);
+        showToast(added ? `Added to ${workingName()}` : `Already on ${workingName()}`);
+      } catch (err) {
+        st.error = err.message || "Could not open that itinerary";
+      }
+      st.loading = false;
+      paint();
+    });
+    $$("[data-agenda-add]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-agenda-add");
+        if (isEngaged()) {
+          btn.disabled = true;
+          const added = await addStop(id);
+          showToast(added ? `Added to ${workingName()}` : `Already on ${workingName()}`);
+          paint();
+          return;
+        }
+        if (!st.itinerary.list.length) {
+          try {
+            await loadItineraryList();
+          } catch (_) {
+            st.itinerary.list = [];
+          }
+        }
+        st.agenda.addPrompt = { gameId: id };
+        paint();
+        $("#club-add-choice")?.scrollIntoView({ block: "start" });
+      });
+    });
   }
 
   async function addGameToDraft(gameId) {
@@ -764,6 +1000,15 @@
     await refreshLegs();
   }
 
+  async function addStop(gameId) {
+    const before = (st.itinerary.stops || []).some((s) => s.game_id === gameId);
+    await addGameToDraft(gameId);
+    if (before) return false;
+    const g = (st.agenda.games || []).find((x) => x.game_id === gameId);
+    queueShotMatches(await collectShotMatches(g?.brighton_players || []));
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // Itinerary UI
   // ---------------------------------------------------------------------------
@@ -798,6 +1043,46 @@
             : ""
         }
       </div>`;
+  }
+
+  function matchPromptMarkup() {
+    const rows = st.itinerary.matchPrompt || [];
+    if (!rows.length) return "";
+    const items = rows
+      .map((row) => {
+        const one = row.candidates.length === 1 ? row.candidates[0] : null;
+        const options = row.candidates
+          .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`)
+          .join("");
+        const lead = one
+          ? `${escapeHtml(row.clubName)} looks like ${escapeHtml(one.name)}.`
+          : `${escapeHtml(row.clubName)} might match one of these Shot Tracker players.`;
+        return `
+          <li class="club-match-row">
+            <p>${lead}</p>
+            ${
+              one
+                ? ""
+                : `<label>Shot Tracker player
+                    <select data-match-shot="${escapeHtml(row.clubPlayerId)}">
+                      <option value="">Choose</option>
+                      ${options}
+                    </select>
+                  </label>`
+            }
+            <div class="club-match-actions">
+              <button type="button" class="btn btn-primary" data-match-yes="${escapeHtml(row.clubPlayerId)}">Match</button>
+              <button type="button" class="btn btn-ghost" data-match-no="${escapeHtml(row.clubPlayerId)}">Not the same</button>
+            </div>
+          </li>`;
+      })
+      .join("");
+    return `
+      <section class="club-match" id="club-match" aria-labelledby="club-match-title">
+        <h2 id="club-match-title">Want to match this to a player from Shot Tracker?</h2>
+        <ul class="club-match-list">${items}</ul>
+        ${rows.length > 1 ? `<button type="button" class="btn btn-ghost" id="club-match-skip">Not now</button>` : ""}
+      </section>`;
   }
 
   function itineraryMarkup() {
@@ -851,6 +1136,7 @@
       .join("");
 
     return `
+      ${matchPromptMarkup()}
       <div class="club-itin-toolbar">
         <label>Saved
           <select id="club-itin-select">
@@ -883,7 +1169,7 @@
         ${g.error ? `<p class="form-error">${escapeHtml(g.error)}</p>` : ""}
         <form id="club-gemini-form" class="explore-form">
           <label class="sr-only" for="club-gemini-input">Question</label>
-          <textarea id="club-gemini-input" class="explore-input" rows="2" maxlength="2000" placeholder="Which Brighton-player games are near Layton Saturday?">${escapeHtml(g.draft || "")}</textarea>
+          <textarea id="club-gemini-input" class="explore-input" rows="2" maxlength="2000" placeholder="Which club games are near Layton this weekend?">${escapeHtml(g.draft || "")}</textarea>
           <button type="submit" class="btn btn-primary" ${g.loading ? "disabled" : ""}>${g.loading ? "Thinking…" : "Ask"}</button>
           <button type="button" class="btn btn-ghost" id="club-gemini-suggest" ${g.loading ? "disabled" : ""}>Suggest order</button>
         </form>
@@ -898,7 +1184,7 @@
     lines.push("");
     st.itinerary.stops.forEach((s, i) => {
       lines.push(`${i + 1}. ${s.team_line}`);
-      if (s.brighton_line) lines.push(`   Brighton: ${s.brighton_line}`);
+      if (s.brighton_line) lines.push(`   Players: ${s.brighton_line}`);
       lines.push(`   Kickoff: ${formatKickoff(s.kickoff_at)}`);
       if (s.planned_arrival_at) lines.push(`   Arrive ~ ${formatKickoff(s.planned_arrival_at)}`);
       lines.push(`   Venue: ${[s.facility_name, s.field_label].filter(Boolean).join(" · ") || "TBD"}`);
@@ -925,9 +1211,10 @@
         readItineraryForm();
         const id = btn.getAttribute("data-add-itin");
         btn.disabled = true;
-        await addGameToDraft(id);
+        const added = await addStop(id);
+        st.itinerary.engaged = true;
         st.itinerary.pickerOpen = true;
-        showToast("Added to this itinerary");
+        showToast(added ? `Added to ${workingName()}` : `Already on ${workingName()}`);
         paint();
       });
     });
@@ -951,10 +1238,11 @@
       const id = e.target.value;
       if (!id) {
         st.itinerary.currentId = "";
-        st.itinerary.draft = { name: "", target_date: todayLocal(), default_visit_minutes: DEFAULT_VISIT };
+        st.itinerary.draft = { name: `Visits ${todayLocal()}`, target_date: todayLocal(), default_visit_minutes: DEFAULT_VISIT };
         st.itinerary.stops = [];
         st.itinerary.legs = [];
         st.itinerary.warnings = [];
+        st.itinerary.engaged = true;
         paint();
         return;
       }
@@ -962,6 +1250,7 @@
       paint();
       try {
         await loadItinerary(id);
+        st.itinerary.engaged = true;
       } catch (err) {
         st.error = err.message || "Could not load itinerary";
       }
@@ -974,6 +1263,7 @@
       st.itinerary.stops = [];
       st.itinerary.legs = [];
       st.itinerary.warnings = [];
+      st.itinerary.engaged = true;
       paint();
     });
     $$("[data-stop-up]").forEach((btn) =>
@@ -1041,6 +1331,62 @@
     $("#club-gemini-input")?.addEventListener("input", (e) => {
       st.itinerary.gemini.draft = e.target.value;
     });
+    bindMatchPrompt();
+  }
+
+  function bindMatchPrompt() {
+    const drop = (clubId) => {
+      if (!st.itinerary.dismissedMatchIds.includes(clubId)) st.itinerary.dismissedMatchIds.push(clubId);
+      st.itinerary.matchPrompt = (st.itinerary.matchPrompt || []).filter((row) => row.clubPlayerId !== clubId);
+    };
+    $$("[data-match-yes]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        readItineraryForm();
+        const clubId = btn.getAttribute("data-match-yes");
+        const row = (st.itinerary.matchPrompt || []).find((item) => item.clubPlayerId === clubId);
+        if (!row) return;
+        const shotId =
+          row.candidates.length === 1
+            ? row.candidates[0].id
+            : $(`[data-match-shot="${CSS.escape(clubId)}"]`)?.value;
+        if (!shotId) {
+          showToast("Choose a Shot Tracker player");
+          return;
+        }
+        const sb = api().getClient();
+        const { error } = await sb.from("club_player_links").insert({
+          player_id: shotId,
+          club_player_id: clubId,
+        });
+        if (error) {
+          st.error = error.message;
+          paint();
+          return;
+        }
+        st.itinerary.matchPrompt = (st.itinerary.matchPrompt || [])
+          .filter((item) => item.clubPlayerId !== clubId)
+          .map((item) => ({ ...item, candidates: item.candidates.filter((c) => c.id !== shotId) }))
+          .filter((item) => item.candidates.length);
+        showToast("Matched to Shot Tracker");
+        paint();
+      });
+    });
+    $$("[data-match-no]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        readItineraryForm();
+        drop(btn.getAttribute("data-match-no"));
+        paint();
+      });
+    });
+    $("#club-match-skip")?.addEventListener("click", () => {
+      readItineraryForm();
+      for (const row of st.itinerary.matchPrompt || []) drop(row.clubPlayerId);
+      paint();
+    });
+    if (st.itinerary.scrollMatch) {
+      st.itinerary.scrollMatch = false;
+      $("#club-match")?.scrollIntoView({ block: "nearest" });
+    }
   }
 
   async function saveItinerary() {
@@ -1140,7 +1486,7 @@
         const locked = new Set(st.itinerary.stops.filter((s) => s.locked).map((s) => s.game_id));
         // Add missing games then reorder
         for (const id of ids) {
-          if (!st.itinerary.stops.some((s) => s.game_id === id)) await addGameToDraft(id);
+          if (!st.itinerary.stops.some((s) => s.game_id === id)) await addStop(id);
         }
         const byId = new Map(st.itinerary.stops.map((s) => [s.game_id, s]));
         const ordered = [];
@@ -1240,19 +1586,35 @@
       const playerOpts = st.players
         .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`)
         .join("");
+      const linkRows = (st.links || [])
+        .map(
+          (l) =>
+            `<li>${escapeHtml(l.club_players?.name || "Club player")} → ${escapeHtml(l.players?.name || "Shot Tracker")}
+              <button type="button" class="btn btn-ghost" data-unlink="${escapeHtml(l.id)}">Remove link</button></li>`
+        )
+        .join("");
       body = `
+        <form id="club-add-player" class="club-mini-form">
+          <h3>Add club player</h3>
+          <input name="name" placeholder="Full name" required />
+          <input name="short_name" placeholder="Short name" />
+          <button class="btn btn-primary" type="submit">Add</button>
+        </form>
         <form id="club-add-aff" class="club-mini-form">
-          <h3>Link Brighton player → club team</h3>
-          <select name="player_id" required>${playerOpts}</select>
-          <select name="club_team_id" required>${teamOpts}</select>
-          <button class="btn btn-primary" type="submit">Link</button>
+          <h3>Add to a club team</h3>
+          <select name="club_player_id" required><option value="">Club player</option>${playerOpts}</select>
+          <select name="club_team_id" required><option value="">Team</option>${teamOpts}</select>
+          <button class="btn btn-primary" type="submit">Add</button>
         </form>
         <ul class="club-list">${st.data.affiliations
           .map(
             (a) =>
-              `<li>${escapeHtml(a.player?.short_name || a.player?.name || "?")} → ${escapeHtml(a.team?.team_name || "")}</li>`
+              `<li>${escapeHtml(a.club_players?.short_name || a.club_players?.name || "?")} → ${escapeHtml(a.team?.team_name || "")}</li>`
           )
-          .join("")}</ul>`;
+          .join("")}</ul>
+        <h3>Shot Tracker links</h3>
+        <p class="muted">A link is optional. It is offered when you add a game whose club player looks like a Shot Tracker player.</p>
+        <ul class="club-list">${linkRows || `<li class="muted">No links yet</li>`}</ul>`;
     } else if (sec === "competitions") {
       body = `
         <form id="club-add-comp" class="club-mini-form">
@@ -1389,12 +1751,38 @@
       await loadDataSection();
       paint();
     });
+    $("#club-add-player")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const sb = api().getClient();
+      const name = String(fd.get("name") || "").trim();
+      if (!name) return;
+      const { error } = await sb.from("club_players").insert({
+        name,
+        short_name: String(fd.get("short_name") || "").trim() || null,
+      });
+      if (error) st.error = error.message;
+      else showToast("Club player added");
+      st.players = [];
+      await loadDataSection();
+      paint();
+    });
+    $$("[data-unlink]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const sb = api().getClient();
+        const { error } = await sb.from("club_player_links").delete().eq("id", btn.getAttribute("data-unlink"));
+        if (error) st.error = error.message;
+        else showToast("Link removed");
+        await loadDataSection();
+        paint();
+      });
+    });
     $("#club-add-aff")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const sb = api().getClient();
       const { error } = await sb.from("club_player_affiliations").insert({
-        player_id: fd.get("player_id"),
+        club_player_id: fd.get("club_player_id"),
         club_team_id: fd.get("club_team_id"),
         active: true,
       });
@@ -1606,7 +1994,7 @@
           continue;
         }
         const { error } = await sb.from("club_player_affiliations").insert({
-          player_id: player.id,
+          club_player_id: player.id,
           club_team_id: team.id,
           active: true,
         });
@@ -1691,6 +2079,8 @@
     else if (st.tab === "itinerary") inner = itineraryMarkup();
     else inner = dataMarkup();
     root.innerHTML = shell(inner);
+    if (st.loading) startLoadingLines();
+    else stopLoadingLines();
     if (st.tab === "agenda") bindAgenda();
     else if (st.tab === "itinerary") bindItinerary();
     else bindData();
@@ -1741,6 +2131,9 @@
 
   global.ClubVisitation = {
     render,
-    onLeave() {},
+    shotTrackerMatches,
+    onLeave() {
+      stopLoadingLines();
+    },
   };
 })(window);

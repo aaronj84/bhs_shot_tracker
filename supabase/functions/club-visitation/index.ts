@@ -156,7 +156,12 @@ Deno.serve(async (req) => {
 
     const toolResults = [];
     for (const call of toolCalls.slice(0, 4)) {
+      console.log("[club-visitation]", call.name, JSON.stringify(call.arguments));
       const result = await executeClubTool(call.name, call.arguments, ctx);
+      const summary = result && typeof result === "object"
+        ? { date_from: result.date_from, date_to: result.date_to, count: result.count, error: result.error }
+        : null;
+      console.log("[club-visitation] result", call.name, JSON.stringify(summary));
       toolResults.push({ name: call.name, arguments: call.arguments, result });
     }
 

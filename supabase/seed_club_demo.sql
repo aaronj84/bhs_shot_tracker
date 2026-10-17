@@ -1,6 +1,7 @@
 -- Demo club visitation data for DEV only.
 -- Safe to re-run: uses fixed demo UUIDs and upserts.
--- Does NOT overwrite production HS shot data. Links to existing public.players by name when present.
+-- Does NOT overwrite production HS shot data.
+-- Club players are their own rows. A shot-tracker link is added only when a public.players row has the same name.
 
 -- Facilities
 insert into public.club_facilities (id, name, street_address, city, state, postal_code, latitude, longitude, aliases, geocode_status, maps_url)
@@ -29,20 +30,46 @@ values
   ('b1000000-0000-4000-8000-00000000000d', 'Olympus Club', 'Olympus 09G Black', 'U17', array[]::text[])
 on conflict (id) do update set team_name = excluded.team_name, aliases = excluded.aliases;
 
--- Affiliations: map Jackie / Susie-like names if present in players
-insert into public.club_player_affiliations (player_id, club_team_id, active, season_label)
-select p.id, t.team_id, true, '2026 Spring Club'
+-- Club players, then an optional link when a shot-tracker player has the same name.
+insert into public.club_players (name, short_name)
+select v.name, v.short_name
+from (values
+  ('Jaqueline Scott', 'Jackie'),
+  ('Jane Thackeray', 'Jane'),
+  ('Saige Thurgood', 'Saige'),
+  ('Stella Bollinger', 'Stella')
+) as v(name, short_name)
+where not exists (
+  select 1 from public.club_players cp where cp.name = v.name
+);
+
+insert into public.club_player_links (player_id, club_player_id)
+select p.id, cp.id
+from (values
+  ('Jaqueline Scott'),
+  ('Jane Thackeray'),
+  ('Saige Thurgood'),
+  ('Stella Bollinger')
+) as v(name)
+join public.players p on p.name = v.name
+join public.club_players cp on cp.name = v.name
+where not exists (
+  select 1 from public.club_player_links l
+  where l.player_id = p.id or l.club_player_id = cp.id
+);
+
+insert into public.club_player_affiliations (club_player_id, club_team_id, active, season_label)
+select cp.id, x.team_id, true, '2026 Spring Club'
 from (values
   ('Jaqueline Scott', 'b1000000-0000-4000-8000-00000000000a'::uuid),
   ('Jane Thackeray', 'b1000000-0000-4000-8000-00000000000a'::uuid),
   ('Saige Thurgood', 'b1000000-0000-4000-8000-00000000000b'::uuid),
   ('Stella Bollinger', 'b1000000-0000-4000-8000-00000000000b'::uuid)
 ) as x(player_name, team_id)
-join public.players p on p.name = x.player_name
-join (select id as team_id from public.club_teams) t on t.team_id = x.team_id
+join public.club_players cp on cp.name = x.player_name
 where not exists (
   select 1 from public.club_player_affiliations a
-  where a.player_id = p.id and a.club_team_id = x.team_id and a.active
+  where a.club_player_id = cp.id and a.club_team_id = x.team_id and a.active
 );
 
 insert into public.club_competitions (id, name, competition_type, season_year, status)

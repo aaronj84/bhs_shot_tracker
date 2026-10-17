@@ -9,7 +9,7 @@ Hash routes: `#club` / `#club-agenda` (default) · `#club-itinerary` · `#club-d
 | Topic | Decision |
 | --- | --- |
 | Stack | Vanilla HTML/CSS/JS + Supabase (no client build). New module: `club-visitation.js`, same pattern as `schedule.js`. |
-| Player identity | FK to durable `public.players.id`. Players are not season-scoped; `rosters` ties them to seasons. No new identity bridge required. |
+| Player identity | Club players live in `club_players`. Shot-tracker `players` stay separate. `club_player_links` is the only connection, and it is optional. |
 | Auth / RLS | Anonymous Supabase session after staff PIN (client gate). RLS: `authenticated` full CRUD on `club_*` tables — same as shot tracker. |
 | Gemini | Reuse `GEMINI_API_KEY` + `createGeminiProvider` via Edge Function `club-visitation`. Tool-style JSON plans executed server-side against Postgres; model does not invent fixtures. |
 | Maps / routing | No existing map provider in-app. Facility pins use lat/lng + Google Maps / OSM direction links. Driving times via Google Routes API when `GOOGLE_MAPS_API_KEY` is set as a Supabase secret; otherwise UI shows “travel time unavailable” (never invents drive minutes from haversine). Same-facility field moves use configurable walk minutes. |
@@ -23,7 +23,8 @@ See migration `supabase/migrations/20261016180000_club_visitation.sql`.
 
 - Teams are first-class (`club_teams`), including opponents with zero Brighton players.
 - Games reference `home_team_id` / `away_team_id` (nullable only while opponent is TBD + `raw_*` labels).
-- Affiliations: `club_player_affiliations.player_id → players.id`.
+- Affiliations: `club_player_affiliations.club_player_id → club_players.id`.
+- Optional link: `club_player_links` pairs one club player with one shot-tracker player. Adding a game to an itinerary offers that link only when the names could be the same person.
 - Schedule URLs live on `club_schedule_sources` (scoped to a team↔competition enrollment), not on the team row.
 - Sync audit: `club_sync_runs`, `club_game_changes`, `club_game_source_links`.
 - Manual overrides: `club_games.manual_overrides` jsonb + `coach_verified_at`; sync skips overridden fields.

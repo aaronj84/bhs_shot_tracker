@@ -10,6 +10,10 @@ const MIGRATION = readFileSync(
   path.join(ROOT, "supabase/migrations/20261016180000_club_visitation.sql"),
   "utf8"
 );
+const LINKS = readFileSync(
+  path.join(ROOT, "supabase/migrations/20261017022910_club_player_links.sql"),
+  "utf8"
+);
 
 let db;
 
@@ -27,6 +31,7 @@ beforeAll(async () => {
     );
   `);
   await db.exec(MIGRATION);
+  await db.exec(LINKS);
   await db.exec(`
     insert into public.players (id, name, short_name) values
       ('11111111-1111-4111-8111-111111111111', 'Susie Demo', 'Susie'),
@@ -42,7 +47,11 @@ describe("club visitation SQL", () => {
         ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'Club A', 'Team A'),
         ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'Club B', 'Team B'),
         ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', 'Opp C', 'Team C');
-      insert into public.club_player_affiliations (player_id, club_team_id, active) values
+      insert into public.club_players (id, name, short_name) values
+        ('11111111-1111-4111-8111-111111111111', 'Susie Demo', 'Susie'),
+        ('22222222-2222-4222-8222-222222222222', 'Jackie Demo', 'Jackie'),
+        ('33333333-3333-4333-8333-333333333333', 'Other Demo', 'Other');
+      insert into public.club_player_affiliations (club_player_id, club_team_id, active) values
         ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true),
         ('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true),
         ('33333333-3333-4333-8333-333333333333', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
@@ -97,6 +106,23 @@ describe("club visitation SQL", () => {
     );
     expect(both[0].brighton_both_sides).toBe(true);
     expect(both[0].brighton_player_count).toBe(3);
+
+    await db.exec(`
+      insert into public.club_player_links (player_id, club_player_id) values
+        ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111');
+    `);
+    const { rows: linked } = await db.query(`
+      select elem->>'shot_player_id' as shot
+      from public.v_club_game_brighton v,
+           jsonb_array_elements(v.home_brighton_players) elem
+      where v.club_game_id = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd1'
+        and elem->>'full_name' = 'Susie Demo'
+    `);
+    expect(linked[0].shot).toBe("11111111-1111-4111-8111-111111111111");
+    const { rows: stillPlayers } = await db.query(
+      `select count(*)::int as n from public.players where name = 'Susie Demo'`
+    );
+    expect(stillPlayers[0].n).toBe(1);
   });
 
   it("rejects field belonging to a different facility", async () => {

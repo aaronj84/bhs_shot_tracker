@@ -5360,7 +5360,74 @@ body.club-view .app-main {
 }
 
 .club-game-card.is-added {
-  opacity: 0.72;
+  background: rgba(26, 77, 124, 0.1);
+  border-color: var(--brand);
+}
+
+.club-add-btn {
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.club-working {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem 0.55rem 0.85rem;
+  background: rgba(26, 77, 124, 0.1);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+}
+
+.club-working p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.club-working .btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.club-add-choice {
+  background: var(--bg-panel);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem;
+  margin: 0 0 0.75rem;
+  scroll-margin-top: 5.5rem;
+}
+
+.club-add-choice h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.club-add-choice p {
+  margin: 0 0 0.65rem;
+}
+
+.club-add-choice .btn,
+.club-add-choice select {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 0.45rem;
+}
+
+.club-add-choice label {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .club-filters label {
@@ -5619,9 +5686,81 @@ body.club-view .app-main {
   overflow: auto;
 }
 
-.club-banner-error,
-.club-loading {
+.club-banner-error {
   margin: 0 0 0.65rem;
+}
+
+.club-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 44px;
+  margin: 0.15rem 0 0.85rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.club-spin {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid var(--border);
+  border-top-color: var(--brand-strong);
+  border-radius: 50%;
+  animation: club-spin 0.7s linear infinite;
+}
+
+@keyframes club-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .club-spin { animation: none; }
+}
+
+.club-match {
+  background: var(--bg-panel);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem;
+  margin: 0 0 0.75rem;
+  scroll-margin-top: 5.5rem;
+}
+
+.club-match h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.club-match-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.club-match-row {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.club-match-row p {
+  margin: 0 0 0.45rem;
+}
+
+.club-match-row select,
+.club-match-actions .btn,
+.club-match > .btn {
+  min-height: 44px;
+}
+
+.club-match-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.club-match-actions .btn {
+  flex: 1;
 }
 
 .club-inline {
