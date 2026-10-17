@@ -88,7 +88,7 @@
   }
 
   const GAME_ID_RE =
-    /(?:\s*\|\s*)?(?:\*\*\s*)?(?:\bGame\s+)?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?(?:\s*\*\*)?/gi;
+    /(?:\s*\|\s*)?(?:\*\*\s*)?(?:\bgame(?:\s+id)?\s*:?\s*)?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?(?:\s*\*\*)?/gi;
 
   function stageGameAdds(text) {
     return String(text || "").replace(GAME_ID_RE, (_, id) => `\uE000${id}\uE001`);
@@ -789,6 +789,66 @@
       </form>`;
   }
 
+  function sideLabel(side) {
+    const text = String(side || "").trim();
+    if (!text) return "";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function rosterNames(players) {
+    return [...players]
+      .sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+      )
+      .map((p) =>
+        p.shot_player_id
+          ? `<span class="is-roster" title="Shot tracker roster">${escapeHtml(p.name)}</span>`
+          : escapeHtml(p.name)
+      )
+      .join(", ");
+  }
+
+  function playerRosterMarkup(players) {
+    const list = players || [];
+    if (!list.length) return `<p class="club-players is-empty">No club players</p>`;
+
+    const groups = new Map();
+    for (const player of list) {
+      const side = String(player.side || "").trim().toLowerCase();
+      if (!groups.has(side)) groups.set(side, []);
+      groups.get(side).push(player);
+    }
+
+    if (groups.size <= 1) {
+      const side = sideLabel([...groups.keys()][0]);
+      const caption = side
+        ? list.length > 1
+          ? `${escapeHtml(side)} · ${list.length}`
+          : escapeHtml(side)
+        : list.length > 1
+          ? `${list.length} players`
+          : "";
+      return `
+        <div class="club-players">
+          <p class="club-player-names">${rosterNames(list)}</p>
+          ${caption ? `<p class="club-player-aside">${caption}</p>` : ""}
+        </div>`;
+    }
+
+    const order = ["home", "away", ""];
+    const rows = [...groups.entries()]
+      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(
+        ([side, group]) => `
+          <div class="club-side-group">
+            ${side ? `<p class="club-side-label">${escapeHtml(sideLabel(side))}</p>` : ""}
+            <p class="club-player-names">${rosterNames(group)}</p>
+          </div>`
+      )
+      .join("");
+    return `<div class="club-players">${rows}</div>`;
+  }
+
   function agendaListMarkup(mode) {
     const games = filteredAgendaGames();
     const picked = new Set((st.itinerary.stops || []).map((s) => s.game_id));
@@ -812,9 +872,7 @@
               ? `<span class="club-badge club-badge-both">Both teams</span>`
               : "";
             const changed = g.recently_changed ? `<span class="club-badge club-badge-changed">Updated</span>` : "";
-            const players = (g.brighton_players || [])
-              .map((p) => `${escapeHtml(p.name)}${p.side ? ` (${p.side})` : ""}${p.shot_player_id ? " · shot tracker" : ""}`)
-              .join(", ");
+            const playersBlock = playerRosterMarkup(g.brighton_players);
             const map = mapsLink(g.lat, g.lng, g.facility);
             const venue = [g.facility, g.field].filter(Boolean).join(" · ") || "Venue TBD";
             const onThis = picked.has(g.game_id) && (mode === "pick" || isEngaged());
@@ -832,9 +890,9 @@
                   <time>${escapeHtml(formatKickoff(g.kickoff_at))}</time>
                   <span class="club-status">${escapeHtml(g.status || "scheduled")}</span>
                 </div>
-                <h3>${escapeHtml(g.home_team)} <span class="muted">vs</span> ${escapeHtml(g.away_team)}</h3>
-                <p class="club-players">${players || "No club players"} · ${g.brighton_player_count || 0} player${(g.brighton_player_count || 0) === 1 ? "" : "s"}</p>
-                <p class="muted">${escapeHtml(venue)}${g.city ? ` · ${escapeHtml(g.city)}` : ""}${g.competition ? ` · ${escapeHtml(g.competition)}` : ""}</p>
+                ${playersBlock}
+                <h3>${escapeHtml(g.home_team)} <span>vs</span> ${escapeHtml(g.away_team)}</h3>
+                <p class="club-venue">${escapeHtml(venue)}${g.city ? ` · ${escapeHtml(g.city)}` : ""}${g.competition ? ` · ${escapeHtml(g.competition)}` : ""}</p>
                 <div class="club-game-actions">
                   ${both}${changed}
                   ${map ? `<a class="btn btn-ghost" href="${escapeHtml(map)}" target="_blank" rel="noopener">Directions</a>` : `<span class="muted">No map pin</span>`}

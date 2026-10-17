@@ -137,6 +137,22 @@ export function explicitCalendarWindow(text, timeZone = CLUB_TZ, now = new Date(
     const day = calendarDay(Number(named[3] || year), MONTH_INDEX[named[1]], Number(named[2]));
     if (day) return { date_from: day, date_to: day };
   }
+  const ordinal = q.match(/\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/);
+  if (ordinal) {
+    const dayNum = Number(ordinal[1]);
+    let y = year;
+    let month = Number(today.slice(5, 7));
+    const todayDay = Number(today.slice(8, 10));
+    if (dayNum < todayDay) {
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        y += 1;
+      }
+    }
+    const day = calendarDay(y, month, dayNum);
+    if (day) return { date_from: day, date_to: day };
+  }
   return null;
 }
 

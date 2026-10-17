@@ -33,7 +33,7 @@ export function createClubDb(sb) {
           home:club_teams!club_games_home_team_id_fkey (id, team_name, organization_name),
           away:club_teams!club_games_away_team_id_fkey (id, team_name, organization_name),
           competition:club_competitions (id, name, competition_type),
-          facility:club_facilities (id, name, city, latitude, longitude, maps_url),
+          facility:club_facilities (id, name, city, street_address, state, latitude, longitude, maps_url),
           field:club_fields (id, label)
         `
         )
@@ -332,6 +332,7 @@ function flattenGame(g, brighton, recentlyChanged) {
     facility_name: g.facility?.name || null,
     facility_id: g.facility?.id || g.club_facility_id,
     field_label: g.field?.label || null,
+    street_address: g.facility?.street_address || null,
     city: g.facility?.city || null,
     latitude: g.facility?.latitude ?? null,
     longitude: g.facility?.longitude ?? null,

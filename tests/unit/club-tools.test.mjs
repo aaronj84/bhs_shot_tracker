@@ -122,6 +122,83 @@ describe("club gemini tools", () => {
     expect(seen.date_to).toBe("2026-10-24");
   });
 
+  it("treats Saturday the 24th as the 24th, not the coming Saturday", async () => {
+    let seen = null;
+    const db = {
+      async searchGames(filters) {
+        seen = filters;
+        return [];
+      },
+    };
+    await executeClubTool(
+      "search_club_games",
+      { team_name: "Red TS" },
+      {
+        db,
+        mapsApiKey: "",
+        question:
+          "i'm gonna go watch Red TS Saturday the 24th. How long will it take me to get from there to the game against La Roca for Red AJ?",
+        now: new Date("2026-10-16T18:00:00.000Z"),
+      }
+    );
+    expect(seen.date_from).toBe("2026-10-24");
+    expect(seen.date_to).toBe("2026-10-24");
+    expect(seen.team_ids == null || seen.team_ids.length === 0).toBe(true);
+  });
+
+  it("includes the other team named in the question, not only the player search", async () => {
+    const games = [
+      {
+        id: "g-ts",
+        kickoff_at: "2026-10-24T19:00:00.000Z",
+        home_team_name: "Cottonwood FC B1415 Red TS",
+        away_team_name: "Golden Eagles FC 14/15B Blue",
+        home_brighton_players: [{ player_id: "z", name: "Zander", full_name: "Zander Friedman" }],
+        away_brighton_players: [],
+        facility_name: "Butler M.S.",
+        street_address: "7530 S 2700 E",
+        city: "Cottonwood Heights",
+        latitude: 40.61,
+        longitude: -111.81,
+      },
+      {
+        id: "g-aj",
+        kickoff_at: "2026-10-24T22:15:00.000Z",
+        home_team_name: "La Roca U12B R. Rada",
+        away_team_name: "Cottonwood FC B1415 Red AJ",
+        home_brighton_players: [],
+        away_brighton_players: [{ player_id: "h", name: "Henry", full_name: "Henry Luplow" }],
+        facility_name: "La Roca Park",
+        street_address: "128 E South Weber Dr",
+        city: "South Weber",
+        latitude: 41.13,
+        longitude: -111.95,
+      },
+    ];
+    const result = await executeClubTool(
+      "search_club_games",
+      { player_name: "Zander" },
+      {
+        db: {
+          async searchGames() {
+            return games;
+          },
+        },
+        mapsApiKey: "",
+        question:
+          "next Saturday the 24th i'm going to watch Zander. Do i have time to drive to the Red AJ team against La Roca?",
+        now: new Date("2026-10-16T18:00:00.000Z"),
+      }
+    );
+    expect(result.games.map((g) => g.game_id)).toEqual(["g-ts", "g-aj"]);
+    expect(result.games[1].address).toBe("128 E South Weber Dr");
+    expect(result.games[1].facility).toBe("La Roca Park");
+    expect(result.travel).toHaveLength(1);
+    expect(result.travel[0].from_game_id).toBe("g-ts");
+    expect(result.travel[0].to_game_id).toBe("g-aj");
+    expect(result.travel[0].unavailable).toBe(true);
+  });
+
   it("grounds both-sides search in home and away affiliations", async () => {
     const result = await executeClubTool(
       "search_club_games",

@@ -65,6 +65,7 @@ function enrichGame(row) {
     competition: row.competition_name,
     facility: row.facility_name,
     field: row.field_label,
+    address: row.street_address || null,
     city: row.city,
     lat: row.latitude,
     lng: row.longitude,
@@ -82,7 +83,7 @@ function isIsoDate(value) {
 }
 
 function hasTimeClue(text) {
-  return /\b(today|tomorrow|saturday|sunday|weekend|week|upcoming|january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b|\b20\d{2}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b/.test(
+  return /\b(today|tomorrow|saturday|sunday|weekend|week|upcoming|january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b|\b20\d{2}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)\b/.test(
     String(text || "").toLowerCase()
   );
 }
@@ -95,6 +96,35 @@ function resolveAskedWindow(args, ctx) {
     return { date_from: args.date_from, date_to: args.date_to };
   }
   return parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, ctx?.now);
+}
+
+const SKIP_WORDS = new Set([
+  "the", "to", "on", "at", "vs", "game", "team", "from", "there", "watch", "going", "gonna",
+  "have", "time", "drive", "driving", "next", "saturday", "sunday", "this", "that", "with",
+  "for", "and", "how", "long", "will", "it", "me", "do", "alright", "im", "i", "a", "an",
+  "of", "in", "my", "you", "your", "against", "both", "make",
+]);
+
+function questionTeamPhrases(question) {
+  const words = normalizeName(question)
+    .split(" ")
+    .filter((word) => word && !SKIP_WORDS.has(word) && !/^\d/.test(word));
+  const phrases = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    const phrase = `${words[i]} ${words[i + 1]}`;
+    if (phrase.length >= 5) phrases.push(phrase);
+  }
+  return phrases;
+}
+
+function rowMatchesTeamPhrase(row, phrase) {
+  return (
+    normalizeName(row.home_team_name).includes(phrase) || normalizeName(row.away_team_name).includes(phrase)
+  );
+}
+
+function asksAboutDrive(question) {
+  return /\b(drive|driving|how long|time to)\b/i.test(String(question || ""));
 }
 
 function rowMatchesPlayerName(row, playerName) {
@@ -111,7 +141,7 @@ async function searchClubGames(args, ctx) {
   const window = resolveAskedWindow(args, ctx);
   const date_from = window.date_from;
   const date_to = window.date_to;
-  let rows = await loadAgendaRows(ctx, {
+  const allRows = await loadAgendaRows(ctx, {
     date_from,
     date_to,
     player_ids: args.player_ids,
@@ -123,19 +153,48 @@ async function searchClubGames(args, ctx) {
     both_sides: !!args.both_sides,
     brighton_only: args.brighton_only === true,
   });
+  let rows = allRows;
   if (args.player_name) rows = rows.filter((row) => rowMatchesPlayerName(row, args.player_name));
   if (args.team_name) {
     const team = normalizeName(args.team_name);
-    rows = rows.filter(
-      (row) =>
-        normalizeName(row.home_team_name).includes(team) || normalizeName(row.away_team_name).includes(team)
-    );
+    rows = rows.filter((row) => rowMatchesTeamPhrase(row, team));
+  }
+  const mentioned = questionTeamPhrases(ctx?.question || "");
+  if (mentioned.length) {
+    const seen = new Set(rows.map((row) => row.id || row.club_game_id));
+    for (const row of allRows) {
+      const id = row.id || row.club_game_id;
+      if (seen.has(id)) continue;
+      if (!mentioned.some((phrase) => rowMatchesTeamPhrase(row, phrase))) continue;
+      rows.push(row);
+      seen.add(id);
+    }
+  }
+  const games = rows
+    .map(enrichGame)
+    .sort((a, b) => String(a.kickoff_at || "").localeCompare(String(b.kickoff_at || "")));
+  let travel = null;
+  if (asksAboutDrive(ctx?.question) && games.length >= 2) {
+    travel = [];
+    for (let i = 0; i < games.length - 1; i++) {
+      const leg = await travelMinutesBetween(games[i], games[i + 1], ctx.mapsApiKey);
+      travel.push({
+        from_game_id: games[i].game_id,
+        to_game_id: games[i + 1].game_id,
+        from_team: games[i].home_team,
+        to_team: games[i + 1].away_team,
+        minutes: leg.minutes,
+        unavailable: !!leg.unavailable,
+        note: leg.note || (leg.same_facility ? "Same facility" : null),
+      });
+    }
   }
   return {
     date_from,
     date_to,
-    count: rows.length,
-    games: rows.map(enrichGame),
+    count: games.length,
+    games,
+    travel,
   };
 }
 
