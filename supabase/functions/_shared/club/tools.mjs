@@ -6,6 +6,7 @@ import {
   addDaysIso,
   endOfLocalDayUtc,
   localDateInTz,
+  normalizeName,
   parseRelativeDateWindow,
   startOfLocalDayUtc,
   CLUB_TZ,
@@ -76,15 +77,41 @@ function enrichGame(row) {
   };
 }
 
-async function searchClubGames(args, ctx) {
-  let date_from = args.date_from;
-  let date_to = args.date_to;
-  if (!date_from || !date_to) {
-    const w = parseRelativeDateWindow(args.relative || "next 7 days", CLUB_TZ);
-    date_from = date_from || w.date_from;
-    date_to = date_to || w.date_to;
+function isIsoDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function hasTimeClue(text) {
+  return /\b(today|tomorrow|saturday|sunday|weekend|week|upcoming|january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b|\b20\d{2}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b/.test(
+    String(text || "").toLowerCase()
+  );
+}
+
+/** Dates and filters come from the question, not the agenda screen. */
+function resolveAskedWindow(args, ctx) {
+  const clue = String(ctx?.question || args.relative || "").trim();
+  if (clue && hasTimeClue(clue)) return parseRelativeDateWindow(clue, CLUB_TZ, ctx?.now);
+  if (isIsoDate(args.date_from) && isIsoDate(args.date_to)) {
+    return { date_from: args.date_from, date_to: args.date_to };
   }
-  const rows = await loadAgendaRows(ctx, {
+  return parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, ctx?.now);
+}
+
+function rowMatchesPlayerName(row, playerName) {
+  const needle = normalizeName(playerName);
+  if (!needle) return true;
+  const people = [...(row.home_brighton_players || []), ...(row.away_brighton_players || [])];
+  return people.some((p) => {
+    const names = [p.full_name, p.name, p.short_name].map(normalizeName);
+    return names.some((n) => n && (n === needle || n.includes(needle)));
+  });
+}
+
+async function searchClubGames(args, ctx) {
+  const window = resolveAskedWindow(args, ctx);
+  const date_from = window.date_from;
+  const date_to = window.date_to;
+  let rows = await loadAgendaRows(ctx, {
     date_from,
     date_to,
     player_ids: args.player_ids,
@@ -94,7 +121,16 @@ async function searchClubGames(args, ctx) {
     city: args.city_or_area,
     include_cancelled: !!args.include_cancelled,
     both_sides: !!args.both_sides,
+    brighton_only: args.brighton_only === true,
   });
+  if (args.player_name) rows = rows.filter((row) => rowMatchesPlayerName(row, args.player_name));
+  if (args.team_name) {
+    const team = normalizeName(args.team_name);
+    rows = rows.filter(
+      (row) =>
+        normalizeName(row.home_team_name).includes(team) || normalizeName(row.away_team_name).includes(team)
+    );
+  }
   return {
     date_from,
     date_to,
@@ -132,13 +168,21 @@ async function findNearbyClubGames(args, ctx) {
   }
   if (!origin) return { error: "place_or_coordinates required", games: [] };
 
-  const w = args.date_window || parseRelativeDateWindow("today", CLUB_TZ);
-  const date_from = w.date_from || w.from || localDateInTz();
-  const date_to = w.date_to || w.to || date_from;
+  const w = resolveAskedWindow(
+    {
+      date_from: args.date_window?.date_from || args.date_from,
+      date_to: args.date_window?.date_to || args.date_to,
+      relative: args.relative,
+    },
+    ctx
+  );
+  const date_from = w.date_from || localDateInTz();
+  const date_to = w.date_to || date_from;
   const rows = await loadAgendaRows(ctx, {
     date_from,
     date_to,
     include_cancelled: false,
+    brighton_only: args.brighton_only === true,
   });
   const radius = args.radius_miles || 25;
   const withCoords = rows
@@ -310,8 +354,18 @@ export function buildToolCatalogPrompt() {
   return `Available tools (call by returning JSON):
 ${TOOL_NAMES.map((n) => `- ${n}`).join("\n")}
 
+Build search_club_games arguments from the coach's words only. Ignore the agenda screen's date range, player menu, and "players on both teams" checkbox.
+
+search_club_games arguments:
+- date_from, date_to: YYYY-MM-DD in America/Denver, taken from the question. "Saturday" is the coming Saturday. "this weekend" is Saturday through Sunday. "10/24" or "October 24" is that calendar day. Use the next 7 days only when the question has no day or date.
+- player_name: a name they mentioned, otherwise omit.
+- team_name: a team they mentioned, otherwise omit.
+- city_or_area: a city or area they mentioned, otherwise omit.
+- both_sides: true only when they ask for players on both teams.
+- Do not set a filter the question did not ask for.
+
 To call tools, respond with ONLY JSON:
-{"tool_calls":[{"name":"search_club_games","arguments":{...}}]}
+{"tool_calls":[{"name":"search_club_games","arguments":{"date_from":"YYYY-MM-DD","date_to":"YYYY-MM-DD"}}]}
 
 After tool results are provided, answer the coach in markdown.`;
 }

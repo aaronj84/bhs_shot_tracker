@@ -5650,6 +5650,51 @@ body.club-view .app-main {
   font-size: 1.1rem;
 }
 
+.club-md h3 {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+
+.club-md p,
+.club-md li {
+  margin: 0 0 0.4rem;
+  line-height: 1.4;
+}
+
+.club-md ul {
+  margin: 0 0 0.55rem;
+  padding-left: 1.15rem;
+}
+
+.club-md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.75rem 0;
+}
+
+.club-md code {
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.club-md li,
+.club-md p {
+  display: flow-root;
+}
+
+.club-md-add {
+  float: right;
+  margin: 0 0 0.15rem 0.5rem;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.2rem 0.75rem;
+}
+
+.club-md em {
+  color: var(--text-muted);
+}
+
 .club-mini-form {
   display: grid;
   gap: 0.45rem;

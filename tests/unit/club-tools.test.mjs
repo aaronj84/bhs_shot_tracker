@@ -75,6 +75,53 @@ describe("club gemini tools", () => {
     expect(TOOL_NAMES).toContain("propose_club_itinerary");
   });
 
+  it("searches the day named in the question, not the agenda week", async () => {
+    let seen = null;
+    const db = {
+      async searchGames(filters) {
+        seen = filters;
+        return sampleGames;
+      },
+    };
+    const result = await executeClubTool(
+      "search_club_games",
+      { date_from: "2026-10-16", date_to: "2026-10-23" },
+      {
+        db,
+        mapsApiKey: "",
+        question: "are there any games coming saturday?",
+        now: new Date("2026-10-16T18:00:00.000Z"),
+      }
+    );
+    expect(seen.date_from).toBe("2026-10-17");
+    expect(seen.date_to).toBe("2026-10-17");
+    expect(seen.brighton_only).toBe(false);
+    expect(seen.both_sides).toBe(false);
+    expect(result.count).toBe(sampleGames.length);
+  });
+
+  it("uses a written calendar day ahead of the weekday word", async () => {
+    let seen = null;
+    const db = {
+      async searchGames(filters) {
+        seen = filters;
+        return [];
+      },
+    };
+    await executeClubTool(
+      "search_club_games",
+      {},
+      {
+        db,
+        mapsApiKey: "",
+        question: "which saturday 10/24 games have the most players to visit?",
+        now: new Date("2026-10-16T18:00:00.000Z"),
+      }
+    );
+    expect(seen.date_from).toBe("2026-10-24");
+    expect(seen.date_to).toBe("2026-10-24");
+  });
+
   it("grounds both-sides search in home and away affiliations", async () => {
     const result = await executeClubTool(
       "search_club_games",

@@ -23,7 +23,7 @@ const context = {
 context.window = context;
 vm.createContext(context);
 vm.runInContext(code, context);
-const { shotTrackerMatches } = context.ClubVisitation;
+const { shotTrackerMatches, renderClubMarkdown } = context.ClubVisitation;
 
 const shot = [
   { id: "s-jane", name: "Jane Thackeray", short_name: "Jane" },
@@ -59,5 +59,54 @@ describe("shot tracker match suggestions", () => {
       ["c-kate"]
     );
     expect(matches).toEqual([]);
+  });
+});
+
+describe("club gemini markdown", () => {
+  it("renders headings, lists, bold, and code without leaving the marks", () => {
+    const html = renderClubMarkdown(
+      [
+        "Here are your options:",
+        "",
+        "### Option 1: Maximum Players (13 Players)",
+        "— **Single Game in South Weber**",
+        "* **4:15 PM MDT** | `d18888c2-658a-555b-adf0-53ac41ab2035`",
+        "* **Players (13):** Henry, Miles",
+        "",
+        "---",
+        "",
+        "**Recommendation:** Attending **Game `d18888c2-658a-555b-adf0-53ac41ab2035`** at La Roca.",
+        "",
+        "*Note: suggestions only.*",
+      ].join("\n")
+    );
+    expect(html).toContain("<h3>Option 1: Maximum Players (13 Players)</h3>");
+    expect(html).toContain("<strong>Single Game in South Weber</strong>");
+    expect(html).toContain("<li><strong>4:15 PM MDT</strong>");
+    expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035">Add</button>');
+    expect(html).toContain("<hr>");
+    expect(html).toContain("<em>Note: suggestions only.</em>");
+    expect(html).not.toContain("###");
+    expect(html).not.toContain("**");
+    expect(html).not.toContain("<code>");
+    expect(html).not.toContain("<script>");
+    const visible = html.replace(/data-add-itin="[^"]*"/g, "");
+    expect(visible).not.toContain("d18888c2");
+  });
+
+  it("marks a game that is already on the itinerary", () => {
+    const html = renderClubMarkdown(
+      "* **4:15 PM MDT** | `d18888c2-658a-555b-adf0-53ac41ab2035`",
+      new Set(["d18888c2-658a-555b-adf0-53ac41ab2035"])
+    );
+    expect(html).toContain(">Added</button>");
+    expect(html).not.toContain("data-add-itin");
+  });
+
+  it("escapes HTML in the model text", () => {
+    const html = renderClubMarkdown("### <img src=x onerror=alert(1)>\n\n<script>alert(1)</script>");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;img");
   });
 });

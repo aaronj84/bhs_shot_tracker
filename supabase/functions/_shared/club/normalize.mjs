@@ -103,9 +103,48 @@ export function endOfLocalDayUtc(dateStr, timeZone = CLUB_TZ) {
   return startOfLocalDayUtc(next, timeZone);
 }
 
+const MONTH_INDEX = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8,
+  september: 9, sept: 9, sep: 9, october: 10, oct: 10, november: 11, nov: 11,
+  december: 12, dec: 12,
+};
+
+function calendarDay(year, month, day) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** A written calendar day in the question, ahead of weekday words like "saturday". */
+export function explicitCalendarWindow(text, timeZone = CLUB_TZ, now = new Date()) {
+  const q = String(text || "").toLowerCase();
+  const today = localDateInTz(timeZone, now);
+  const year = Number(today.slice(0, 4));
+  const iso = q.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    const day = `${iso[1]}-${iso[2]}-${iso[3]}`;
+    return { date_from: day, date_to: day };
+  }
+  const slash = q.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\b/);
+  if (slash) {
+    const day = calendarDay(Number(slash[3] || year), Number(slash[1]), Number(slash[2]));
+    if (day) return { date_from: day, date_to: day };
+  }
+  const named = q.match(
+    /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/
+  );
+  if (named) {
+    const day = calendarDay(Number(named[3] || year), MONTH_INDEX[named[1]], Number(named[2]));
+    if (day) return { date_from: day, date_to: day };
+  }
+  return null;
+}
+
 export function parseRelativeDateWindow(text, timeZone = CLUB_TZ, now = new Date()) {
   const q = String(text || "").toLowerCase();
   const today = localDateInTz(timeZone, now);
+  const explicit = explicitCalendarWindow(q, timeZone, now);
+  if (explicit) return explicit;
   if (!q || /\bnext\s+7\s+days\b|\bthis\s+week\b|\bupcoming\b/.test(q)) {
     return { date_from: today, date_to: addDaysIso(today, 7) };
   }

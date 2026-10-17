@@ -87,6 +87,68 @@
       .replace(/"/g, "&quot;");
   }
 
+  const GAME_ID_RE =
+    /(?:\s*\|\s*)?(?:\*\*\s*)?(?:\bGame\s+)?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?(?:\s*\*\*)?/gi;
+
+  function stageGameAdds(text) {
+    return String(text || "").replace(GAME_ID_RE, (_, id) => `\uE000${id}\uE001`);
+  }
+
+  function gameAddButton(id, addedIds) {
+    const onItinerary = !!addedIds && typeof addedIds.has === "function" && addedIds.has(id);
+    if (onItinerary) {
+      return `<button type="button" class="btn btn-ghost club-md-add" disabled>Added</button>`;
+    }
+    return `<button type="button" class="btn btn-secondary club-md-add" data-add-itin="${escapeHtml(id)}">Add</button>`;
+  }
+
+  function clubMarkdownInline(escaped, addedIds) {
+    return escaped
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/\uE000([0-9a-f-]+)\uE001/gi, (_, id) => gameAddButton(id, addedIds));
+  }
+
+  /** Render the model's markdown. HTML is escaped first. Game ids become Add buttons. */
+  function renderClubMarkdown(text, addedIds) {
+    const lines = escapeHtml(stageGameAdds(text)).replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let list = [];
+    const flushList = () => {
+      if (!list.length) return;
+      blocks.push(`<ul>${list.map((item) => `<li>${clubMarkdownInline(item, addedIds)}</li>`).join("")}</ul>`);
+      list = [];
+    };
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        continue;
+      }
+      if (/^(-{3,}|\*{3,})$/.test(trimmed)) {
+        flushList();
+        blocks.push("<hr>");
+        continue;
+      }
+      const heading = trimmed.match(/^#{1,3}\s+(.+)$/);
+      if (heading) {
+        flushList();
+        blocks.push(`<h3>${clubMarkdownInline(heading[1], addedIds)}</h3>`);
+        continue;
+      }
+      const bullet = trimmed.match(/^[*-]\s+(.+)$/);
+      if (bullet) {
+        list.push(bullet[1]);
+        continue;
+      }
+      flushList();
+      blocks.push(`<p>${clubMarkdownInline(trimmed, addedIds)}</p>`);
+    }
+    flushList();
+    return blocks.join("");
+  }
+
   function showToast(text) {
     const el = $("#role-toast");
     if (!el) return;
@@ -1127,11 +1189,12 @@
       .join("");
 
     const g = st.itinerary.gemini;
+    const addedIds = new Set((st.itinerary.stops || []).map((s) => s.game_id));
     const transcript = (g.messages || [])
       .map((m) =>
         m.role === "user"
           ? `<div class="explore-msg is-user">${escapeHtml(m.content)}</div>`
-          : `<div class="explore-msg is-assistant">${escapeHtml(m.content)}</div>`
+          : `<div class="explore-msg is-assistant"><div class="club-md">${renderClubMarkdown(m.content, addedIds)}</div></div>`
       )
       .join("");
 
@@ -1169,7 +1232,7 @@
         ${g.error ? `<p class="form-error">${escapeHtml(g.error)}</p>` : ""}
         <form id="club-gemini-form" class="explore-form">
           <label class="sr-only" for="club-gemini-input">Question</label>
-          <textarea id="club-gemini-input" class="explore-input" rows="2" maxlength="2000" placeholder="Which club games are near Layton this weekend?">${escapeHtml(g.draft || "")}</textarea>
+          <textarea id="club-gemini-input" class="explore-input" rows="2" maxlength="2000" enterkeyhint="enter" placeholder="Which club games are near Layton this weekend?">${escapeHtml(g.draft || "")}</textarea>
           <button type="submit" class="btn btn-primary" ${g.loading ? "disabled" : ""}>${g.loading ? "Thinking…" : "Ask"}</button>
           <button type="button" class="btn btn-ghost" id="club-gemini-suggest" ${g.loading ? "disabled" : ""}>Suggest order</button>
         </form>
@@ -1230,10 +1293,8 @@
       }
       paint();
     });
-    if (st.itinerary.pickerOpen) {
-      bindAgendaFilters();
-      bindItineraryAdds();
-    }
+    if (st.itinerary.pickerOpen) bindAgendaFilters();
+    bindItineraryAdds();
     $("#club-itin-select")?.addEventListener("change", async (e) => {
       const id = e.target.value;
       if (!id) {
@@ -1327,11 +1388,40 @@
       e.preventDefault();
       askGemini($("#club-gemini-input")?.value || "");
     });
+    $("#club-gemini-input")?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.isComposing) return;
+      // iPhone keyboard already has Return for a new line and the Ask button to send.
+      if (isIosDevice()) return;
+      if (e.ctrlKey) {
+        e.preventDefault();
+        insertTextareaNewline(e.target);
+        return;
+      }
+      if (e.shiftKey || e.altKey || e.metaKey) return;
+      const submit = e.target.form?.querySelector('button[type="submit"]');
+      if (submit?.disabled) return;
+      e.preventDefault();
+      e.target.form?.requestSubmit();
+    });
     $("#club-gemini-suggest")?.addEventListener("click", () => suggestOrder());
     $("#club-gemini-input")?.addEventListener("input", (e) => {
       st.itinerary.gemini.draft = e.target.value;
     });
     bindMatchPrompt();
+  }
+
+  function isIosDevice() {
+    const ua = global.navigator?.userAgent || "";
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    return global.navigator?.platform === "MacIntel" && (global.navigator?.maxTouchPoints || 0) > 1;
+  }
+
+  function insertTextareaNewline(el) {
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    el.value = `${el.value.slice(0, start)}\n${el.value.slice(end)}`;
+    el.selectionStart = el.selectionEnd = start + 1;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   function bindMatchPrompt() {
@@ -2132,6 +2222,7 @@
   global.ClubVisitation = {
     render,
     shotTrackerMatches,
+    renderClubMarkdown,
     onLeave() {
       stopLoadingLines();
     },

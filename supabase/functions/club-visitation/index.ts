@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
       db,
       mapsApiKey,
       walkMinutes: settings?.same_facility_walk_minutes ?? 8,
+      question: String(body.question || ""),
     };
 
     if (mode === "tool") {
