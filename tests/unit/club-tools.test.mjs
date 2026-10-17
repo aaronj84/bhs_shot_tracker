@@ -196,7 +196,51 @@ describe("club gemini tools", () => {
     expect(result.travel).toHaveLength(1);
     expect(result.travel[0].from_game_id).toBe("g-ts");
     expect(result.travel[0].to_game_id).toBe("g-aj");
+    expect(result.travel[0].from_place).toBe("Butler M.S.");
+    expect(result.travel[0].to_place).toBe("La Roca Park");
     expect(result.travel[0].unavailable).toBe(true);
+  });
+
+  it("keeps both named players when a follow-up corrects the day", async () => {
+    const games = [
+      {
+        id: "g-ts",
+        kickoff_at: "2026-10-24T19:00:00.000Z",
+        home_team_name: "Cottonwood FC B1415 Red TS",
+        away_team_name: "Golden Eagles",
+        home_brighton_players: [{ player_id: "z", name: "Zander", full_name: "Zander Friedman" }],
+        away_brighton_players: [],
+        facility_name: "Butler M.S.",
+        latitude: 40.61,
+        longitude: -111.81,
+      },
+      {
+        id: "g-aj",
+        kickoff_at: "2026-10-24T22:15:00.000Z",
+        home_team_name: "La Roca U12B R. Rada",
+        away_team_name: "Cottonwood FC B1415 Red AJ",
+        home_brighton_players: [],
+        away_brighton_players: [{ player_id: "r", name: "Rudi", full_name: "Rudi Johnson" }],
+        facility_name: "La Roca Park",
+        latitude: 41.13,
+        longitude: -111.95,
+      },
+    ];
+    const result = await executeClubTool(
+      "search_club_games",
+      { player_name: "Zander" },
+      {
+        db: { async searchGames() { return games; } },
+        mapsApiKey: "",
+        question: "sorry, i meant saturday the 24th. try again",
+        historyText: "next saturday, Zander plays, and then Rudi plays. Do i have time to get to both games?",
+        now: new Date("2026-10-16T18:00:00.000Z"),
+      }
+    );
+    expect(result.date_from).toBe("2026-10-24");
+    expect(result.games.map((g) => g.game_id)).toEqual(["g-ts", "g-aj"]);
+    expect(result.travel[0].from_place).toBe("Butler M.S.");
+    expect(result.travel[0].to_place).toBe("La Roca Park");
   });
 
   it("grounds both-sides search in home and away affiliations", async () => {

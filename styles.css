@@ -5707,6 +5707,11 @@ body.club-view .app-main {
   font-size: 1.1rem;
 }
 
+.club-gemini .explore-transcript {
+  max-height: none;
+  overflow: visible;
+}
+
 .club-md h3 {
   margin: 0.9rem 0 0.35rem;
   font-size: 1.02rem;

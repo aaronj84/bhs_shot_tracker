@@ -96,6 +96,10 @@ Deno.serve(async (req) => {
     const model = Deno.env.get("PREP_GEMINI_MODEL") || "gemini-3.6-flash";
     const provider = createGeminiProvider(geminiKey);
     const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
+    ctx.historyText = history
+      .filter((m: { role?: string }) => m?.role !== "assistant")
+      .map((m: { content?: string }) => String(m?.content || ""))
+      .join("\n");
 
     const planMessages = [
       {
@@ -173,7 +177,7 @@ Deno.serve(async (req) => {
         { role: "system", content: buildPlannerSystemPrompt() },
         {
           role: "user",
-          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. Include game_id values when recommending stops. If disambiguation is present, ask the coach to choose.`,
+          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. Put each game_id in backticks so the app can show an Add button. Do not write the words "Game ID". When a travel leg includes minutes, tell the coach the drive time between those facilities. If travel is unavailable, say travel time is unavailable and still describe the games. If disambiguation is present, ask the coach to choose.`,
         },
       ],
     });

@@ -86,3 +86,8 @@ Club Data → CSV import accepts teams, affiliations, facilities, fields, compet
 - Without `GOOGLE_MAPS_API_KEY`, nearby-place geocoding and drive times are unavailable (explicitly surfaced).
 - Gemini suggestions never auto-write itineraries; coach must accept.
 - No SMS / push / per-coach ownership (out of MVP scope).
+
+## Post-MVP
+
+- **Itinerary ICS subscribe** — Publish a stable ICS (or webcal) URL per itinerary so phone calendars stay in sync when the coach edits visits in-app.
+- **Schedule URL refresh testing** — End-to-end verification that `club-sync` / Sync Now correctly refreshes games from live schedule source URLs (ICS/CSV/HTML/JSON), including change detection and failure handling.

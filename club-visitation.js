@@ -91,7 +91,11 @@
     /(?:\s*\|\s*)?(?:\*\*\s*)?(?:\bgame(?:\s+id)?\s*:?\s*)?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?(?:\s*\*\*)?/gi;
 
   function stageGameAdds(text) {
-    return String(text || "").replace(GAME_ID_RE, (_, id) => `\uE000${id}\uE001`);
+    return String(text || "")
+      .replace(GAME_ID_RE, (_, id) => `\uE000${id}\uE001`)
+      .replace(/\(\s*(?:game\s*)?id\s*:\s*\)\s*:?/gi, "")
+      .replace(/\*{0,2}\s*(?:game\s*)?id\s*:\s*\*{0,2}/gi, "")
+      .replace(/\(\s*\)/g, "");
   }
 
   function gameAddButton(id, addedIds) {

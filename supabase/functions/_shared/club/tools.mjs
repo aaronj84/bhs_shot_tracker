@@ -88,9 +88,13 @@ function hasTimeClue(text) {
   );
 }
 
+function clueText(ctx) {
+  return [ctx?.question, ctx?.historyText].filter(Boolean).join("\n");
+}
+
 /** Dates and filters come from the question, not the agenda screen. */
 function resolveAskedWindow(args, ctx) {
-  const clue = String(ctx?.question || args.relative || "").trim();
+  const clue = String(clueText(ctx) || args.relative || "").trim();
   if (clue && hasTimeClue(clue)) return parseRelativeDateWindow(clue, CLUB_TZ, ctx?.now);
   if (isIsoDate(args.date_from) && isIsoDate(args.date_to)) {
     return { date_from: args.date_from, date_to: args.date_to };
@@ -127,6 +131,30 @@ function asksAboutDrive(question) {
   return /\b(drive|driving|how long|time to)\b/i.test(String(question || ""));
 }
 
+function mentionedPlayerNeedles(question, rows) {
+  const q = ` ${normalizeName(question)} `;
+  const needles = new Set();
+  for (const row of rows) {
+    const people = [...(row.home_brighton_players || []), ...(row.away_brighton_players || [])];
+    for (const person of people) {
+      for (const raw of [person.short_name, person.name, person.full_name]) {
+        const name = normalizeName(raw);
+        const first = name.split(" ")[0];
+        if (first && first.length >= 3 && q.includes(` ${first} `)) needles.add(first);
+      }
+    }
+  }
+  return needles;
+}
+
+function rowHasNamedPlayer(row, needles) {
+  const people = [...(row.home_brighton_players || []), ...(row.away_brighton_players || [])];
+  return people.some((person) => {
+    const names = [person.name, person.short_name, person.full_name].map(normalizeName);
+    return [...needles].some((needle) => names.some((name) => name === needle || name.startsWith(`${needle} `)));
+  });
+}
+
 function rowMatchesPlayerName(row, playerName) {
   const needle = normalizeName(playerName);
   if (!needle) return true;
@@ -159,13 +187,17 @@ async function searchClubGames(args, ctx) {
     const team = normalizeName(args.team_name);
     rows = rows.filter((row) => rowMatchesTeamPhrase(row, team));
   }
-  const mentioned = questionTeamPhrases(ctx?.question || "");
-  if (mentioned.length) {
+  const clue = clueText(ctx);
+  const mentioned = questionTeamPhrases(clue);
+  const playerNeedles = mentionedPlayerNeedles(clue, allRows);
+  if (mentioned.length || playerNeedles.size) {
     const seen = new Set(rows.map((row) => row.id || row.club_game_id));
     for (const row of allRows) {
       const id = row.id || row.club_game_id;
       if (seen.has(id)) continue;
-      if (!mentioned.some((phrase) => rowMatchesTeamPhrase(row, phrase))) continue;
+      const teamHit = mentioned.some((phrase) => rowMatchesTeamPhrase(row, phrase));
+      const playerHit = playerNeedles.size && rowHasNamedPlayer(row, playerNeedles);
+      if (!teamHit && !playerHit) continue;
       rows.push(row);
       seen.add(id);
     }
@@ -174,15 +206,15 @@ async function searchClubGames(args, ctx) {
     .map(enrichGame)
     .sort((a, b) => String(a.kickoff_at || "").localeCompare(String(b.kickoff_at || "")));
   let travel = null;
-  if (asksAboutDrive(ctx?.question) && games.length >= 2) {
+  if (asksAboutDrive(clue) && games.length >= 2) {
     travel = [];
     for (let i = 0; i < games.length - 1; i++) {
       const leg = await travelMinutesBetween(games[i], games[i + 1], ctx.mapsApiKey);
       travel.push({
         from_game_id: games[i].game_id,
         to_game_id: games[i + 1].game_id,
-        from_team: games[i].home_team,
-        to_team: games[i + 1].away_team,
+        from_place: games[i].facility,
+        to_place: games[i + 1].facility,
         minutes: leg.minutes,
         unavailable: !!leg.unavailable,
         note: leg.note || (leg.same_facility ? "Same facility" : null),

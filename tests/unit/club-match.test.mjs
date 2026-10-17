@@ -86,6 +86,7 @@ describe("club gemini markdown", () => {
     expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035">Add</button>');
     expect(html).toContain("<hr>");
     expect(html).toContain("<em>Note: suggestions only.</em>");
+    expect(html).not.toContain("Game ID");
     expect(html).not.toContain("###");
     expect(html).not.toContain("**");
     expect(html).not.toContain("<code>");
@@ -101,6 +102,23 @@ describe("club gemini markdown", () => {
     );
     expect(html).toContain(">Added</button>");
     expect(html).not.toContain("data-add-itin");
+  });
+
+  it("drops a parenthetical ID label from a one-line game summary", () => {
+    const html = renderClubMarkdown(
+      "**Zander's Game (ID: `d18888c2-658a-555b-adf0-53ac41ab2035`): 1:00 PM MDT at Butler M.S.**"
+    );
+    expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035"');
+    expect(html).toContain("Zander's Game");
+    expect(html).toContain("1:00 PM MDT at Butler M.S.");
+    expect(html.toLowerCase()).not.toContain("id");
+  });
+
+  it("drops a Game ID label and keeps the Add button", () => {
+    const html = renderClubMarkdown("**Game ID:** `d18888c2-658a-555b-adf0-53ac41ab2035`");
+    expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035"');
+    expect(html.toLowerCase()).not.toContain("game id");
+    expect(html).not.toContain("**");
   });
 
   it("escapes HTML in the model text", () => {
