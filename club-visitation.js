@@ -1,9 +1,9 @@
 /**
  * Club Player Visitation Planner
  *
- *   #club / #club-agenda     upcoming fixtures
- *   #club-itinerary          named itinerary builder (+ Gemini)
- *   #club-data               teams, sources, facilities, sync
+ *   #club / #club-agenda     upcoming fixtures (browse)
+ *   #club-itinerary          itinerary builder; optional game picker
+ *   #club-data               record browser (teams, sources, facilities, sync)
  *
  * Requires staff PIN session for writes (same as Shot Tracker).
  */
@@ -33,11 +33,13 @@
       filterTeam: "",
       filterText: "",
       onlyBoth: false,
+      filtersOpen: false,
     },
     itinerary: {
       list: [],
       currentId: "",
       draft: null,
+      pickerOpen: false,
       stops: [],
       legs: [],
       warnings: [],
@@ -192,6 +194,14 @@
     requestAnimationFrame(() => $("#club-pin")?.focus());
   }
 
+  function iconDatabase() {
+    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>`;
+  }
+
+  function iconFilter() {
+    return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6.2 7.2V19l-3.6 2v-8.8L4 5z"/></svg>`;
+  }
+
   function shell(inner) {
     const tab = st.tab;
     return `
@@ -201,10 +211,10 @@
           <h1>Club visits</h1>
           <p class="muted">Find returning players at club games and plan realistic field visits.</p>
         </header>
-        <nav class="club-tabs prep-tabs" role="tablist" aria-label="Club planner">
+        <nav class="club-tabs" role="tablist" aria-label="Club planner">
           <a class="prep-tab ${tab === "agenda" ? "is-on" : ""}" href="#club-agenda" role="tab" aria-selected="${tab === "agenda"}">Agenda</a>
           <a class="prep-tab ${tab === "itinerary" ? "is-on" : ""}" href="#club-itinerary" role="tab" aria-selected="${tab === "itinerary"}">Itinerary</a>
-          <a class="prep-tab ${tab === "data" ? "is-on" : ""}" href="#club-data" role="tab" aria-selected="${tab === "data"}">Club Data</a>
+          <a class="club-data-link ${tab === "data" ? "is-on" : ""}" href="#club-data" role="tab" aria-selected="${tab === "data"}" aria-label="Club data" title="Club data">${iconDatabase()}</a>
         </nav>
         ${st.error ? `<p class="form-error club-banner-error">${escapeHtml(st.error)}</p>` : ""}
         ${st.loading ? `<p class="muted club-loading">Loading…</p>` : ""}
@@ -541,8 +551,67 @@
     return list;
   }
 
-  function agendaMarkup() {
+  function shortMd(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+    const [, m, d] = iso.split("-");
+    return `${Number(m)}/${Number(d)}`;
+  }
+
+  function filtersAreNarrowed() {
+    return !!(st.agenda.filterPlayer || st.agenda.onlyBoth || String(st.agenda.filterText || "").trim());
+  }
+
+  function filterSummary(count) {
+    const from = shortMd(st.agenda.dateFrom);
+    const to = shortMd(st.agenda.dateTo);
+    const parts = [];
+    if (from && to) parts.push(`${from}–${to}`);
+    if (st.agenda.filterPlayer) {
+      const p = st.players.find((x) => x.id === st.agenda.filterPlayer);
+      if (p) parts.push(p.short_name || p.name);
+    }
+    if (st.agenda.onlyBoth) parts.push("Both sides");
+    const q = String(st.agenda.filterText || "").trim();
+    if (q) parts.push(q);
+    parts.push(`${count} game${count === 1 ? "" : "s"}`);
+    return parts.join(" · ");
+  }
+
+  function agendaFiltersMarkup() {
+    const open = !!st.agenda.filtersOpen;
     const games = filteredAgendaGames();
+    const playerOpts = st.players
+      .map((p) => `<option value="${escapeHtml(p.id)}" ${st.agenda.filterPlayer === p.id ? "selected" : ""}>${escapeHtml(p.short_name || p.name)}</option>`)
+      .join("");
+    return `
+      <div class="club-filter-bar">
+        <button type="button" class="club-filter-toggle" id="club-filter-toggle" aria-expanded="${open}" aria-controls="club-filter-form">
+          ${iconFilter()}
+          Filters
+          ${filtersAreNarrowed() ? `<span class="club-filter-dot" aria-hidden="true"></span>` : ""}
+        </button>
+        <p class="club-filter-summary">${escapeHtml(filterSummary(games.length))}</p>
+      </div>
+      <form id="club-filter-form" class="club-filters${open ? " is-open" : ""}">
+        <div class="club-split">
+          <label>From<input type="date" id="club-date-from" value="${escapeHtml(st.agenda.dateFrom)}" /></label>
+          <label>To<input type="date" id="club-date-to" value="${escapeHtml(st.agenda.dateTo)}" /></label>
+        </div>
+        <label>Player
+          <select id="club-filter-player">
+            <option value="">All</option>
+            ${playerOpts}
+          </select>
+        </label>
+        <label class="club-check"><input type="checkbox" id="club-filter-both" ${st.agenda.onlyBoth ? "checked" : ""} /> Brighton vs Brighton</label>
+        <label>Search<input type="search" id="club-filter-text" value="${escapeHtml(st.agenda.filterText)}" placeholder="Team, player, venue" /></label>
+        <button type="submit" class="btn btn-primary" id="club-agenda-refresh">Apply</button>
+      </form>`;
+  }
+
+  function agendaListMarkup(mode) {
+    const games = filteredAgendaGames();
+    const picked = new Set((st.itinerary.stops || []).map((s) => s.game_id));
     const byDay = new Map();
     for (const g of games) {
       const key = localDateKey(g.kickoff_at);
@@ -568,8 +637,15 @@
               .join(", ");
             const map = mapsLink(g.lat, g.lng, g.facility);
             const venue = [g.facility, g.field].filter(Boolean).join(" · ") || "Venue TBD";
+            const already = picked.has(g.game_id);
+            const addControl =
+              mode === "pick"
+                ? already
+                  ? `<button type="button" class="btn btn-ghost" disabled>Added</button>`
+                  : `<button type="button" class="btn btn-secondary" data-add-itin="${escapeHtml(g.game_id)}">Add</button>`
+                : "";
             return `
-              <article class="club-game-card" data-game-id="${escapeHtml(g.game_id)}">
+              <article class="club-game-card${already && mode === "pick" ? " is-added" : ""}" data-game-id="${escapeHtml(g.game_id)}">
                 <div class="club-game-card-top">
                   <time>${escapeHtml(formatKickoff(g.kickoff_at))}</time>
                   <span class="club-status">${escapeHtml(g.status || "scheduled")}</span>
@@ -580,7 +656,7 @@
                 <div class="club-game-actions">
                   ${both}${changed}
                   ${map ? `<a class="btn btn-ghost" href="${escapeHtml(map)}" target="_blank" rel="noopener">Directions</a>` : `<span class="muted">No map pin</span>`}
-                  <button type="button" class="btn btn-secondary" data-add-itin="${escapeHtml(g.game_id)}">Add to itinerary</button>
+                  ${addControl}
                 </div>
               </article>`;
           })
@@ -589,46 +665,44 @@
       })
       .join("");
 
-    const playerOpts = st.players
-      .map((p) => `<option value="${escapeHtml(p.id)}" ${st.agenda.filterPlayer === p.id ? "selected" : ""}>${escapeHtml(p.short_name || p.name)}</option>`)
-      .join("");
+    return dayBlocks || `<p class="empty-state">No upcoming club games in this range.</p>`;
+  }
 
-    return `
-      <div class="club-filters">
-        <label>From<input type="date" id="club-date-from" value="${escapeHtml(st.agenda.dateFrom)}" /></label>
-        <label>To<input type="date" id="club-date-to" value="${escapeHtml(st.agenda.dateTo)}" /></label>
-        <label>Player
-          <select id="club-filter-player">
-            <option value="">All</option>
-            ${playerOpts}
-          </select>
-        </label>
-        <label class="club-check"><input type="checkbox" id="club-filter-both" ${st.agenda.onlyBoth ? "checked" : ""} /> Brighton vs Brighton</label>
-        <label class="club-search-label">Search<input type="search" id="club-filter-text" value="${escapeHtml(st.agenda.filterText)}" placeholder="Team, player, venue" /></label>
-        <button type="button" class="btn btn-primary" id="club-agenda-refresh">Apply</button>
-      </div>
-      <p class="muted club-count">${games.length} game${games.length === 1 ? "" : "s"} with Brighton players</p>
-      ${dayBlocks || `<p class="empty-state">No upcoming club games in this range. Seed data in Club Data or sync a schedule source.</p>`}
-    `;
+  function agendaMarkup() {
+    return `${agendaFiltersMarkup()}${agendaListMarkup("browse")}`;
+  }
+
+  function readAgendaFiltersFromForm() {
+    const from = $("#club-date-from");
+    if (!from) return;
+    st.agenda.dateFrom = from.value || st.agenda.dateFrom;
+    st.agenda.dateTo = $("#club-date-to")?.value || st.agenda.dateTo;
+    st.agenda.filterPlayer = $("#club-filter-player")?.value || "";
+    st.agenda.onlyBoth = !!$("#club-filter-both")?.checked;
+    st.agenda.filterText = $("#club-filter-text")?.value || "";
+  }
+
+  async function applyAgendaFilters() {
+    if (st.tab === "itinerary") readItineraryForm();
+    readAgendaFiltersFromForm();
+    st.agenda.filtersOpen = false;
+    await refreshAgenda();
+  }
+
+  function bindAgendaFilters() {
+    $("#club-filter-toggle")?.addEventListener("click", () => {
+      if (st.tab === "itinerary") readItineraryForm();
+      st.agenda.filtersOpen = !st.agenda.filtersOpen;
+      paint();
+    });
+    $("#club-filter-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      applyAgendaFilters();
+    });
   }
 
   function bindAgenda() {
-    $("#club-agenda-refresh")?.addEventListener("click", async () => {
-      st.agenda.dateFrom = $("#club-date-from")?.value || st.agenda.dateFrom;
-      st.agenda.dateTo = $("#club-date-to")?.value || st.agenda.dateTo;
-      st.agenda.filterPlayer = $("#club-filter-player")?.value || "";
-      st.agenda.onlyBoth = !!$("#club-filter-both")?.checked;
-      st.agenda.filterText = $("#club-filter-text")?.value || "";
-      await refreshAgenda();
-    });
-    $$("[data-add-itin]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.getAttribute("data-add-itin");
-        await addGameToDraft(id);
-        showToast("Added to itinerary draft");
-        location.hash = "#club-itinerary";
-      });
-    });
+    bindAgendaFilters();
   }
 
   async function addGameToDraft(gameId) {
@@ -694,6 +768,38 @@
   // Itinerary UI
   // ---------------------------------------------------------------------------
 
+  function readItineraryForm() {
+    if (!st.itinerary.draft) {
+      st.itinerary.draft = {
+        name: `Visits ${todayLocal()}`,
+        target_date: todayLocal(),
+        default_visit_minutes: DEFAULT_VISIT,
+        notes: "",
+      };
+    }
+    const name = $("#club-itin-name");
+    if (!name) return;
+    st.itinerary.draft.name = name.value;
+    st.itinerary.draft.target_date = $("#club-itin-date")?.value || "";
+    st.itinerary.draft.start_location_label = $("#club-itin-start")?.value || "";
+    st.itinerary.draft.notes = $("#club-itin-notes")?.value || "";
+  }
+
+  function itineraryFinderMarkup() {
+    const open = !!st.itinerary.pickerOpen;
+    return `
+      <div class="club-finder">
+        <button type="button" class="btn btn-secondary club-find-games" id="club-itin-find" aria-expanded="${open}" aria-controls="club-picker">
+          ${open ? "Hide games" : "Find games to add"}
+        </button>
+        ${
+          open
+            ? `<div id="club-picker" class="club-picker">${agendaFiltersMarkup()}${agendaListMarkup("pick")}</div>`
+            : ""
+        }
+      </div>`;
+  }
+
   function itineraryMarkup() {
     const draft = st.itinerary.draft;
     const listOpts = st.itinerary.list
@@ -756,12 +862,15 @@
       </div>
       <div class="club-itin-form">
         <label>Name<input id="club-itin-name" value="${escapeHtml(draft?.name || "")}" placeholder="Saturday North Valley" /></label>
-        <label>Date<input type="date" id="club-itin-date" value="${escapeHtml(draft?.target_date || "")}" /></label>
-        <label>Start area<input id="club-itin-start" value="${escapeHtml(draft?.start_location_label || "")}" placeholder="e.g. Layton" /></label>
+        <div class="club-split">
+          <label>Date<input type="date" id="club-itin-date" value="${escapeHtml(draft?.target_date || "")}" /></label>
+          <label>Start<input id="club-itin-start" value="${escapeHtml(draft?.start_location_label || "")}" placeholder="Layton" /></label>
+        </div>
         <label>Notes<textarea id="club-itin-notes" rows="2">${escapeHtml(draft?.notes || "")}</textarea></label>
       </div>
+      ${itineraryFinderMarkup()}
       ${warns ? `<ul class="club-warn-list">${warns}</ul>` : ""}
-      <div class="club-stops">${stops || `<p class="empty-state">No stops yet. Add games from Agenda.</p>`}</div>
+      <div class="club-stops">${stops || `<p class="empty-state">No stops yet. Use Find games to add club games to this itinerary.</p>`}</div>
       <div class="club-itin-actions">
         <button type="button" class="btn btn-primary" id="club-itin-save" ${st.itinerary.busy ? "disabled" : ""}>Save</button>
         <button type="button" class="btn btn-secondary" id="club-itin-copy">Copy text</button>
@@ -810,7 +919,34 @@
     return lines.join("\n").trim() + "\n";
   }
 
+  function bindItineraryAdds() {
+    $$("[data-add-itin]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        readItineraryForm();
+        const id = btn.getAttribute("data-add-itin");
+        btn.disabled = true;
+        await addGameToDraft(id);
+        st.itinerary.pickerOpen = true;
+        showToast("Added to this itinerary");
+        paint();
+      });
+    });
+  }
+
   function bindItinerary() {
+    $("#club-itin-find")?.addEventListener("click", async () => {
+      readItineraryForm();
+      st.itinerary.pickerOpen = !st.itinerary.pickerOpen;
+      if (st.itinerary.pickerOpen && !st.agenda.dateFrom) {
+        await refreshAgenda();
+        return;
+      }
+      paint();
+    });
+    if (st.itinerary.pickerOpen) {
+      bindAgendaFilters();
+      bindItineraryAdds();
+    }
     $("#club-itin-select")?.addEventListener("change", async (e) => {
       const id = e.target.value;
       if (!id) {
@@ -842,6 +978,7 @@
     });
     $$("[data-stop-up]").forEach((btn) =>
       btn.addEventListener("click", async () => {
+        readItineraryForm();
         const i = Number(btn.getAttribute("data-stop-up"));
         if (i <= 0) return;
         const arr = st.itinerary.stops;
@@ -852,6 +989,7 @@
     );
     $$("[data-stop-down]").forEach((btn) =>
       btn.addEventListener("click", async () => {
+        readItineraryForm();
         const i = Number(btn.getAttribute("data-stop-down"));
         const arr = st.itinerary.stops;
         if (i >= arr.length - 1) return;
@@ -862,6 +1000,7 @@
     );
     $$("[data-remove-stop]").forEach((btn) =>
       btn.addEventListener("click", async () => {
+        readItineraryForm();
         const i = Number(btn.getAttribute("data-remove-stop"));
         st.itinerary.stops.splice(i, 1);
         await refreshLegs();
@@ -876,6 +1015,7 @@
     );
     $$("[data-visit-min]").forEach((el) =>
       el.addEventListener("change", async () => {
+        readItineraryForm();
         const i = Number(el.getAttribute("data-visit-min"));
         st.itinerary.stops[i].visit_minutes = Number(el.value) || DEFAULT_VISIT;
         await refreshLegs();
@@ -1225,7 +1365,7 @@
         <pre class="club-import-out" id="club-import-out"></pre>`;
     }
 
-    return `<div class="club-data-nav">${nav}</div><div class="club-data-body">${body}</div>`;
+    return `<header class="club-data-head"><h2>Club data</h2><p class="muted">Teams, players, facilities, sources, and sync — one type at a time.</p></header><div class="club-data-nav">${nav}</div><div class="club-data-body">${body}</div>`;
   }
 
   function bindData() {

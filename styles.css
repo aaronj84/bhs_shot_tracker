@@ -205,6 +205,29 @@ a {
   background: transparent;
 }
 
+.nav-link-primary {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 800;
+}
+
+.nav-link-primary:hover,
+.nav-link-primary[aria-current="page"] {
+  background: var(--brand-strong);
+  color: #fff;
+  box-shadow: none;
+  border-radius: 999px;
+}
+
+.nav-desktop-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: 0.35rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid var(--border);
+}
+
 
 .header-actions {
   margin-left: auto;
@@ -270,12 +293,13 @@ a {
   height: 100%;
   background: var(--bg-elevated);
   border-left: 1px solid var(--border);
-  padding: 1.25rem;
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 1.1rem calc(1rem + var(--safe-bottom));
   transform: translateX(100%);
   transition: transform 0.22s ease;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.15rem;
+  overflow-y: auto;
 }
 
 .nav-drawer.is-open .nav-drawer-panel {
@@ -283,17 +307,43 @@ a {
 }
 
 .nav-drawer-panel a {
-  display: block;
-  padding: 0.85rem 1rem;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.55rem 0.85rem;
   border-radius: var(--radius-sm);
   text-decoration: none;
   color: var(--text);
   font-weight: 600;
 }
 
+.nav-drawer-panel a.nav-drawer-primary {
+  margin-bottom: 0.35rem;
+  padding: 0.75rem 1rem;
+  min-height: 52px;
+  border-radius: var(--radius);
+  background: var(--brand);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.nav-drawer-panel a.nav-drawer-primary[aria-current="page"] {
+  background: var(--brand-strong);
+  color: #fff;
+}
+
+.nav-drawer-sub {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 0.35rem 0.7rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+}
+
 .nav-drawer-heading {
-  margin: 0.75rem 0 0.15rem;
-  padding: 0 1rem;
+  margin: 0.85rem 0 0.2rem;
+  padding: 0 0.15rem;
   font-size: 0.7rem;
   font-weight: 750;
   letter-spacing: 0.06em;
@@ -305,6 +355,11 @@ a {
 .nav-drawer-panel a[aria-current="page"] {
   background: var(--bg-soft);
   color: var(--accent);
+}
+
+.nav-drawer-panel a.nav-drawer-primary:hover {
+  background: var(--brand-strong);
+  color: #fff;
 }
 
 /* Main */
@@ -5151,10 +5206,56 @@ body.club-view .app-main {
 }
 
 .club-tabs {
-  margin: 0 0 0.85rem;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.3rem;
+  margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.club-tabs .prep-tab {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+}
+
+.club-data-link {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.club-data-link svg {
+  width: 18px;
+  height: 18px;
+}
+
+.club-data-link.is-on {
+  color: var(--brand);
+  background: var(--bg-soft);
+  border-color: var(--border);
+}
+
+.club-data-head {
+  margin: 0 0 0.75rem;
+}
+
+.club-data-head h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+  color: var(--brand-strong);
+}
+
+.club-data-head p {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 .club-pin-form {
@@ -5163,10 +5264,103 @@ body.club-view .app-main {
   max-width: 16rem;
 }
 
+.club-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.65rem;
+  min-width: 0;
+}
+
+.club-filter-toggle {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.club-filter-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.club-filter-toggle[aria-expanded="true"] {
+  border-color: var(--brand);
+  color: var(--brand-strong);
+}
+
+.club-filter-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.club-filter-summary {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .club-filters {
-  display: grid;
+  display: none;
   gap: 0.55rem;
   margin: 0 0 0.75rem;
+  padding: 0.7rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+}
+
+.club-filters.is-open {
+  display: grid;
+}
+
+.club-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.club-split > * {
+  min-width: 0;
+}
+
+.club-finder {
+  margin: 0 0 0.75rem;
+}
+
+.club-find-games {
+  width: 100%;
+}
+
+.club-picker {
+  margin-top: 0.55rem;
+  padding: 0.65rem 0.65rem 0.2rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+}
+
+.club-picker .club-game-card {
+  background: var(--bg-elevated);
+}
+
+.club-game-card.is-added {
+  opacity: 0.72;
 }
 
 .club-filters label {
@@ -5191,6 +5385,21 @@ body.club-view .app-main {
   background: var(--bg-elevated);
   color: var(--text);
   min-height: 44px;
+  width: 100%;
+  min-width: 0;
+}
+
+.club-picker .club-filters.is-open {
+  background: var(--bg-elevated);
+}
+
+.club-filters .club-check input {
+  width: 1.15rem;
+  min-width: 1.15rem;
+  max-width: 1.15rem;
+  min-height: 1.15rem;
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 .club-check {
@@ -5283,6 +5492,36 @@ body.club-view .app-main {
   flex-wrap: wrap;
   gap: 0.4rem;
   margin: 0 0 0.75rem;
+}
+
+.club-itin-toolbar {
+  align-items: flex-end;
+}
+
+.club-itin-toolbar label {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.club-itin-toolbar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.club-itin-actions .btn[hidden] {
+  display: none;
 }
 
 .club-itin-form {
