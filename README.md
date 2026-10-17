@@ -57,6 +57,11 @@ npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
 | `#shots-prep` | Opponent Prep (Gemini chat + notes) |
 | `#shots-prep?tab=explore` | Explore (LLM Q&A; `#shots-explore` still redirects here) |
 | `#shots-map` | Full-field shot map |
+| `#club` / `#club-agenda` | Club Player Visitation Planner (agenda) |
+| `#club-itinerary` | Named itinerary builder + Gemini |
+| `#club-data` | Club teams, sources, facilities, sync |
+
+Club planner setup: [docs/club-visitation.md](docs/club-visitation.md).
 
 ## Project structure
 
@@ -66,14 +71,16 @@ npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
   styles.css
   app.js                  # Thin hash router / chrome
   shots.js                # Tracker UI
+  schedule.js             # Postseason meeting scheduler
+  club-visitation.js      # Club Player Visitation Planner
   shots-api.js            # Supabase access
   shots-config.js         # Local / generated (gitignored)
   shots-config.example.js
-  docs/                   # Dev env + git workflow
+  docs/                   # Dev env + git workflow + club planner
   tests/                  # API + Playwright
   supabase/migrations/    # Schema ups (versioned)
   supabase/down/          # Matching downs for rollback
-  supabase/functions/     # Explore Edge Function
+  supabase/functions/     # Edge Functions (prep, explore, club-*)
   benchmark/              # Explore LLM harness
   scripts/                # Config writer, CSV helpers, DB backup
 ```
