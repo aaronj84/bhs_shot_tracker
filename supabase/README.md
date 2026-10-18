@@ -132,8 +132,8 @@ See [`docs/club-visitation.md`](../docs/club-visitation.md).
 
 ```bash
 supabase secrets set GEMINI_API_KEY=…          # shared with prep-opponent
-# optional routed drive times + geocoding:
-supabase secrets set GOOGLE_MAPS_API_KEY=…
+# optional routed drive times (free key from openrouteservice.org):
+supabase secrets set OPENROUTESERVICE_API_KEY=…
 supabase secrets set CLUB_SYNC_CRON_SECRET=$(openssl rand -hex 24)
 ```
 

@@ -5681,7 +5681,89 @@ body.club-view .app-main {
   color: var(--text-muted);
 }
 
+.club-leg a {
+  color: inherit;
+  font-weight: 600;
+}
+
 .club-leg.is-warn {
+  color: var(--incorrect);
+}
+
+.club-start-status {
+  margin: -0.15rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.club-start-leg {
+  margin: 0 0 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+
+.club-start-from {
+  margin: 0 0 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.club-start-leg .club-leg {
+  grid-column: auto;
+}
+
+.club-fac-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.club-fac-list li.club-fac-row {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.club-fac-main strong {
+  margin-right: 0.35rem;
+}
+
+.club-fac-main p {
+  margin: 0.2rem 0 0;
+}
+
+.club-fac-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.club-pin-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+.club-pin-badge.is-ok {
+  background: rgba(46, 125, 50, 0.12);
+  color: #2e7d32;
+}
+
+.club-pin-badge.is-miss {
+  background: rgba(181, 69, 69, 0.12);
   color: var(--incorrect);
 }
 

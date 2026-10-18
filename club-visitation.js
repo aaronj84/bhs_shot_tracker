@@ -52,9 +52,12 @@
       pickerOpen: false,
       stops: [],
       legs: [],
+      startLeg: null,
+      orderManual: false,
       warnings: [],
       gemini: { loading: false, error: "", messages: [], draft: "" },
       busy: false,
+      startBusy: false,
       matchPrompt: [],
       dismissedMatchIds: [],
       scrollMatch: false,
@@ -72,6 +75,7 @@
       syncRuns: [],
       importPreview: null,
       busy: false,
+      geocodeBusyId: "",
     },
     players: [],
     shotPlayers: [],
@@ -87,15 +91,21 @@
       .replace(/"/g, "&quot;");
   }
 
+  // Never consume ** here — that ate closing bold next to an id ("**Calvin** `uuid`" → "**Calvin").
   const GAME_ID_RE =
-    /(?:\s*\|\s*)?(?:\*\*\s*)?(?:\bgame(?:\s+id)?\s*:?\s*)?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?(?:\s*\*\*)?/gi;
+    /(?:\s*\|\s*)?(?:\bgame(?:\s+id)?\s*:?\s*)?`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`|(?:\s*\|\s*)?(?:\bgame(?:\s+id)?\s*:?\s+)?\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi;
 
   function stageGameAdds(text) {
     return String(text || "")
-      .replace(GAME_ID_RE, (_, id) => `\uE000${id}\uE001`)
+      .replace(GAME_ID_RE, (...args) => `\uE000${args[1] || args[2]}\uE001`)
+      // Model often wraps the id: Zander (`uuid`) → leave the Add marker, drop the wrappers.
+      .replace(/[([{]\s*\uE000([0-9a-f-]+)\uE001\s*[)\]}]/gi, " \uE000$1\uE001")
       .replace(/\(\s*(?:game\s*)?id\s*:\s*\)\s*:?/gi, "")
       .replace(/\*{0,2}\s*(?:game\s*)?id\s*:\s*\*{0,2}/gi, "")
-      .replace(/\(\s*\)/g, "");
+      .replace(/\(\s*\)/g, "")
+      .replace(/\[\s*\]/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/ \n/g, "\n");
   }
 
   function gameAddButton(id, addedIds) {
@@ -202,9 +212,138 @@
     }).format(new Date(iso));
   }
 
-  function mapsLink(lat, lng, label) {
+  function mapsLink(lat, lng, origin) {
     if (lat == null || lng == null) return null;
-    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+    const dest = `${lat},${lng}`;
+    if (origin && origin.lat != null && origin.lng != null) {
+      return `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${dest}&travelmode=driving`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`;
+  }
+
+  function facilityQuery(f) {
+    return [f.street_address, f.city, f.state, f.postal_code, f.name].filter(Boolean).join(", ");
+  }
+
+  function pinStatusLabel(f) {
+    if (f.latitude != null && f.longitude != null) {
+      if (f.geocode_status === "manual") return "Pinned";
+      if (f.geocode_status === "ok") return "Located";
+      return "Pinned";
+    }
+    if (f.geocode_status === "failed") return "Locate failed";
+    if (f.street_address || f.city) return "Needs pin";
+    return "No address";
+  }
+
+  function emptyItineraryDraft(overrides = {}) {
+    return {
+      name: `Visits ${todayLocal()}`,
+      target_date: todayLocal(),
+      default_visit_minutes: DEFAULT_VISIT,
+      start_location_label: "",
+      start_latitude: null,
+      start_longitude: null,
+      notes: "",
+      ...overrides,
+    };
+  }
+
+  async function geocodePlaceQuery(query) {
+    const res = await api().clubVisitation({ mode: "geocode", query });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: res.error || "Geocode failed",
+        provider_configured: res.data?.provider_configured,
+        results: [],
+      };
+    }
+    return {
+      ok: !!res.data?.ok,
+      error: res.data?.error || "",
+      results: res.data?.results || [],
+      ambiguous: !!res.data?.ambiguous,
+      provider_configured: !!res.data?.provider_configured,
+    };
+  }
+
+  async function travelLegBetween(from, to) {
+    if (from?.facility_id && to?.facility_id && from.facility_id === to.facility_id) {
+      return { mode: "walk", minutes: WALK_MIN, unavailable: false, note: "Same facility (approx walk)" };
+    }
+    if (from?.lat == null || from?.lng == null || to?.lat == null || to?.lng == null) {
+      return { mode: "drive", minutes: null, unavailable: true, note: "Missing map pin" };
+    }
+    const res = await api().clubVisitation({
+      mode: "travel",
+      arguments: {
+        origin: { lat: from.lat, lng: from.lng, facility_id: from.facility_id },
+        destinations: [{ lat: to.lat, lng: to.lng, facility_id: to.facility_id }],
+      },
+    });
+    const r = res.data?.result?.results?.[0];
+    const configured = res.data?.provider_configured ?? res.data?.result?.provider_configured;
+    if (!res.ok || !r || r.unavailable || r.minutes == null) {
+      const note =
+        configured === false
+          ? "Routing not configured"
+          : r?.note || "Travel time unavailable";
+      return { mode: "drive", minutes: null, unavailable: true, note };
+    }
+    return { mode: r.mode || "drive", minutes: r.minutes, unavailable: false, note: r.note || "Estimated drive" };
+  }
+
+  function legMarkup(leg, mapHref) {
+    if (!leg) return "";
+    if (leg.unavailable || leg.minutes == null) {
+      return `<p class="club-leg is-warn">→ ${escapeHtml(leg.note || "Travel time unavailable")}${
+        mapHref ? ` · <a target="_blank" rel="noopener" href="${escapeHtml(mapHref)}">Directions</a>` : ""
+      }</p>`;
+    }
+    const label = leg.mode === "walk" ? "Walk/transition" : "Drive";
+    return `<p class="club-leg">→ ${label} ~${leg.minutes} min${
+      mapHref ? ` · <a target="_blank" rel="noopener" href="${escapeHtml(mapHref)}">Directions</a>` : ""
+    }</p>`;
+  }
+
+  async function resolveStartCoords({ force = false } = {}) {
+    const draft = st.itinerary.draft;
+    if (!draft) return;
+    const label = String(draft.start_location_label || "").trim();
+    if (!label) {
+      draft.start_latitude = null;
+      draft.start_longitude = null;
+      draft._startGeocodeFor = "";
+      draft._startResolveNote = "";
+      return;
+    }
+    if (
+      !force &&
+      draft.start_latitude != null &&
+      draft.start_longitude != null &&
+      draft._startGeocodeFor === label
+    ) {
+      return;
+    }
+    st.itinerary.startBusy = true;
+    const geo = await geocodePlaceQuery(label);
+    st.itinerary.startBusy = false;
+    if (!geo.ok || !geo.results.length) {
+      draft.start_latitude = null;
+      draft.start_longitude = null;
+      draft._startGeocodeFor = label;
+      draft._startResolveNote =
+        geo.error || "Could not locate start";
+      return;
+    }
+    const hit = geo.results[0];
+    draft.start_latitude = hit.lat;
+    draft.start_longitude = hit.lng;
+    draft._startGeocodeFor = label;
+    draft._startResolveNote = geo.ambiguous
+      ? `Using ${hit.label} (pick a more specific start if wrong)`
+      : hit.label || "Located";
   }
 
   function parseHashTab() {
@@ -538,7 +677,19 @@
       .eq("club_itinerary_id", id)
       .order("stop_order");
     st.itinerary.currentId = id;
-    st.itinerary.draft = itin;
+    st.itinerary.draft = {
+      ...itin,
+      _startGeocodeFor:
+        itin.start_latitude != null && itin.start_longitude != null
+          ? String(itin.start_location_label || "").trim()
+          : "",
+      _startResolveNote:
+        itin.start_latitude != null
+          ? "Start located"
+          : itin.start_location_label
+            ? ""
+            : "",
+    };
     st.itinerary.stops = await enrichStops(stops || []);
     await refreshLegs();
     await checkStale(itin, st.itinerary.stops);
@@ -607,28 +758,34 @@
   }
 
   async function refreshLegs() {
+    await resolveStartCoords();
     const stops = st.itinerary.stops;
+    const draft = st.itinerary.draft || {};
+    let startLeg = null;
+    if (stops.length && draft.start_latitude != null && draft.start_longitude != null) {
+      startLeg = await travelLegBetween(
+        { lat: draft.start_latitude, lng: draft.start_longitude },
+        stops[0]
+      );
+      if (startLeg.unavailable) {
+        startLeg = {
+          ...startLeg,
+          note: startLeg.note || "Travel time unavailable from start",
+        };
+      }
+    } else if (stops.length && String(draft.start_location_label || "").trim()) {
+      startLeg = {
+        mode: "drive",
+        minutes: null,
+        unavailable: true,
+        note: draft._startResolveNote || "Could not locate start",
+      };
+    }
+    st.itinerary.startLeg = startLeg;
+
     const legs = [];
     for (let i = 0; i < stops.length - 1; i++) {
-      const a = stops[i];
-      const b = stops[i + 1];
-      if (a.facility_id && b.facility_id && a.facility_id === b.facility_id) {
-        legs.push({ mode: "walk", minutes: WALK_MIN, note: "Same facility (approx walk)" });
-        continue;
-      }
-      const res = await api().clubVisitation({
-        mode: "travel",
-        arguments: {
-          origin: { lat: a.lat, lng: a.lng, facility_id: a.facility_id },
-          destinations: [{ lat: b.lat, lng: b.lng, facility_id: b.facility_id }],
-        },
-      });
-      const r = res.data?.result?.results?.[0];
-      if (!res.ok || !r || r.unavailable || r.minutes == null) {
-        legs.push({ mode: "drive", minutes: null, unavailable: true, note: "Travel time unavailable" });
-      } else {
-        legs.push({ mode: "drive", minutes: r.minutes, unavailable: false, note: "Estimated drive" });
-      }
+      legs.push(await travelLegBetween(stops[i], stops[i + 1]));
     }
     st.itinerary.legs = legs;
     // Feasibility
@@ -637,6 +794,9 @@
     stops.forEach((s, i) => {
       const kick = s.kickoff_at ? new Date(s.kickoff_at).getTime() : null;
       let arrive = kick != null ? kick - 5 * 60000 : cursor;
+      if (i === 0 && startLeg?.unavailable) {
+        feasWarnings.push({ type: "missing_route", message: "Travel unknown from start into stop 1" });
+      }
       if (i > 0) {
         const leg = legs[i - 1];
         const prev = stops[i - 1];
@@ -1007,14 +1167,13 @@
       const gameId = st.agenda.addPrompt?.gameId;
       if (!gameId) return;
       st.itinerary.currentId = "";
-      st.itinerary.draft = {
-        name: `Visits ${todayLocal()}`,
+      st.itinerary.draft = emptyItineraryDraft({
         target_date: st.agenda.dateFrom || todayLocal(),
-        default_visit_minutes: DEFAULT_VISIT,
-        notes: "",
-      };
+      });
       st.itinerary.stops = [];
       st.itinerary.legs = [];
+      st.itinerary.startLeg = null;
+      st.itinerary.orderManual = false;
       st.itinerary.warnings = [];
       st.itinerary.matchPrompt = [];
       st.itinerary.engaged = true;
@@ -1067,12 +1226,9 @@
 
   async function addGameToDraft(gameId) {
     if (!st.itinerary.draft) {
-      st.itinerary.draft = {
-        name: `Visits ${todayLocal()}`,
+      st.itinerary.draft = emptyItineraryDraft({
         target_date: st.agenda.dateFrom || todayLocal(),
-        default_visit_minutes: DEFAULT_VISIT,
-        notes: "",
-      };
+      });
       st.itinerary.currentId = "";
       st.itinerary.stops = [];
     }
@@ -1121,7 +1277,21 @@
       brighton_line: (g.brighton_players || []).map((p) => p.name).join(", "),
       notes: "",
     });
+    // Default order is kickoff ascending; ↑↓ can override until the next add.
+    st.itinerary.stops = sortStopsByKickoff(st.itinerary.stops);
+    st.itinerary.orderManual = false;
     await refreshLegs();
+  }
+
+  function sortStopsByKickoff(stops) {
+    return [...(stops || [])]
+      .sort((a, b) => {
+        const ta = a.kickoff_at ? new Date(a.kickoff_at).getTime() : Number.POSITIVE_INFINITY;
+        const tb = b.kickoff_at ? new Date(b.kickoff_at).getTime() : Number.POSITIVE_INFINITY;
+        if (ta !== tb) return ta - tb;
+        return String(a.game_id || "").localeCompare(String(b.game_id || ""));
+      })
+      .map((s, i) => ({ ...s, stop_order: i + 1 }));
   }
 
   async function addStop(gameId) {
@@ -1139,18 +1309,20 @@
 
   function readItineraryForm() {
     if (!st.itinerary.draft) {
-      st.itinerary.draft = {
-        name: `Visits ${todayLocal()}`,
-        target_date: todayLocal(),
-        default_visit_minutes: DEFAULT_VISIT,
-        notes: "",
-      };
+      st.itinerary.draft = emptyItineraryDraft();
     }
     const name = $("#club-itin-name");
     if (!name) return;
     st.itinerary.draft.name = name.value;
     st.itinerary.draft.target_date = $("#club-itin-date")?.value || "";
-    st.itinerary.draft.start_location_label = $("#club-itin-start")?.value || "";
+    const startVal = $("#club-itin-start")?.value || "";
+    if (startVal !== (st.itinerary.draft.start_location_label || "")) {
+      st.itinerary.draft.start_latitude = null;
+      st.itinerary.draft.start_longitude = null;
+      st.itinerary.draft._startGeocodeFor = "";
+      st.itinerary.draft._startResolveNote = "";
+    }
+    st.itinerary.draft.start_location_label = startVal;
     st.itinerary.draft.notes = $("#club-itin-notes")?.value || "";
   }
 
@@ -1217,15 +1389,40 @@
           `<option value="${escapeHtml(i.id)}" ${st.itinerary.currentId === i.id ? "selected" : ""}>${escapeHtml(i.name)}${i.target_date ? ` (${i.target_date})` : ""}</option>`
       )
       .join("");
+    const draftStart = {
+      lat: draft?.start_latitude,
+      lng: draft?.start_longitude,
+      label: draft?.start_location_label,
+    };
+    const startLeg = st.itinerary.startLeg;
+    const startMap =
+      startLeg && st.itinerary.stops[0]
+        ? mapsLink(st.itinerary.stops[0].lat, st.itinerary.stops[0].lng, draftStart)
+        : null;
+    const startBlock =
+      startLeg && draftStart.label
+        ? `<div class="club-start-leg">
+            <p class="club-start-from">From ${escapeHtml(String(draftStart.label).trim())}</p>
+            ${legMarkup(startLeg, startMap)}
+          </div>`
+        : "";
+
     const stops = st.itinerary.stops
       .map((s, i) => {
-        const leg =
-          i < st.itinerary.legs.length
-            ? st.itinerary.legs[i].unavailable || st.itinerary.legs[i].minutes == null
-              ? `<p class="club-leg is-warn">→ Travel time unavailable</p>`
-              : `<p class="club-leg">→ ${st.itinerary.legs[i].mode === "walk" ? "Walk/transition" : "Drive"} ~${st.itinerary.legs[i].minutes} min</p>`
+        const prev =
+          i === 0
+            ? draftStart.lat != null
+              ? draftStart
+              : null
+            : { lat: st.itinerary.stops[i - 1].lat, lng: st.itinerary.stops[i - 1].lng };
+        const map = mapsLink(s.lat, s.lng, prev);
+        const next = st.itinerary.stops[i + 1];
+        const leg = i < st.itinerary.legs.length ? st.itinerary.legs[i] : null;
+        const legMap = next ? mapsLink(next.lat, next.lng, { lat: s.lat, lng: s.lng }) : null;
+        const pinNote =
+          s.lat == null || s.lng == null
+            ? `<p class="club-leg is-warn">Venue needs a map pin</p>`
             : "";
-        const map = mapsLink(s.lat, s.lng, s.facility_name);
         return `
           <article class="club-stop-card" data-stop-index="${i}">
             <div class="club-stop-ord">
@@ -1236,12 +1433,13 @@
               <h3>${i + 1}. ${escapeHtml(s.team_line)}</h3>
               <p class="muted">${escapeHtml(formatKickoff(s.kickoff_at))} · ${escapeHtml([s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD")}</p>
               ${s.brighton_line ? `<p class="club-players">${escapeHtml(s.brighton_line)}</p>` : ""}
+              ${pinNote}
               <label class="club-inline">Visit min<input type="number" min="5" max="180" data-visit-min="${i}" value="${s.visit_minutes || DEFAULT_VISIT}" /></label>
               <label class="club-check"><input type="checkbox" data-lock="${i}" ${s.locked ? "checked" : ""} /> Lock</label>
               ${map ? `<a class="btn btn-ghost" target="_blank" rel="noopener" href="${escapeHtml(map)}">Map</a>` : ""}
               <button type="button" class="btn btn-ghost" data-remove-stop="${i}">Remove</button>
             </div>
-            ${leg}
+            ${legMarkup(leg, legMap)}
           </article>`;
       })
       .join("");
@@ -1275,13 +1473,24 @@
         <label>Name<input id="club-itin-name" value="${escapeHtml(draft?.name || "")}" placeholder="Saturday North Valley" /></label>
         <div class="club-split">
           <label>Date<input type="date" id="club-itin-date" value="${escapeHtml(draft?.target_date || "")}" /></label>
-          <label>Start<input id="club-itin-start" value="${escapeHtml(draft?.start_location_label || "")}" placeholder="Layton" /></label>
+          <label>Start from
+            <input id="club-itin-start" value="${escapeHtml(draft?.start_location_label || "")}" placeholder="Home · Layton" enterkeyhint="done" autocomplete="street-address" />
+          </label>
         </div>
+        <p class="club-start-status muted" id="club-start-status">${
+          st.itinerary.startBusy
+            ? "Locating start…"
+            : draft?.start_latitude != null
+              ? escapeHtml(draft._startResolveNote || "Start located")
+              : draft?.start_location_label
+                ? escapeHtml(draft._startResolveNote || "Enter a place, then tap away to locate")
+                : "Optional — drive time to the first stop"
+        }</p>
         <label>Notes<textarea id="club-itin-notes" rows="2">${escapeHtml(draft?.notes || "")}</textarea></label>
       </div>
       ${itineraryFinderMarkup()}
       ${warns ? `<ul class="club-warn-list">${warns}</ul>` : ""}
-      <div class="club-stops">${stops || `<p class="empty-state">No stops yet. Use Find games to add club games to this itinerary.</p>`}</div>
+      <div class="club-stops">${startBlock}${stops || `<p class="empty-state">No stops yet. Use Find games to add club games to this itinerary.</p>`}</div>
       <div class="club-itin-actions">
         <button type="button" class="btn btn-primary" id="club-itin-save" ${st.itinerary.busy ? "disabled" : ""}>Save</button>
         <button type="button" class="btn btn-secondary" id="club-itin-copy">Copy text</button>
@@ -1306,6 +1515,12 @@
     const lines = [d.name || "Club visitation itinerary"];
     if (d.target_date) lines.push(`Date: ${d.target_date}`);
     if (d.start_location_label) lines.push(`Start: ${d.start_location_label}`);
+    if (st.itinerary.startLeg) {
+      const leg = st.itinerary.startLeg;
+      if (leg.mode === "walk") lines.push(`→ Walk/transition ~${leg.minutes} min (approx)`);
+      else if (leg.unavailable || leg.minutes == null) lines.push(`→ Drive from start: ${leg.note || "time unavailable"}`);
+      else lines.push(`→ Drive from start ~${leg.minutes} min (estimate)`);
+    }
     lines.push("");
     st.itinerary.stops.forEach((s, i) => {
       lines.push(`${i + 1}. ${s.team_line}`);
@@ -1313,12 +1528,18 @@
       lines.push(`   Kickoff: ${formatKickoff(s.kickoff_at)}`);
       if (s.planned_arrival_at) lines.push(`   Arrive ~ ${formatKickoff(s.planned_arrival_at)}`);
       lines.push(`   Venue: ${[s.facility_name, s.field_label].filter(Boolean).join(" · ") || "TBD"}`);
-      const map = mapsLink(s.lat, s.lng, s.facility_name);
+      const prev =
+        i === 0
+          ? d.start_latitude != null
+            ? { lat: d.start_latitude, lng: d.start_longitude }
+            : null
+          : { lat: st.itinerary.stops[i - 1].lat, lng: st.itinerary.stops[i - 1].lng };
+      const map = mapsLink(s.lat, s.lng, prev);
       if (map) lines.push(`   Map: ${map}`);
       if (i < st.itinerary.legs.length) {
         const leg = st.itinerary.legs[i];
         if (leg.mode === "walk") lines.push(`   → Walk/transition ~${leg.minutes} min (approx)`);
-        else if (leg.unavailable || leg.minutes == null) lines.push(`   → Drive: time unavailable`);
+        else if (leg.unavailable || leg.minutes == null) lines.push(`   → Drive: ${leg.note || "time unavailable"}`);
         else lines.push(`   → Drive ~${leg.minutes} min (estimate)`);
       }
       lines.push("");
@@ -1361,9 +1582,11 @@
       const id = e.target.value;
       if (!id) {
         st.itinerary.currentId = "";
-        st.itinerary.draft = { name: `Visits ${todayLocal()}`, target_date: todayLocal(), default_visit_minutes: DEFAULT_VISIT };
+        st.itinerary.draft = emptyItineraryDraft();
         st.itinerary.stops = [];
         st.itinerary.legs = [];
+        st.itinerary.startLeg = null;
+        st.itinerary.orderManual = false;
         st.itinerary.warnings = [];
         st.itinerary.engaged = true;
         paint();
@@ -1382,11 +1605,18 @@
     });
     $("#club-itin-new")?.addEventListener("click", () => {
       st.itinerary.currentId = "";
-      st.itinerary.draft = { name: `Visits ${todayLocal()}`, target_date: todayLocal(), default_visit_minutes: DEFAULT_VISIT };
+      st.itinerary.draft = emptyItineraryDraft();
       st.itinerary.stops = [];
       st.itinerary.legs = [];
+      st.itinerary.startLeg = null;
+      st.itinerary.orderManual = false;
       st.itinerary.warnings = [];
       st.itinerary.engaged = true;
+      paint();
+    });
+    $("#club-itin-start")?.addEventListener("change", async () => {
+      readItineraryForm();
+      await refreshLegs();
       paint();
     });
     $$("[data-stop-up]").forEach((btn) =>
@@ -1396,6 +1626,10 @@
         if (i <= 0) return;
         const arr = st.itinerary.stops;
         [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+        arr.forEach((s, idx) => {
+          s.stop_order = idx + 1;
+        });
+        st.itinerary.orderManual = true;
         await refreshLegs();
         paint();
       })
@@ -1407,6 +1641,10 @@
         const arr = st.itinerary.stops;
         if (i >= arr.length - 1) return;
         [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+        arr.forEach((s, idx) => {
+          s.stop_order = idx + 1;
+        });
+        st.itinerary.orderManual = true;
         await refreshLegs();
         paint();
       })
@@ -1550,11 +1788,16 @@
     }
     st.itinerary.busy = true;
     paint();
+    readItineraryForm();
+    await resolveStartCoords();
     const summary = buildCopyText();
+    const draft = st.itinerary.draft || {};
     const row = {
       name,
       target_date: $("#club-itin-date")?.value || null,
-      start_location_label: $("#club-itin-start")?.value || null,
+      start_location_label: draft.start_location_label || null,
+      start_latitude: draft.start_latitude ?? null,
+      start_longitude: draft.start_longitude ?? null,
       notes: $("#club-itin-notes")?.value || null,
       default_visit_minutes: DEFAULT_VISIT,
       summary_text: summary,
@@ -1819,9 +2062,12 @@
           <h3>Facility</h3>
           <input name="name" placeholder="Name (e.g. RAC)" required />
           <input name="city" placeholder="City" />
-          <input name="street_address" placeholder="Address" />
-          <input name="latitude" placeholder="Lat" inputmode="decimal" />
-          <input name="longitude" placeholder="Lng" inputmode="decimal" />
+          <input name="street_address" placeholder="Street address" autocomplete="street-address" />
+          <div class="club-split">
+            <input name="latitude" placeholder="Lat (optional)" inputmode="decimal" />
+            <input name="longitude" placeholder="Lng (optional)" inputmode="decimal" />
+          </div>
+          <p class="muted">Leave lat/lng blank — use Locate after save if you have an address.</p>
           <button class="btn btn-primary" type="submit">Add facility</button>
         </form>
         <form id="club-add-field" class="club-mini-form">
@@ -1830,10 +2076,33 @@
           <input name="label" placeholder="Field 5" required />
           <button class="btn btn-primary" type="submit">Add field</button>
         </form>
-        <ul class="club-list">${st.data.facilities
+        <ul class="club-list club-fac-list">${st.data.facilities
           .map((f) => {
             const fields = st.data.fields.filter((x) => x.club_facility_id === f.id).map((x) => x.label).join(", ");
-            return `<li><strong>${escapeHtml(f.name)}</strong> ${escapeHtml(f.city || "")}<br/><span class="muted">${escapeHtml(fields || "No fields")}</span></li>`;
+            const addr = [f.street_address, f.city].filter(Boolean).join(", ");
+            const pinned = f.latitude != null && f.longitude != null;
+            const status = pinStatusLabel(f);
+            const map = mapsLink(f.latitude, f.longitude);
+            const busy = st.data.geocodeBusyId === f.id;
+            const canLocate = !!(f.street_address || f.city || f.name);
+            return `<li class="club-fac-row">
+              <div class="club-fac-main">
+                <strong>${escapeHtml(f.name)}</strong>
+                <span class="club-pin-badge${pinned ? " is-ok" : " is-miss"}">${escapeHtml(status)}</span>
+                ${addr ? `<p class="muted">${escapeHtml(addr)}</p>` : `<p class="muted">No address on file</p>`}
+                <p class="muted">${escapeHtml(fields || "No fields")}</p>
+              </div>
+              <div class="club-fac-actions">
+                ${map ? `<a class="btn btn-ghost" target="_blank" rel="noopener" href="${escapeHtml(map)}">Map</a>` : ""}
+                ${
+                  canLocate
+                    ? `<button type="button" class="btn btn-secondary" data-geocode-fac="${escapeHtml(f.id)}" ${busy ? "disabled" : ""}>${
+                        busy ? "Locating…" : pinned ? "Re-locate" : "Locate"
+                      }</button>`
+                    : ""
+                }
+              </div>
+            </li>`;
           })
           .join("")}</ul>`;
     } else if (sec === "games") {
@@ -2023,6 +2292,51 @@
       await loadDataSection();
       paint();
     });
+    $$("[data-geocode-fac]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-geocode-fac");
+        const f = st.data.facilities.find((x) => x.id === id);
+        if (!f) return;
+        const query = facilityQuery(f);
+        if (!query) {
+          showToast("Add an address first");
+          return;
+        }
+        st.data.geocodeBusyId = id;
+        paint();
+        const geo = await geocodePlaceQuery(query);
+        st.data.geocodeBusyId = "";
+        if (!geo.ok || !geo.results.length) {
+          st.error =
+            geo.error || "Could not locate facility";
+          if (f.id) {
+            await api()
+              .getClient()
+              .from("club_facilities")
+              .update({ geocode_status: "failed" })
+              .eq("id", f.id);
+          }
+          await loadDataSection();
+          paint();
+          return;
+        }
+        const hit = geo.results[0];
+        const { error } = await api()
+          .getClient()
+          .from("club_facilities")
+          .update({
+            latitude: hit.lat,
+            longitude: hit.lng,
+            geocode_status: "ok",
+            maps_url: mapsLink(hit.lat, hit.lng),
+          })
+          .eq("id", id);
+        if (error) st.error = error.message;
+        else showToast(geo.ambiguous ? `Located (check): ${hit.label}` : `Located: ${hit.label}`);
+        await loadDataSection();
+        paint();
+      })
+    );
     $("#club-add-field")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -2267,11 +2581,7 @@
       else if (st.tab === "itinerary") {
         await loadItineraryList();
         if (!st.itinerary.draft) {
-          st.itinerary.draft = {
-            name: `Visits ${todayLocal()}`,
-            target_date: todayLocal(),
-            default_visit_minutes: DEFAULT_VISIT,
-          };
+          st.itinerary.draft = emptyItineraryDraft();
         }
       } else await loadDataSection();
     } catch (err) {

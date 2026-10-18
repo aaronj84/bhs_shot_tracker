@@ -12,7 +12,7 @@ Hash routes: `#club` / `#club-agenda` (default) · `#club-itinerary` · `#club-d
 | Player identity | Club players live in `club_players`. Shot-tracker `players` stay separate. `club_player_links` is the only connection, and it is optional. |
 | Auth / RLS | Anonymous Supabase session after staff PIN (client gate). RLS: `authenticated` full CRUD on `club_*` tables — same as shot tracker. |
 | Gemini | Reuse `GEMINI_API_KEY` + `createGeminiProvider` via Edge Function `club-visitation`. Tool-style JSON plans executed server-side against Postgres; model does not invent fixtures. |
-| Maps / routing | No existing map provider in-app. Facility pins use lat/lng + Google Maps / OSM direction links. Driving times via Google Routes API when `GOOGLE_MAPS_API_KEY` is set as a Supabase secret; otherwise UI shows “travel time unavailable” (never invents drive minutes from haversine). Same-facility field moves use configurable walk minutes. |
+| Maps / routing | Facility pins use lat/lng + Google Maps / OSM direction links. Place lookup via Photon (no key) or OpenRouteService geocode when keyed. Drive times via ORS Matrix when `OPENROUTESERVICE_API_KEY` is set; otherwise UI shows “travel time unavailable” (never invents drive minutes from haversine). Same-facility field moves use configurable walk minutes. |
 | Cron | `pg_cron` job `club-sync-worker` every 6 hours calls `club_kick_sync()` → `pg_net` POST to registered `club-sync` Edge Function URL. Manual Sync Now from Club Data. |
 | Naming | All new tables use `club_` prefix. Separate from HS `games` / postseason `schedule_*`. |
 | Itineraries | Shared named records (no coach ownership). PIN-gated users can create/edit/copy. |
@@ -45,13 +45,13 @@ See migration `supabase/migrations/20261016180000_club_visitation.sql`.
 | --- | --- | --- |
 | `GEMINI_API_KEY` | for Ask Gemini | Already used by prep-opponent / mp-whatif |
 | `PREP_GEMINI_MODEL` | no | Default `gemini-3.6-flash` |
-| `GOOGLE_MAPS_API_KEY` | for routed drive times / geocode | Enable Routes API + Geocoding API in Google Cloud; billing required |
+| `OPENROUTESERVICE_API_KEY` | for routed drive times | Free key at [openrouteservice.org](https://openrouteservice.org/dev/#/signup) (no billing card). Place lookup works without it (Photon); with the key, ORS handles geocode + matrix. |
 | `CLUB_SYNC_CRON_SECRET` | recommended | Shared bearer for cron → `club-sync` |
 
 ```bash
 supabase secrets set GEMINI_API_KEY=…
-# optional:
-supabase secrets set GOOGLE_MAPS_API_KEY=…
+# optional (free ORS key — drive times):
+supabase secrets set OPENROUTESERVICE_API_KEY=…
 supabase secrets set CLUB_SYNC_CRON_SECRET=$(openssl rand -hex 24)
 ```
 
@@ -83,7 +83,7 @@ Club Data → CSV import accepts teams, affiliations, facilities, fields, compet
 ## Known limitations
 
 - HTML adapters cover a small set of table-shaped public pages; many club sites need a new adapter key or manual/ICS entry.
-- Without `GOOGLE_MAPS_API_KEY`, nearby-place geocoding and drive times are unavailable (explicitly surfaced).
+- Without `OPENROUTESERVICE_API_KEY`, drive times are unavailable (explicitly surfaced). Place geocoding still works via Photon.
 - Gemini suggestions never auto-write itineraries; coach must accept.
 - No SMS / push / per-coach ownership (out of MVP scope).
 

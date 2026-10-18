@@ -114,6 +114,28 @@ describe("club gemini markdown", () => {
     expect(html.toLowerCase()).not.toContain("id");
   });
 
+  it("does not leave empty parentheses when the model wraps the game id", () => {
+    const html = renderClubMarkdown(
+      "1. **Zander** (`d18888c2-658a-555b-adf0-53ac41ab2035`)\n   - **Kickoff:** 1:00 PM\n   - **Facility:** Butler M.S."
+    );
+    expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035"');
+    expect(html).toContain("<strong>Zander</strong>");
+    expect(html).not.toMatch(/Zander\s*\(\s*\)/);
+    expect(html).not.toMatch(/\(\s*\)/);
+  });
+
+  it("keeps player-name bold when the game id follows on the same line", () => {
+    const html = renderClubMarkdown(
+      "1. **Calvin** `d18888c2-658a-555b-adf0-53ac41ab2035`\n   - **Kickoff:** 3:30 PM\n   - **Includes:** Jason S., Weston"
+    );
+    expect(html).toContain("<strong>Calvin</strong>");
+    expect(html).toContain("<strong>Kickoff:</strong>");
+    expect(html).toContain("<strong>Includes:</strong>");
+    expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035"');
+    expect(html).not.toContain("**Calvin");
+    expect(html).not.toContain("**");
+  });
+
   it("drops a Game ID label and keeps the Add button", () => {
     const html = renderClubMarkdown("**Game ID:** `d18888c2-658a-555b-adf0-53ac41ab2035`");
     expect(html).toContain('data-add-itin="d18888c2-658a-555b-adf0-53ac41ab2035"');

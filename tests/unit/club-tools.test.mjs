@@ -268,6 +268,22 @@ describe("club gemini tools", () => {
     expect(result.results[0].minutes).toBeNull();
   });
 
+  it("resolves get_travel_times from origin_game_id / destination_game_id", async () => {
+    const result = await executeClubTool(
+      "get_travel_times",
+      {
+        origin_game_id: "g-one",
+        destination_game_id: "g-both",
+      },
+      { db: fakeDb(sampleGames), mapsApiKey: "" }
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.origin.game_id).toBe("g-one");
+    expect(result.results[0].from_place).toBe("RAC");
+    expect(result.results[0].to_place).toBe("Layton Commons");
+    expect(result.results[0].unavailable).toBe(true);
+  });
+
   it("proposes itinerary without dropping locked games", async () => {
     const result = await executeClubTool(
       "propose_club_itinerary",

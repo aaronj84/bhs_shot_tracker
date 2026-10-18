@@ -710,8 +710,8 @@
     if (/GEMINI_API_KEY is not configured/i.test(text)) {
       return "Gemini is not configured. Run: supabase secrets set GEMINI_API_KEY=… then redeploy club-visitation.";
     }
-    if (/GOOGLE_MAPS_API_KEY/i.test(text)) {
-      return "Maps routing is not configured (GOOGLE_MAPS_API_KEY). Travel times will show as unavailable.";
+    if (/OPENROUTESERVICE_API_KEY|GOOGLE_MAPS_API_KEY/i.test(text)) {
+      return "Drive-time routing is not configured (OPENROUTESERVICE_API_KEY). Travel times will show as unavailable.";
     }
     if (/non-2xx status code|Failed to send|404/i.test(text)) {
       return "Club planner request failed. Deploy club-visitation / club-sync Edge Functions to this project.";

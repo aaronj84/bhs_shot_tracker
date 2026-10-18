@@ -1,11 +1,14 @@
 /**
  * Club Player Visitation Planner — Gemini Q&A + travel tools.
- * Secrets: GEMINI_API_KEY (required for ask). Optional: PREP_GEMINI_MODEL, GOOGLE_MAPS_API_KEY.
+ * Secrets: GEMINI_API_KEY (required for ask). Optional: PREP_GEMINI_MODEL, OPENROUTESERVICE_API_KEY.
+ * Geocoding uses Photon (no key), or ORS when OPENROUTESERVICE_API_KEY is set.
+ * Drive times use OpenRouteService Matrix when the secret is set.
  * Requires staff PIN anonymous session (JWT).
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { createGeminiProvider } from "../_shared/explore/providers/gemini.ts";
 import { createClubDb } from "../_shared/club/db-client.mjs";
+import { geocodePlace } from "../_shared/club/travel.mjs";
 import {
   buildPlannerSystemPrompt,
   buildToolCatalogPrompt,
@@ -65,7 +68,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const mode = String(body.mode || "ask").toLowerCase();
     const db = createClubDb(userClient);
-    const mapsApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY") || "";
+    const mapsApiKey = Deno.env.get("OPENROUTESERVICE_API_KEY") || "";
     const { data: settings } = await userClient.from("club_settings").select("*").eq("id", true).maybeSingle();
     const ctx = {
       db,
@@ -84,6 +87,20 @@ Deno.serve(async (req) => {
     if (mode === "travel") {
       const result = await executeClubTool("get_travel_times", body.arguments || body, ctx);
       return jsonResponse({ ok: true, result, provider_configured: !!mapsApiKey });
+    }
+
+    if (mode === "geocode") {
+      const query = String(body.query || body.place || "").trim();
+      if (!query) return jsonResponse({ error: "query required" }, 400);
+      if (query.length > 300) return jsonResponse({ error: "query too long" }, 400);
+      const result = await geocodePlace(query, mapsApiKey);
+      return jsonResponse({
+        ok: result.ok,
+        ...result,
+        provider_configured: true,
+        routing_configured: !!mapsApiKey,
+        geocode_provider: result.provider || (mapsApiKey ? "openrouteservice" : "photon"),
+      });
     }
 
     // mode=ask
@@ -177,7 +194,7 @@ Deno.serve(async (req) => {
         { role: "system", content: buildPlannerSystemPrompt() },
         {
           role: "user",
-          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. Put each game_id in backticks so the app can show an Add button. Do not write the words "Game ID". When a travel leg includes minutes, tell the coach the drive time between those facilities. If travel is unavailable, say travel time is unavailable and still describe the games. If disambiguation is present, ask the coach to choose.`,
+          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. For each listed game: **Name** then space then \`game_id\` (never wrap the id in bold or parentheses), then Kickoff and Facility copied from the tool JSON — never invent "Unavailable". Add Includes only when other Brighton players share that game. When a travel leg includes minutes, tell the coach the drive time. If travel is unavailable, say so and still describe the games from search results. If disambiguation is present, ask the coach to choose.`,
         },
       ],
     });

@@ -64,6 +64,7 @@ function enrichGame(row) {
     away_team_id: row.away_team_id,
     competition: row.competition_name,
     facility: row.facility_name,
+    facility_id: row.facility_id || row.club_facility_id || null,
     field: row.field_label,
     address: row.street_address || null,
     city: row.city,
@@ -92,14 +93,25 @@ function clueText(ctx) {
   return [ctx?.question, ctx?.historyText].filter(Boolean).join("\n");
 }
 
+function normalizeDateWindow(date_from, date_to) {
+  if (isIsoDate(date_from) && isIsoDate(date_to) && date_from > date_to) {
+    return { date_from: date_to, date_to: date_from };
+  }
+  return { date_from, date_to };
+}
+
 /** Dates and filters come from the question, not the agenda screen. */
 function resolveAskedWindow(args, ctx) {
   const clue = String(clueText(ctx) || args.relative || "").trim();
-  if (clue && hasTimeClue(clue)) return parseRelativeDateWindow(clue, CLUB_TZ, ctx?.now);
-  if (isIsoDate(args.date_from) && isIsoDate(args.date_to)) {
-    return { date_from: args.date_from, date_to: args.date_to };
+  if (clue && hasTimeClue(clue)) {
+    const w = parseRelativeDateWindow(clue, CLUB_TZ, ctx?.now);
+    return normalizeDateWindow(w.date_from, w.date_to);
   }
-  return parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, ctx?.now);
+  if (isIsoDate(args.date_from) && isIsoDate(args.date_to)) {
+    return normalizeDateWindow(args.date_from, args.date_to);
+  }
+  const w = parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, ctx?.now);
+  return normalizeDateWindow(w.date_from, w.date_to);
 }
 
 const SKIP_WORDS = new Set([
@@ -305,7 +317,8 @@ async function findNearbyClubGames(args, ctx) {
       }
     }
   } else if (!apiKey) {
-    routing_note = "Drive-time filter skipped — GOOGLE_MAPS_API_KEY not configured; used geographic radius only.";
+    routing_note =
+      "Drive-time filter skipped — OPENROUTESERVICE_API_KEY not configured; used geographic radius only.";
   }
 
   return {
@@ -320,14 +333,49 @@ async function findNearbyClubGames(args, ctx) {
   };
 }
 
+async function resolveTravelPoint(raw, ctx) {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    const g = await ctx.db.getGameDetails(raw);
+    return g ? enrichGame(g) : null;
+  }
+  if (raw.game_id || raw.club_game_id || raw.id) {
+    if (raw.lat != null && raw.lng != null) {
+      return {
+        ...raw,
+        game_id: raw.game_id || raw.club_game_id || raw.id,
+        facility: raw.facility || raw.facility_name || null,
+      };
+    }
+    const g = await ctx.db.getGameDetails(raw.game_id || raw.club_game_id || raw.id);
+    return g ? enrichGame(g) : null;
+  }
+  if (raw.lat != null && raw.lng != null) return raw;
+  return null;
+}
+
 async function getTravelTimes(args, ctx) {
-  const origin = args.origin;
-  const dests = args.destinations_or_route_stops || args.destinations || [];
-  if (!origin || !dests.length) return { error: "origin and destinations required" };
+  let origin = await resolveTravelPoint(args.origin || args.origin_game_id, ctx);
+  let dests = args.destinations_or_route_stops || args.destinations || args.destination_game_ids || [];
+  if (!dests.length && args.destination_game_id) dests = [args.destination_game_id];
+  if (!Array.isArray(dests)) dests = [dests];
+  dests = (await Promise.all(dests.map((d) => resolveTravelPoint(d, ctx)))).filter(Boolean);
+
+  if (!origin || !dests.length) {
+    return {
+      error: "origin and destinations required",
+      hint: "Pass origin/destinations with lat/lng, or origin_game_id + destination_game_id from search results",
+    };
+  }
+
   const results = [];
   for (const d of dests) {
     if (origin.facility_id && d.facility_id && origin.facility_id === d.facility_id) {
       results.push({
+        from_game_id: origin.game_id || null,
+        to_game_id: d.game_id || null,
+        from_place: origin.facility || origin.facility_name || null,
+        to_place: d.facility || d.facility_name || null,
         to: d,
         mode: "walk",
         minutes: ctx.walkMinutes ?? DEFAULT_WALK_MINUTES,
@@ -337,6 +385,10 @@ async function getTravelTimes(args, ctx) {
     }
     const t = await travelMinutesBetween(origin, d, ctx.mapsApiKey);
     results.push({
+      from_game_id: origin.game_id || null,
+      to_game_id: d.game_id || null,
+      from_place: origin.facility || origin.facility_name || null,
+      to_place: d.facility || d.facility_name || null,
       to: d,
       mode: "drive",
       minutes: t.minutes,
@@ -344,7 +396,17 @@ async function getTravelTimes(args, ctx) {
       note: t.note,
     });
   }
-  return { results, provider_configured: !!ctx.mapsApiKey };
+  return {
+    results,
+    provider_configured: !!ctx.mapsApiKey,
+    origin: {
+      game_id: origin.game_id || null,
+      facility: origin.facility || origin.facility_name || null,
+      kickoff_at: origin.kickoff_at || null,
+      lat: origin.lat,
+      lng: origin.lng,
+    },
+  };
 }
 
 async function proposeClubItinerary(args, ctx) {
@@ -438,7 +500,19 @@ Rules:
 - Itinerary proposals are suggestions only — the coach must confirm before saving.
 - Keep answers concise and coach-friendly. Use local America/Denver times from tool data.
 - When travel is unavailable, say "travel time unavailable" — do not estimate from distance.
-- Minimize student personal data in your wording; use first names / short names from tool results.`;
+- Never write "Unavailable" for kickoff or facility when tool results include those fields — copy kickoff_at and facility from the JSON.
+- Minimize student personal data in your wording; use first names / short names from tool results.
+
+When listing games (especially ones the coach named by player), use this markdown shape — put each game_id in backticks alone, never inside parentheses:
+
+1. **FirstName** \`game_id-here\`
+   - **Kickoff:** 1:00 PM
+   - **Facility:** Butler M.S.
+   - **Includes:** OtherName, AnotherName
+
+- Title the game with the player the coach asked about (first/short name). Close bold around the name only: **Calvin** then a space then \`game_id\`.
+- **Includes:** lists other Brighton players at that same game (from brighton_players), excluding the titled player. Omit the Includes line when there are no others.
+- Do not write empty parentheses. Do not write "Game ID".`;
 }
 
 export function buildToolCatalogPrompt() {
@@ -448,12 +522,16 @@ ${TOOL_NAMES.map((n) => `- ${n}`).join("\n")}
 Build search_club_games arguments from the coach's words only. Ignore the agenda screen's date range, player menu, and "players on both teams" checkbox.
 
 search_club_games arguments:
-- date_from, date_to: YYYY-MM-DD in America/Denver, taken from the question. "Saturday" is the coming Saturday. "this weekend" is Saturday through Sunday. "10/24" or "October 24" is that calendar day. Use the next 7 days only when the question has no day or date.
+- date_from, date_to: YYYY-MM-DD in America/Denver, taken from the question. date_from must be ≤ date_to. "Saturday" is the coming Saturday. "this weekend" is Saturday through Sunday. "10/24" or "October 24" is that calendar day. Use the next 7 days only when the question has no day or date.
 - player_name: a name they mentioned, otherwise omit.
 - team_name: a team they mentioned, otherwise omit.
 - city_or_area: a city or area they mentioned, otherwise omit.
 - both_sides: true only when they ask for players on both teams.
 - Do not set a filter the question did not ask for.
+
+get_travel_times arguments (prefer game ids from prior search results):
+- origin_game_id + destination_game_id, OR
+- origin: {lat, lng} and destinations: [{lat, lng}, ...]
 
 To call tools, respond with ONLY JSON:
 {"tool_calls":[{"name":"search_club_games","arguments":{"date_from":"YYYY-MM-DD","date_to":"YYYY-MM-DD"}}]}

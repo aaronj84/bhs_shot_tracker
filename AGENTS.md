@@ -35,7 +35,7 @@ npm run test:api    # Vitest vs DEV (+ unit tests incl. club planner)
 npm run test:e2e    # Playwright smokes
 ```
 
-Club Player Visitation Planner (`#club`): see [`docs/club-visitation.md`](docs/club-visitation.md). Migration `club_visitation`, Edge Functions `club-visitation` + `club-sync`. Optional Supabase secret `GOOGLE_MAPS_API_KEY` for routed drive times.
+Club Player Visitation Planner (`#club`): see [`docs/club-visitation.md`](docs/club-visitation.md). Migration `club_visitation`, Edge Functions `club-visitation` + `club-sync`. Optional Supabase secret `OPENROUTESERVICE_API_KEY` for routed drive times (Photon geocodes without a key).
 
 ## Cursor Cloud specific instructions
 
