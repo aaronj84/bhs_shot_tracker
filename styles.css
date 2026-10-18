@@ -5802,13 +5802,23 @@ body.club-view .app-main {
 
 .club-md p,
 .club-md li {
-  margin: 0 0 0.4rem;
+  margin: 0;
   line-height: 1.4;
 }
 
+/* Gap before the next game title, not under the name before Kickoff. */
+.club-md ul + p,
+.club-md p + p {
+  margin-top: 0.85rem;
+}
+
 .club-md ul {
-  margin: 0 0 0.55rem;
+  margin: 0.2rem 0 0;
   padding-left: 1.15rem;
+}
+
+.club-md li + li {
+  margin-top: 0.15rem;
 }
 
 .club-md hr {
@@ -5822,14 +5832,19 @@ body.club-view .app-main {
   word-break: break-all;
 }
 
-.club-md li,
-.club-md p {
-  display: flow-root;
+/* Flex keeps Add on the name row — float+flow-root left a 44px hole under the title. */
+.club-md p,
+.club-md li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.45rem;
+  row-gap: 0.15rem;
 }
 
 .club-md-add {
-  float: right;
-  margin: 0 0 0.15rem 0.5rem;
+  float: none;
+  margin: 0 0 0 auto;
   min-height: 44px;
   min-width: 44px;
   padding: 0.2rem 0.75rem;
