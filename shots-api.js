@@ -583,7 +583,86 @@
       if (error) return { ok: false, error: error.message || "Could not record events" };
       return { ok: true };
     },
+
+    /** Club visitation Gemini / tools / travel via Edge Function club-visitation. */
+    async clubVisitation(payload) {
+      const sb = getClient();
+      if (!sb || isPlaceholderConfig()) {
+        return {
+          ok: false,
+          error: "Club planner needs a live Supabase project with the club-visitation Edge Function.",
+        };
+      }
+      const { data, error } = await sb.functions.invoke("club-visitation", {
+        body: payload && typeof payload === "object" ? payload : {},
+      });
+      const boxed = await functionPayload(data, error);
+      logClubQueries(payload, boxed);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyClubError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
+
+    /** Manual / cron schedule sync via Edge Function club-sync. */
+    async clubSync(payload) {
+      const sb = getClient();
+      if (!sb || isPlaceholderConfig()) {
+        return { ok: false, error: "Club sync needs a live Supabase project." };
+      }
+      const { data, error } = await sb.functions.invoke("club-sync", {
+        body: payload && typeof payload === "object" ? payload : { due_only: false },
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyClubError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
+
+    async clubRegisterSyncWorker() {
+      const sb = getClient();
+      if (!sb || isPlaceholderConfig()) return { ok: false };
+      const c = cfg();
+      const url = `${String(c.supabaseUrl || "").replace(/\/$/, "")}/functions/v1/club-sync`;
+      const { data, error } = await sb.rpc("club_register_sync_worker", { p_url: url });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data };
+    },
   };
+
+  function logClubQueries(payload, boxed) {
+    const question = payload && payload.question;
+    const tools = boxed && Array.isArray(boxed.tool_results) ? boxed.tool_results : [];
+    if (!tools.length) {
+      if (payload && payload.mode === "tool") {
+        console.info("[club]", payload.tool, payload.arguments || {}, {
+          count: boxed && boxed.result && boxed.result.count,
+          error: (boxed && boxed.result && boxed.result.error) || (boxed && boxed.error) || null,
+        });
+      } else if (question) {
+        console.info("[club] ask (no tools)", question, boxed && (boxed.answer || boxed.error));
+      }
+      return;
+    }
+    for (const t of tools) {
+      const result = (t && t.result) || {};
+      console.info("[club]", t.name, t.arguments || {}, {
+        date_from: result.date_from,
+        date_to: result.date_to,
+        count: result.count,
+        error: result.error || null,
+      });
+    }
+  }
 
   async function functionPayload(data, error) {
     if (data && typeof data === "object") return data;
@@ -621,6 +700,23 @@
       return "Scenario request failed. Deploy the mp-whatif Edge Function and set GEMINI_API_KEY on this project.";
     }
     return text || "Scenario request failed.";
+  }
+
+  function friendlyClubError(msg) {
+    const text = String(msg || "").trim();
+    if (/Sign in with the staff PIN/i.test(text)) {
+      return "Enter the staff PIN first.";
+    }
+    if (/GEMINI_API_KEY is not configured/i.test(text)) {
+      return "Gemini is not configured. Run: supabase secrets set GEMINI_API_KEY=… then redeploy club-visitation.";
+    }
+    if (/OPENROUTESERVICE_API_KEY|GOOGLE_MAPS_API_KEY/i.test(text)) {
+      return "Drive-time routing is not configured (OPENROUTESERVICE_API_KEY). Travel times will show as unavailable.";
+    }
+    if (/non-2xx status code|Failed to send|404/i.test(text)) {
+      return "Club planner request failed. Deploy club-visitation / club-sync Edge Functions to this project.";
+    }
+    return text || "Club planner request failed.";
   }
 
   function normalizeNoteTags(raw) {
