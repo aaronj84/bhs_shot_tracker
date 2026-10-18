@@ -5,9 +5,11 @@
 import {
   addDaysIso,
   endOfLocalDayUtc,
+  formatLocalKickoff,
   localDateInTz,
   normalizeName,
   parseRelativeDateWindow,
+  snapDateYearToNow,
   startOfLocalDayUtc,
   CLUB_TZ,
 } from "./normalize.mjs";
@@ -57,6 +59,8 @@ function enrichGame(row) {
   return {
     game_id: row.id || row.club_game_id,
     kickoff_at: row.kickoff_at,
+    // Coach-facing local stamp (includes weekday + date + time) — prefer this in answers.
+    kickoff_local: row.kickoff_at ? formatLocalKickoff(row.kickoff_at, CLUB_TZ) : null,
     status: row.status,
     home_team: row.home_team_name,
     away_team: row.away_team_name,
@@ -103,14 +107,19 @@ function normalizeDateWindow(date_from, date_to) {
 /** Dates and filters come from the question, not the agenda screen. */
 function resolveAskedWindow(args, ctx) {
   const clue = String(clueText(ctx) || args.relative || "").trim();
+  const now = ctx?.now;
   if (clue && hasTimeClue(clue)) {
-    const w = parseRelativeDateWindow(clue, CLUB_TZ, ctx?.now);
+    const w = parseRelativeDateWindow(clue, CLUB_TZ, now);
     return normalizeDateWindow(w.date_from, w.date_to);
   }
   if (isIsoDate(args.date_from) && isIsoDate(args.date_to)) {
-    return normalizeDateWindow(args.date_from, args.date_to);
+    // Models often drift the year (2024 vs 2026); snap to the current season.
+    return normalizeDateWindow(
+      snapDateYearToNow(args.date_from, CLUB_TZ, now),
+      snapDateYearToNow(args.date_to, CLUB_TZ, now)
+    );
   }
-  const w = parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, ctx?.now);
+  const w = parseRelativeDateWindow(clue || "upcoming", CLUB_TZ, now);
   return normalizeDateWindow(w.date_from, w.date_to);
 }
 
@@ -506,11 +515,12 @@ Rules:
 When listing games (especially ones the coach named by player), use this markdown shape — put each game_id in backticks alone, never inside parentheses:
 
 1. **FirstName** \`game_id-here\`
-   - **Kickoff:** 1:00 PM
+   - **Kickoff:** Sat, Oct 24, 1:00 PM MDT
    - **Facility:** Butler M.S.
    - **Includes:** OtherName, AnotherName
 
 - Title the game with the player the coach asked about (first/short name). Close bold around the name only: **Calvin** then a space then \`game_id\`.
+- **Kickoff:** must include the date and time. Prefer the tool field kickoff_local verbatim. Never list time alone when games may span multiple days.
 - **Includes:** lists other Brighton players at that same game (from brighton_players), excluding the titled player. Omit the Includes line when there are no others.
 - Do not write empty parentheses. Do not write "Game ID".`;
 }

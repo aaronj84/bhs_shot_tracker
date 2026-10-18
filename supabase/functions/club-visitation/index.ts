@@ -194,7 +194,7 @@ Deno.serve(async (req) => {
         { role: "system", content: buildPlannerSystemPrompt() },
         {
           role: "user",
-          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. For each listed game: **Name** then space then \`game_id\` (never wrap the id in bold or parentheses), then Kickoff and Facility copied from the tool JSON — never invent "Unavailable". Add Includes only when other Brighton players share that game. When a travel leg includes minutes, tell the coach the drive time. If travel is unavailable, say so and still describe the games from search results. If disambiguation is present, ask the coach to choose.`,
+          content: `Coach question: ${question}\n\nTool results (source of truth):\n${JSON.stringify(toolResults)}\n\nAnswer using only these results. For each listed game: **Name** then space then \`game_id\` (never wrap the id in bold or parentheses), then Kickoff using kickoff_local (date + time — never time alone), and Facility from the tool JSON — never invent "Unavailable". Add Includes only when other Brighton players share that game. When a travel leg includes minutes, tell the coach the drive time. If travel is unavailable, say so and still describe the games from search results. If disambiguation is present, ask the coach to choose.`,
         },
       ],
     });

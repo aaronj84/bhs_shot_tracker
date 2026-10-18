@@ -5696,6 +5696,47 @@ body.club-view .app-main {
   line-height: 1.35;
 }
 
+.club-start-prompt {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(181, 69, 69, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(181, 69, 69, 0.08);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.club-start-prompt h2 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.club-start-prompt p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.club-start-prompt label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.club-start-prompt input {
+  width: 100%;
+  min-height: 44px;
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
 .club-start-leg {
   margin: 0 0 0.55rem;
   padding: 0.55rem 0.65rem;

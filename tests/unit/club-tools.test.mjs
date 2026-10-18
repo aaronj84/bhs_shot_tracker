@@ -193,6 +193,8 @@ describe("club gemini tools", () => {
     expect(result.games.map((g) => g.game_id)).toEqual(["g-ts", "g-aj"]);
     expect(result.games[1].address).toBe("128 E South Weber Dr");
     expect(result.games[1].facility).toBe("La Roca Park");
+    expect(result.games[0].kickoff_local).toMatch(/Oct/);
+    expect(result.games[0].kickoff_local).toMatch(/\d/);
     expect(result.travel).toHaveLength(1);
     expect(result.travel[0].from_game_id).toBe("g-ts");
     expect(result.travel[0].to_game_id).toBe("g-aj");

@@ -115,28 +115,19 @@ function calendarDay(year, month, day) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-/** A written calendar day in the question, ahead of weekday words like "saturday". */
-export function explicitCalendarWindow(text, timeZone = CLUB_TZ, now = new Date()) {
+/** Parse one calendar day mention; returns YYYY-MM-DD or null. */
+export function parseCalendarDayMention(text, timeZone = CLUB_TZ, now = new Date()) {
   const q = String(text || "").toLowerCase();
   const today = localDateInTz(timeZone, now);
   const year = Number(today.slice(0, 4));
   const iso = q.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-  if (iso) {
-    const day = `${iso[1]}-${iso[2]}-${iso[3]}`;
-    return { date_from: day, date_to: day };
-  }
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const slash = q.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\b/);
-  if (slash) {
-    const day = calendarDay(Number(slash[3] || year), Number(slash[1]), Number(slash[2]));
-    if (day) return { date_from: day, date_to: day };
-  }
+  if (slash) return calendarDay(Number(slash[3] || year), Number(slash[1]), Number(slash[2]));
   const named = q.match(
     /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/
   );
-  if (named) {
-    const day = calendarDay(Number(named[3] || year), MONTH_INDEX[named[1]], Number(named[2]));
-    if (day) return { date_from: day, date_to: day };
-  }
+  if (named) return calendarDay(Number(named[3] || year), MONTH_INDEX[named[1]], Number(named[2]));
   const ordinal = q.match(/\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/);
   if (ordinal) {
     const dayNum = Number(ordinal[1]);
@@ -150,18 +141,60 @@ export function explicitCalendarWindow(text, timeZone = CLUB_TZ, now = new Date(
         y += 1;
       }
     }
-    const day = calendarDay(y, month, dayNum);
-    if (day) return { date_from: day, date_to: day };
+    return calendarDay(y, month, dayNum);
   }
   return null;
+}
+
+/** Snap a YYYY-MM-DD into the current/next season year when the model drifts (e.g. 2024 vs 2026). */
+export function snapDateYearToNow(dateStr, timeZone = CLUB_TZ, now = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ""))) return dateStr;
+  const today = localDateInTz(timeZone, now);
+  const yearNow = Number(today.slice(0, 4));
+  const y = Number(dateStr.slice(0, 4));
+  if (Math.abs(y - yearNow) <= 1) return dateStr;
+  const snapped = `${yearNow}${dateStr.slice(4)}`;
+  // If that day already passed by > ~2 months, prefer next year.
+  if (snapped < addDaysIso(today, -60)) {
+    return `${yearNow + 1}${dateStr.slice(4)}`;
+  }
+  return snapped;
+}
+
+/** A written calendar day in the question, ahead of weekday words like "saturday". */
+export function explicitCalendarWindow(text, timeZone = CLUB_TZ, now = new Date()) {
+  const day = parseCalendarDayMention(text, timeZone, now);
+  if (!day) return null;
+  return { date_from: day, date_to: day };
 }
 
 export function parseRelativeDateWindow(text, timeZone = CLUB_TZ, now = new Date()) {
   const q = String(text || "").toLowerCase();
   const today = localDateInTz(timeZone, now);
+
+  // "through / until / til Oct 25" (optionally with "next week") → today..end, not a single day.
+  const through = q.match(
+    /\b(?:through|thru|until|til|till|by|ending(?:\s+on)?)\s+((?:january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*20\d{2})?|\d{1,2}\/\d{1,2}(?:\/20\d{2})?|20\d{2}-\d{2}-\d{2}|(?:the\s+)?\d{1,2}(?:st|nd|rd|th))\b/
+  );
+  if (through) {
+    const end = parseCalendarDayMention(through[1], timeZone, now);
+    if (end) {
+      let start = today;
+      if (/\bnext\s+(?:calendar\s+)?week\b/.test(q) || /\bover\s+the\s+next\b/.test(q)) {
+        start = addDaysIso(today, 1);
+      }
+      if (start > end) return { date_from: end, date_to: end };
+      return { date_from: start, date_to: end };
+    }
+  }
+
+  if (/\bnext\s+(?:calendar\s+)?week\b|\bnext\s+7\s+days\b/.test(q)) {
+    return { date_from: today, date_to: addDaysIso(today, 7) };
+  }
+
   const explicit = explicitCalendarWindow(q, timeZone, now);
   if (explicit) return explicit;
-  if (!q || /\bnext\s+7\s+days\b|\bthis\s+week\b|\bupcoming\b/.test(q)) {
+  if (!q || /\bthis\s+week\b|\bupcoming\b/.test(q)) {
     return { date_from: today, date_to: addDaysIso(today, 7) };
   }
   if (/\btoday\b/.test(q)) return { date_from: today, date_to: today };

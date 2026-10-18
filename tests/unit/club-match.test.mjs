@@ -23,7 +23,8 @@ const context = {
 context.window = context;
 vm.createContext(context);
 vm.runInContext(code, context);
-const { shotTrackerMatches, renderClubMarkdown } = context.ClubVisitation;
+const { shotTrackerMatches, renderClubMarkdown, shouldDriveFromPrior, CHAIN_GAP_MS } =
+  context.ClubVisitation;
 
 const shot = [
   { id: "s-jane", name: "Jane Thackeray", short_name: "Jane" },
@@ -148,5 +149,25 @@ describe("club gemini markdown", () => {
     expect(html).not.toContain("<img");
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;img");
+  });
+});
+
+describe("itinerary drive origin rules", () => {
+  const morning = { kickoff_at: "2026-10-24T19:00:00.000Z" }; // 1:00 PM MDT
+  const afternoon = { kickoff_at: "2026-10-24T22:15:00.000Z" }; // 4:15 PM MDT (~3h15)
+  const close = { kickoff_at: "2026-10-24T21:00:00.000Z" }; // 3:00 PM MDT (~2h)
+  const nextDay = { kickoff_at: "2026-10-25T19:00:00.000Z" };
+
+  it("chains same-day games within 3 hours", () => {
+    expect(shouldDriveFromPrior(morning, close)).toBe(true);
+  });
+
+  it("resets to home when the kickoff gap is over 3 hours", () => {
+    expect(CHAIN_GAP_MS).toBe(3 * 60 * 60 * 1000);
+    expect(shouldDriveFromPrior(morning, afternoon)).toBe(false);
+  });
+
+  it("resets to home on a different day even if close in clock time", () => {
+    expect(shouldDriveFromPrior(morning, nextDay)).toBe(false);
   });
 });
