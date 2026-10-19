@@ -18,6 +18,9 @@
     if (path === "shots-bracket") return "shots-bracket";
     // Parents book at blue26/schedule/; inside the tracker, Schedule is the coach view.
     if (path === "schedule" || path === "schedule-admin") return "schedule-admin";
+    if (path === "club" || path === "club-agenda") return "club-agenda";
+    if (path === "club-itinerary") return "club-itinerary";
+    if (path === "club-data") return "club-data";
     if (path === "shots" || !path || path === "home") return "shots";
     // Unknown hashes (old Blueprint links) land on the tracker home.
     return "shots";
@@ -27,12 +30,17 @@
     return view === "schedule-admin";
   }
 
+  function isClub(view) {
+    return view === "club-agenda" || view === "club-itinerary" || view === "club-data";
+  }
+
   function updateChrome(view) {
     document.body.classList.add("shots-mode", "tracker-view");
     document.body.classList.toggle("shots-record-view", view === "shots");
     document.body.classList.toggle("shot-map-view", view === "shots-map");
     document.body.classList.toggle("scoreboard-view", view === "shots-scoreboard" || view === "live-scoreboard");
     document.body.classList.toggle("schedule-view", isSchedule(view));
+    document.body.classList.toggle("club-view", isClub(view));
     document.body.classList.toggle(
       "shots-admin-view",
       view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
@@ -59,7 +67,8 @@
         (view === "shots-prep" && key === "shots-prep") ||
         (view === "shots-map" && key === "shots-map") ||
         (view === "shots-bracket" && key === "shots-bracket") ||
-        (isSchedule(view) && key === "schedule");
+        (isSchedule(view) && key === "schedule") ||
+        (isClub(view) && key === "club");
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");
     });
@@ -89,6 +98,9 @@
     if (isSchedule(view)) {
       if (window.Schedule) window.Schedule.render(view);
       else if (root) root.innerHTML = '<p class="empty-state">Scheduler failed to load.</p>';
+    } else if (isClub(view)) {
+      if (window.ClubVisitation) window.ClubVisitation.render(view);
+      else if (root) root.innerHTML = '<p class="empty-state">Club visitation planner failed to load.</p>';
     } else if (window.ShotTracker) window.ShotTracker.render(view);
     else if (root) root.innerHTML = '<p class="empty-state">Shot tracker failed to load.</p>';
     window.scrollTo(0, 0);
@@ -113,6 +125,9 @@
       const view = parseHash();
       // onLeave only when leaving recording — shell stays on shots*
       if (!String(view).startsWith("shots")) window.ShotTracker.onLeave();
+    }
+    if (window.ClubVisitation && !isClub(parseHash())) {
+      window.ClubVisitation.onLeave();
     }
     render();
   });

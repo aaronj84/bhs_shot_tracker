@@ -169,11 +169,11 @@ test("Calendar tab builds a copyable group text per day", async ({ page, context
   const dayCard = page.locator(".schedule-text-day");
   await expect(dayCard).toHaveCount(1);
   await expect(dayCard.locator("h3")).toContainText("3 meetings");
-  await expect(dayCard.locator("textarea")).toHaveValue("+18015550123, +13855550199");
+  await expect(dayCard.locator("textarea")).toHaveValue("+18015550123\n+13855550199");
   await expect(dayCard).toContainText("No number: Moira");
 
   await dayCard.getByRole("button", { name: "Copy 2 numbers" }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("+18015550123, +13855550199");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("+18015550123\n+13855550199");
   await dayCard.getByRole("button", { name: "Copy message" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/Lucy 3:00 PM, Moira 3:20 PM, Skye 3:40 PM/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);});
