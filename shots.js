@@ -180,6 +180,8 @@
     cross: "Cross",
     rebound: "Rebound",
     over_the_top: "Over the Top",
+    long: "Long",
+    short: "Short",
   };
   const TRACKER_ASSIST_ACTIONS = [
     { id: "assist-pass", label: "Assist — Pass", kind: "assist", type: "pass" },
@@ -710,6 +712,7 @@
     position: "",
     missDirection: "",
     fkOutcome: "",
+    cornerDelivery: "",
     subSlotId: null,
     subReturnPhase: "",
     subTeam: "",
@@ -768,6 +771,7 @@
     const switchToFirst = window.confirm("No 1st-half plays yet. Switch to 1st half?");
     if (!switchToFirst) return;
     st.period = "1";
+    st.swapSides = !st.swapSides;
     saveUi();
     persistLiveClock();
     if (st.view === "shots") draw({ keepScroll: true });
@@ -1313,6 +1317,7 @@
     }
     if (period !== st.period) {
       st.period = period;
+      st.swapSides = !st.swapSides; // halves switch ends; user can Switch Sides again if needed
       saveUi();
       resetTrackerDraft();
       closeShotModal();
@@ -3567,6 +3572,7 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
     shotModalDraft.subTeam = "";
@@ -3585,6 +3591,7 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
     shotModalDraft.subTeam = "";
@@ -3615,6 +3622,7 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
     shotModalDraft.subTeam = "";
@@ -3825,6 +3833,8 @@
           phase === "fk-result" ||
           phase === "fk-shot-result" ||
           phase === "corner-result" ||
+          phase === "corner-after" ||
+          phase === "corner-shot-result" ||
           phase === "offer-assist" ||
           phase === "offer-second-assist" ||
           inSubFlow
@@ -3943,48 +3953,101 @@
       return;
     }
 
-    if (phase === "fk-result" || phase === "corner-result") {
+    if (phase === "fk-result") {
       const chosen = shotModalDraft.action;
-      const isCorner = phase === "corner-result" || chosen?.result === "corner";
-      const setPiece = isCorner ? "corner" : "free kick";
       const taker = shotModalDraft.player
         ? playerLabel(Object.assign({ team: recordingTeam() }, shotModalDraft.player))
         : shotModalDraft.position
           ? `untagged · ${shotModalDraft.position}`
           : "untagged";
-      title.textContent = isCorner ? "Corner — what next?" : "Free kick — what next?";
+      title.textContent = "Free kick — what next?";
       locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
-        playerHeading.textContent = isCorner
-          ? `Was there a shot, a pass, or no shot? A shot or pass treats the ${setPiece} as the setup pass / assist.`
-          : "Did the free kick go at goal, was it passed, or no shot? A pass treats the free kick as the setup pass / assist.";
+        playerHeading.textContent =
+          "Did the free kick go at goal, was it passed, or no shot? A pass treats the free kick as the setup pass / assist.";
       }
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
       actionGrid.hidden = false;
-      const noneClass = isCorner ? "is-corner" : "is-foul";
       actionGrid.innerHTML = `
         <div class="shot-action-row shot-action-row-fill">
           <button type="button" class="shot-action-btn is-goal" data-setpiece-follow="shot">Shot</button>
           <button type="button" class="shot-action-btn is-assist" data-setpiece-follow="pass">Pass</button>
-          <button type="button" class="shot-action-btn ${noneClass}" data-setpiece-follow="none">No shot</button>
+          <button type="button" class="shot-action-btn is-foul" data-setpiece-follow="none">No shot</button>
         </div>`;
       return;
     }
 
-    if (phase === "fk-shot-result") {
+    if (phase === "corner-result") {
       const chosen = shotModalDraft.action;
       const taker = shotModalDraft.player
         ? playerLabel(Object.assign({ team: recordingTeam() }, shotModalDraft.player))
         : shotModalDraft.position
           ? `untagged · ${shotModalDraft.position}`
           : "untagged";
-      title.textContent = "Free kick shot result?";
+      title.textContent = "What type of corner?";
       locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
       if (playerHeading) {
         playerHeading.hidden = false;
-        playerHeading.textContent = "The free kick is the shot, taken from this spot.";
+        playerHeading.textContent =
+          "Shot if the corner itself was the attempt. Long or Short for the delivery, then what happened next.";
+      }
+      if (nudge) nudge.hidden = true;
+      playerGrid.hidden = true;
+      actionGrid.hidden = false;
+      actionGrid.innerHTML = `
+        <div class="shot-action-row shot-action-row-fill">
+          <button type="button" class="shot-action-btn is-goal" data-corner-type="shot">Shot</button>
+          <button type="button" class="shot-action-btn is-assist" data-corner-type="long">Long</button>
+          <button type="button" class="shot-action-btn is-corner" data-corner-type="short">Short</button>
+        </div>`;
+      return;
+    }
+
+    if (phase === "corner-after") {
+      const chosen = shotModalDraft.action;
+      const delivery = shotModalDraft.cornerDelivery === "short" ? "short" : "long";
+      const deliveryLabel = delivery === "short" ? "short" : "long";
+      const taker = shotModalDraft.player
+        ? playerLabel(Object.assign({ team: recordingTeam() }, shotModalDraft.player))
+        : shotModalDraft.position
+          ? `untagged · ${shotModalDraft.position}`
+          : "untagged";
+      title.textContent = `What happened after the ${deliveryLabel} pass?`;
+      locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent =
+          "Shot or Pass treats the corner as the setup pass / assist. No shot saves the corner only.";
+      }
+      if (nudge) nudge.hidden = true;
+      playerGrid.hidden = true;
+      actionGrid.hidden = false;
+      actionGrid.innerHTML = `
+        <div class="shot-action-row shot-action-row-fill">
+          <button type="button" class="shot-action-btn is-goal" data-setpiece-follow="shot">Shot</button>
+          <button type="button" class="shot-action-btn is-assist" data-setpiece-follow="pass">Pass</button>
+          <button type="button" class="shot-action-btn is-corner" data-setpiece-follow="none">No shot</button>
+        </div>`;
+      return;
+    }
+
+    if (phase === "fk-shot-result" || phase === "corner-shot-result") {
+      const chosen = shotModalDraft.action;
+      const isCorner = phase === "corner-shot-result" || chosen?.result === "corner";
+      const taker = shotModalDraft.player
+        ? playerLabel(Object.assign({ team: recordingTeam() }, shotModalDraft.player))
+        : shotModalDraft.position
+          ? `untagged · ${shotModalDraft.position}`
+          : "untagged";
+      title.textContent = isCorner ? "Shot result?" : "Free kick shot result?";
+      locEl.textContent = chosen ? `${actionShortLabel(chosen)} · ${taker}  ·  ${locText}` : locText;
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent = isCorner
+          ? "The corner is the shot, taken from this spot."
+          : "The free kick is the shot, taken from this spot.";
       }
       if (nudge) nudge.hidden = true;
       playerGrid.hidden = true;
@@ -4038,87 +4101,31 @@
       return;
     }
 
-    if (phase === "sub-slot" && subFlowTeam() === "us") {
-      const team = subFlowTeam();
-      title.textContent = "Change which position?";
-      locEl.textContent = "Pick the spot to fill or replace, then choose who comes in.";
-      if (playerHeading) playerHeading.hidden = true;
+    // Make a Change / Sub in: same lineup editor as the main track screen (dropdown + Swap).
+    if ((phase === "sub-slot" || phase === "sub-pick") && subFlowTeam() === "us") {
+      if (phase === "sub-pick") shotModalDraft.phase = "sub-slot";
+      title.textContent = "Make a change";
+      locEl.textContent = "Dropdown to assign — Swap to trade spots.";
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent =
+          lineupGesture?.mode === "swap"
+            ? "Tap the player she should trade places with."
+            : "Edit the XI, then Done to pick the shot taker.";
+      }
       if (posGrid) posGrid.hidden = true;
       actionGrid.hidden = true;
       playerGrid.hidden = false;
       playerGrid.classList.add("is-formation");
-      const cards = FORMATION_LAYOUT.map((layout) => {
-        const slot = POSITION_SLOTS.find((s) => s.id === layout.id);
-        const filled = slotPlayer(team, layout.id);
-        const who = filled
-          ? team === "opp" && !filled.name && !filled.short
-            ? `#${escapeHtml(String(filled.number))}`
-            : escapeHtml(playerDisplayName(filled))
-          : "Empty";
-        return `
-          <button type="button" class="formation-card is-pick ${filled ? "" : "is-empty"}" style="${formationCardStyle(layout)}" data-sub-slot-pick="${layout.id}">
-            <span class="formation-card-name">${who}</span>
-            <span class="formation-card-meta">${formationMeta(slot?.code || layout.code, filled)}</span>
-          </button>`;
-      }).join("");
-      playerGrid.innerHTML = formationPitchShell(cards, "", { team });
-      return;
-    }
-
-    if (phase === "sub-pick" && subFlowTeam() === "us") {
-      const team = subFlowTeam();
-      const slot = POSITION_SLOTS.find((s) => s.id === Number(shotModalDraft.subSlotId));
-      const group = slot?.group || "";
-      const groupLabel = POSITION_GROUPS.find((g) => g.id === group)?.label || group;
-      title.textContent = `Who comes in at ${slot?.code || ""}?`;
-      locEl.textContent =
-        team === "us" ? `${groupLabel} first, then bench, then on-field elsewhere.` : "Pick a number, or add a new one.";
-      if (playerHeading) playerHeading.hidden = true;
-      if (posGrid) posGrid.hidden = true;
-      actionGrid.hidden = true;
-      playerGrid.hidden = false;
-      playerGrid.classList.remove("is-formation");
-      const used = usedLineupNumbers(team, shotModalDraft.subSlotId);
-      const all = sortPlayers(rosterPlayers(team));
-      const available = all.filter((p) => !used.has(String(p.number)));
-      const btn = (p, tag) => `
-        <button type="button" class="shot-player-btn" data-sub-pick-id="${escapeHtml(String(p.id || ""))}" data-sub-pick-number="${escapeHtml(String(p.number))}">
-          <span class="name">${team === "opp" && !p.name && !p.short ? `#${escapeHtml(String(p.number))}` : escapeHtml(playerDisplayName(p))}</span>
-          <span class="num">#${escapeHtml(String(p.number))}${tag ? ` · ${tag}` : ""}</span>
-        </button>`;
-      let body = "";
-      if (team === "us") {
-        const preferred = available.filter((p) => p.squad !== "jv" && playerInGroup(p, group));
-        const varsityBench = available.filter(
-          (p) => p.squad !== "jv" && !playerInGroup(p, group) && !slotIdForNumber(team, p.number)
-        );
-        const varsityOnField = available.filter((p) => {
-          const sid = slotIdForNumber(team, p.number);
-          return p.squad !== "jv" && sid && Number(sid) !== Number(slot?.id);
-        });
-        const jv = available.filter((p) => p.squad === "jv");
-        body =
-          (preferred.length ? `<div class="shot-quick-label">${escapeHtml(groupLabel)}</div>${preferred.map((p) => btn(p, "")).join("")}` : "") +
-          (varsityBench.length ? `<div class="shot-quick-label">Varsity Bench</div>${varsityBench.map((p) => btn(p, "")).join("")}` : "") +
-          (varsityOnField.length
-            ? `<div class="shot-quick-label">Varsity On-Field</div>${varsityOnField
-                .map((p) => btn(p, slotCodeForId(slotIdForNumber(team, p.number))))
-                .join("")}`
-            : "") +
-          (jv.length ? `<div class="shot-quick-label">JV</div>${jv.map((p) => btn(p, "JV")).join("")}` : "");
-      } else {
-        body = available.length
-          ? `<div class="shot-quick-label">Roster</div>${available.map((p) => btn(p, "")).join("")}`
-          : "";
-      }
-      if (!body) body = `<p class="muted">No available players — add a number.</p>`;
       playerGrid.innerHTML = `
         <div class="shot-team-bar">
           <div class="shot-team-actions">
             <button type="button" class="btn btn-ghost shot-bar-btn" data-player-add="1">Add number</button>
+            <button type="button" class="btn btn-primary shot-bar-btn" data-sub-done="1">Done</button>
           </div>
         </div>
-        ${body}`;
+        ${lineupGesture?.mode === "swap" ? lineupGestureBanner() : ""}
+        ${formationPitchShell(lineupEditorCards(), "", { team: "us" })}`;
       return;
     }
 
@@ -4392,15 +4399,9 @@
           return;
         }
 
-        if (shotModalDraft.phase === "sub-pick" && shotModalDraft.subSlotId) {
-          const slot = POSITION_SLOTS.find((s) => s.id === Number(shotModalDraft.subSlotId));
-          if (!slot) throw new Error("No position selected");
-          assignPlayerToShotPosition(team, player, slot.code);
-          shotModalDraft.position = slot.code;
-          shotModalDraft.player = player;
-          shotModalDraft.subSlotId = null;
-          showToast(`#${num} in at ${slot.code}`);
-          await afterTakerPicked();
+        if (shotModalDraft.phase === "sub-slot" || shotModalDraft.phase === "sub-pick") {
+          showToast(`#${num} added — pick from a dropdown`);
+          renderShotModal();
           return;
         }
 
@@ -4625,9 +4626,39 @@
     await commitShotEvent(outcome, player, null, null);
   }
 
+  async function saveDirectCornerShot() {
+    const outcome = shotModalDraft.fkOutcome;
+    const missDirection = shotModalDraft.missDirection;
+    const player = shotModalDraft.player || null;
+    const team = recordingTeam();
+    const keep = {
+      location: shotModalDraft.location,
+      position: shotModalDraft.position,
+      action: shotModalDraft.action,
+    };
+    shotModalDraft.fkOutcome = "corner";
+    shotModalDraft.missDirection = "";
+    shotModalDraft.cornerDelivery = "";
+    await commitShotEvent("corner", player, null, null);
+    st.team = team;
+    Object.assign(shotModalDraft, keep, {
+      player,
+      fkOutcome: outcome,
+      missDirection,
+      fouler: null,
+      foulerPicked: false,
+      cornerDelivery: "",
+    });
+    await commitShotEvent(outcome, player, null, null);
+  }
+
   async function finishSetPieceOutcome() {
     if (shotModalDraft.action?.result === "foul" && canOfferLinkedPlay(shotModalDraft.fkOutcome)) {
       await saveDirectFreeKickShot();
+      return;
+    }
+    if (shotModalDraft.action?.result === "corner" && canOfferLinkedPlay(shotModalDraft.fkOutcome)) {
+      await saveDirectCornerShot();
       return;
     }
     await afterShotReadyToSave();
@@ -4854,6 +4885,15 @@
     if (!shotModal || shotModal.dataset.bound === "1") return;
     shotModal.dataset.bound = "1";
     shotModal.addEventListener("change", async (e) => {
+      const lineupSel = e.target.closest(".lineup-select[data-lineup-slot]");
+      if (lineupSel) {
+        const team = lineupSel.getAttribute("data-lineup-team") === "opp" ? "opp" : "us";
+        const slotId = Number(lineupSel.getAttribute("data-lineup-slot"));
+        applyLineupSelect(team, slotId, lineupSel);
+        draw({ keepScroll: true });
+        renderShotModal();
+        return;
+      }
       const sel = e.target.closest("[data-opp-pick]");
       if (!sel || !sel.value) return;
       const opt = sel.selectedOptions[0];
@@ -4872,7 +4912,9 @@
         if (lineupGesture?.mode === "swap" && lineupGesture.team === team && Number(lineupGesture.fromSlot) === slotId) {
           clearLineupGesture();
         } else if (lineupGesture?.mode === "swap" && lineupGesture.team === team) {
-          if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
+          if (completeSwapGesture(slotId)) {
+            trackAppEvent("control", shotModalDraft.phase === "sub-slot" ? "swap_lineup" : "swap_fouler");
+          }
         } else {
           startSwapGesture(team, slotId);
         }
@@ -4886,7 +4928,9 @@
         if (!lineupGesture || lineupGesture.mode !== "swap") return;
         const slotId = Number(hit.getAttribute("data-lineup-slot-hit"));
         if (Number(lineupGesture.fromSlot) === slotId) clearLineupGesture();
-        else if (completeSwapGesture(slotId)) trackAppEvent("control", "swap_fouler");
+        else if (completeSwapGesture(slotId)) {
+          trackAppEvent("control", shotModalDraft.phase === "sub-slot" ? "swap_lineup" : "swap_fouler");
+        }
         draw({ keepScroll: true });
         renderShotModal();
         return;
@@ -4954,10 +4998,20 @@
           st.team = "us";
           saveUi();
         }
+        clearLineupGesture();
         shotModalDraft.subReturnPhase = "position";
         shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
+        renderShotModal();
+        return;
+      }
+      if (e.target.closest("[data-sub-done]")) {
+        clearLineupGesture();
+        shotModalDraft.phase = shotModalDraft.subReturnPhase || "position";
+        shotModalDraft.subSlotId = null;
+        shotModalDraft.subReturnPhase = "";
+        shotModalDraft.subTeam = "";
         renderShotModal();
         return;
       }
@@ -4999,6 +5053,23 @@
         await commitPendingShotDraft();
         return;
       }
+      const cornerTypeBtn = e.target.closest("[data-corner-type]");
+      if (cornerTypeBtn) {
+        const kind = cornerTypeBtn.getAttribute("data-corner-type") || "";
+        if (kind === "shot") {
+          shotModalDraft.cornerDelivery = "";
+          shotModalDraft.phase = "corner-shot-result";
+          renderShotModal();
+          return;
+        }
+        if (kind === "long" || kind === "short") {
+          shotModalDraft.cornerDelivery = kind;
+          shotModalDraft.phase = "corner-after";
+          renderShotModal();
+          return;
+        }
+        return;
+      }
       const cornerFollowBtn = e.target.closest("[data-setpiece-follow], [data-corner-follow]");
       if (cornerFollowBtn) {
         const follow =
@@ -5009,6 +5080,11 @@
         if (follow === "none") {
           shotModalDraft.fkOutcome = origin;
           shotModalDraft.missDirection = "";
+          if (origin === "corner" && (shotModalDraft.cornerDelivery === "long" || shotModalDraft.cornerDelivery === "short")) {
+            const player = shotModalDraft.player || null;
+            await commitShotEvent("corner", player, { type: shotModalDraft.cornerDelivery }, null);
+            return;
+          }
           await afterShotReadyToSave();
           return;
         }
@@ -5017,9 +5093,15 @@
           renderShotModal();
           return;
         }
+        const delivery =
+          origin === "corner" && (shotModalDraft.cornerDelivery === "long" || shotModalDraft.cornerDelivery === "short")
+            ? shotModalDraft.cornerDelivery
+            : follow === "pass"
+              ? "pass"
+              : "cross";
         await saveSetPieceThenAwaitFollowUp({
           kind: follow === "pass" ? "pass" : "shot",
-          assistType: follow === "pass" ? "pass" : "cross",
+          assistType: delivery,
         });
         return;
       }
@@ -5065,49 +5147,12 @@
         return;
       }
       if (e.target.closest("[data-sub-in]")) {
+        clearLineupGesture();
         shotModalDraft.subReturnPhase = shotModalDraft.phase === "fouler" ? "fouler" : "position";
         shotModalDraft.subTeam = "us";
         shotModalDraft.phase = "sub-slot";
         shotModalDraft.subSlotId = null;
         renderShotModal();
-        return;
-      }
-      const subSlotBtn = e.target.closest("[data-sub-slot-pick]");
-      if (subSlotBtn) {
-        shotModalDraft.subSlotId = Number(subSlotBtn.getAttribute("data-sub-slot-pick"));
-        shotModalDraft.phase = "sub-pick";
-        renderShotModal();
-        return;
-      }
-      const subPickBtn = e.target.closest("[data-sub-pick-number]");
-      if (subPickBtn) {
-        const team = subFlowTeam();
-        const slotId = Number(shotModalDraft.subSlotId);
-        const slot = POSITION_SLOTS.find((s) => s.id === Number(slotId));
-        const number = subPickBtn.getAttribute("data-sub-pick-number");
-        const playerId = subPickBtn.getAttribute("data-sub-pick-id");
-        const player = playerFromRoster(team, playerId, number);
-        if (!player || !slot) return;
-        const payload = lineupPlayerPayload(player);
-        const elsewhere = slotIdForNumber(team, payload.number);
-        if (elsewhere && Number(elsewhere) !== Number(slotId)) assignSlot(team, elsewhere, null);
-        assignSlot(team, slotId, payload);
-        const returnPhase = shotModalDraft.subReturnPhase || "position";
-        shotModalDraft.subSlotId = null;
-        shotModalDraft.subReturnPhase = "";
-        shotModalDraft.subTeam = "";
-        shotModalDraft.justAddedNumber = "";
-        showToast(`${playerDisplayName(player) || `#${player.number}`} in at ${slot.code}`);
-        if (returnPhase === "fouler") {
-          shotModalDraft.phase = "fouler";
-          shotModalDraft.foulerPickTeam = "us";
-          draw({ keepScroll: true });
-          renderShotModal();
-          return;
-        }
-        shotModalDraft.position = slot.code;
-        shotModalDraft.player = Object.assign({ team }, player);
-        await afterTakerPicked();
         return;
       }
       if (e.target.closest("[data-player-skip]")) {
@@ -5162,13 +5207,8 @@
         renderShotModal();
         return;
       }
-      if (shotModalDraft.phase === "sub-pick") {
-        shotModalDraft.phase = "sub-slot";
-        shotModalDraft.subSlotId = null;
-        renderShotModal();
-        return;
-      }
-      if (shotModalDraft.phase === "sub-slot") {
+      if (shotModalDraft.phase === "sub-slot" || shotModalDraft.phase === "sub-pick") {
+        clearLineupGesture();
         shotModalDraft.phase = shotModalDraft.subReturnPhase || "position";
         shotModalDraft.subSlotId = null;
         shotModalDraft.subReturnPhase = "";
@@ -5216,10 +5256,19 @@
         renderShotModal();
         return;
       }
+      if (shotModalDraft.phase === "corner-after" || shotModalDraft.phase === "corner-shot-result") {
+        shotModalDraft.phase = "corner-result";
+        shotModalDraft.fkOutcome = "";
+        shotModalDraft.missDirection = "";
+        shotModalDraft.cornerDelivery = "";
+        renderShotModal();
+        return;
+      }
       if (shotModalDraft.phase === "fk-result" || shotModalDraft.phase === "corner-result") {
         shotModalDraft.phase = takerPhaseFor(recordingTeam());
         shotModalDraft.fkOutcome = "";
         shotModalDraft.missDirection = "";
+        shotModalDraft.cornerDelivery = "";
         shotModalDraft.position = "";
         shotModalDraft.player = null;
         renderShotModal();
@@ -5237,7 +5286,8 @@
         (shotModalDraft.action?.result === "foul" || shotModalDraft.action?.result === "corner") &&
         shotModalDraft.fkOutcome
       ) {
-        shotModalDraft.phase = shotModalDraft.action.result === "corner" ? "corner-result" : "fk-shot-result";
+        shotModalDraft.phase =
+          shotModalDraft.action.result === "corner" ? "corner-shot-result" : "fk-shot-result";
         shotModalDraft.fkOutcome = "";
         shotModalDraft.missDirection = "";
         renderShotModal();
@@ -9356,13 +9406,17 @@
     }
   }
 
+  function isScoreboardView(view = st.view) {
+    return view === "shots-scoreboard" || view === "live-scoreboard";
+  }
+
   function armScoreboardPoll(resetDeadline) {
     if (resetDeadline || !scoreboardPoll.deadline) {
       scoreboardPoll.deadline = Date.now() + pollIntervalSec() * 1000;
     }
     if (!scoreboardPoll.tickId) {
       scoreboardPoll.tickId = setInterval(() => {
-        if (st.view !== "shots-scoreboard") {
+        if (!isScoreboardView()) {
           stopScoreboardPollTick();
           return;
         }
@@ -9375,13 +9429,13 @@
   }
 
   async function refreshScoreboardLive() {
-    if (st.view !== "shots-scoreboard" || !st.gameId || scoreboardPoll.inFlight) return;
+    if (!isScoreboardView() || !st.gameId || scoreboardPoll.inFlight) return;
     scoreboardPoll.inFlight = true;
     paintPollLine();
     try {
       const pendingKeep = (st.shots || []).filter((s) => s.saveFailed && s.pendingPayload);
       const [game, rows] = await Promise.all([API.game(st.gameId), API.shotsForGame(st.gameId)]);
-      if (st.view !== "shots-scoreboard" || !game || game.id !== st.gameId) return;
+      if (!isScoreboardView() || !game || game.id !== st.gameId) return;
       st.game = game;
       st.shots = (rows || []).map(mapShot);
       const remoteIds = new Set(st.shots.map((s) => s.id));
@@ -9479,7 +9533,7 @@
     if (!scoreboardPoll.visBound) {
       scoreboardPoll.visBound = true;
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden || st.view !== "shots-scoreboard") return;
+        if (document.hidden || !isScoreboardView()) return;
         refreshScoreboardLive();
       });
     }
@@ -9511,7 +9565,7 @@
   function applyScoreboardPinch() {
     const pin = $("[data-scoreboard-hero-pin]");
     const board = pin?.querySelector(".scoreboard-board");
-    if (!pin || !board || st.view !== "shots-scoreboard") return;
+    if (!pin || !board || !isScoreboardView()) return;
     if (!scoreboardPinch.maxH) measureScoreboardPinch();
     const { maxH, minH, minScale, boardH, range } = scoreboardPinch;
     const p = Math.min(1, Math.max(0, window.scrollY / range));
@@ -9533,7 +9587,7 @@
     window.addEventListener(
       "scroll",
       () => {
-        if (st.view !== "shots-scoreboard") return;
+        if (!isScoreboardView()) return;
         if (scoreboardPinch.ticking) return;
         scoreboardPinch.ticking = true;
         requestAnimationFrame(() => {
@@ -9544,7 +9598,7 @@
       { passive: true }
     );
     window.addEventListener("resize", () => {
-      if (st.view !== "shots-scoreboard") return;
+      if (!isScoreboardView()) return;
       measureScoreboardPinch();
       applyScoreboardPinch();
     });
@@ -9577,9 +9631,9 @@
     }
     trackViewIfChanged();
     const view = st.view;
-    if (view !== "shots" && view !== "shots-scoreboard") stopClockTick();
-    if (view !== "shots-scoreboard") stopScoreboardPollTick();
-    if (view !== "shots" && view !== "shots-scoreboard") stopLineupLivePull();
+    if (view !== "shots" && !isScoreboardView(view)) stopClockTick();
+    if (!isScoreboardView(view)) stopScoreboardPollTick();
+    if (view !== "shots" && !isScoreboardView(view)) stopLineupLivePull();
     if (view === "shots-games") {
       renderGames();
       return;
@@ -9596,6 +9650,17 @@
     if (view === "shots-prep") {
       renderPrep();
       if (opts.keepScroll) window.scrollTo(0, scrollY);
+      return;
+    }
+    if (view === "live-scoreboard") {
+      if (!st.gameId || !st.game) {
+        const elLive = root();
+        if (elLive) elLive.innerHTML = '<div class="empty-state-block"><p class="empty-state">Game not found</p></div>';
+        return;
+      }
+      renderPublicScoreboard();
+      if (opts.keepScroll) window.scrollTo(0, scrollY);
+      applyScoreboardPinch();
       return;
     }
     if (!st.gameId || !st.game) {
@@ -9615,97 +9680,92 @@
     renderRecorder(opts);
   }
 
+  async function ensureLiveScoreboardSession() {
+    const existing = st.session || (await API.getSession());
+    if (existing) {
+      st.session = existing;
+      return;
+    }
+    if (typeof API.isPlaceholderConfig === "function" && API.isPlaceholderConfig()) {
+      try {
+        sessionStorage.setItem("brighton-local-demo-session", "1");
+      } catch (_) {
+        /* ignore */
+      }
+      st.session = { access_token: "local-demo", user: { id: "local-demo" } };
+      return;
+    }
+    const sb = API.getClient();
+    if (!sb) throw new Error("Supabase is not configured");
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error || !data?.session) {
+      throw new Error(error?.message || "Could not open live scoreboard. Enable Anonymous auth in Supabase.");
+    }
+    st.session = data.session;
+  }
+
   async function bootLiveScoreboard() {
     const hash = (location.hash || "").replace(/^#/, "");
-    const gameId = hash.replace(/^live\//, "").split("?")[0];
-    
+    const gameId = hash.replace(/^live\//, "").split("?")[0].trim();
+
     if (!gameId) {
-      const root = $("#app-root");
-      if (root) root.innerHTML = '<div class="empty-state-block"><p class="empty-state">Invalid scoreboard link</p></div>';
+      const el = root();
+      if (el) el.innerHTML = '<div class="empty-state-block"><p class="empty-state">Invalid scoreboard link</p></div>';
       return;
     }
 
     renderLoading("Loading scoreboard…");
-    
+
     try {
-      // Sign in anonymously without PIN check
-      if (!st.session) {
-        const sb = API.getClient();
-        if (sb && !API.isPlaceholderConfig()) {
-          const { data, error } = await sb.auth.signInAnonymously();
-          if (!error && data.session) {
-            st.session = data.session;
-          }
-        } else {
-          st.session = { access_token: "local-demo", user: { id: "local-demo" } };
-        }
-      }
-
-      // Load metadata
+      // PIN-free: anonymous (or existing) session so RLS authenticated policies apply
+      await ensureLiveScoreboardSession();
       await refreshMeta();
-      
-      // Load the specific game
-      const game = await API.fetchGame(gameId);
-      if (!game) {
-        const root = $("#app-root");
-        if (root) root.innerHTML = '<div class="empty-state-block"><p class="empty-state">Game not found</p></div>';
-        return;
-      }
 
+      const game = await API.game(gameId);
       st.gameId = gameId;
       st.game = game;
+      st.seasonId = game.season_id;
+      const b = brighton();
+      const opp = opponentOf(game);
+      st.ourRoster = b ? await API.roster(b.id, game.season_id) : [];
+      st.oppRoster = opp ? await API.roster(opp.id, game.season_id) : [];
+      applyLineupFromGame(game);
+      const rows = await API.shotsForGame(gameId);
+      st.shots = (rows || []).map(mapShot);
+      applyRemoteClock(game);
       st.booted = true;
+      st.view = "live-scoreboard";
 
-      // Load rosters
-      st.ourRoster = await API.ourRoster(gameId);
-      st.oppRoster = await API.oppRoster(gameId);
-
-      // Load shots/events
-      st.shots = await API.shots(gameId);
-      
-      // Render the public scoreboard
       renderPublicScoreboard();
-      
-      // Set up auto-refresh
       armScoreboardPoll(true);
-      
     } catch (err) {
       console.error("Live scoreboard boot failed:", err);
-      const root = $("#app-root");
-      if (root) root.innerHTML = `<div class="empty-state-block"><p class="empty-state">Failed to load scoreboard: ${escapeHtml(err.message || "Unknown error")}</p></div>`;
+      const el = root();
+      if (el) {
+        el.innerHTML = `<div class="empty-state-block"><p class="empty-state">Failed to load scoreboard: ${escapeHtml(err.message || "Unknown error")}</p></div>`;
+      }
     }
   }
 
   function renderPublicScoreboard() {
-    const root = $("#app-root");
-    if (!root) return;
+    const el = root();
+    if (!el) return;
 
-    const usLabel = ourTeamName();
-    const oppLabel = opponentOf(st.game)?.name || "Opponent";
-    
-    root.innerHTML = `
-      <div class="scoreboard-page">
-        <div class="scoreboard-content">
-          <div class="scoreboard-header-bar">
-            <h1 class="scoreboard-heading">Live Game</h1>
-            <div class="scoreboard-header-actions">
-              <button type="button" class="icon-btn" data-scoreboard-sync aria-label="Refresh scoreboard">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                </svg>
-              </button>
-            </div>
+    document.body.classList.remove("is-recording-play");
+    applyRemoteClock(st.game);
+    el.innerHTML = `
+      <div class="scoreboard-page is-public-live">
+        <div class="scoreboard-hero-pin" data-scoreboard-hero-pin>
+          <div class="scoreboard-hero" data-scoreboard-hero>
+            ${scoreboardBoardMarkup("large")}
           </div>
-          <div class="scoreboard-hero-pin" data-scoreboard-hero-pin>
-            <div class="scoreboard-hero" data-scoreboard-hero>
-              ${scoreboardBoardMarkup("large")}
-            </div>
-          </div>
-          <div class="scoreboard-hero-spacer" data-scoreboard-hero-spacer aria-hidden="true"></div>
-          ${scoreboardBoxMarkup()}
         </div>
+        <div class="scoreboard-hero-spacer" data-scoreboard-hero-spacer aria-hidden="true"></div>
+        ${scoreboardBoxMarkup()}
+        <p class="scoreboard-live-hint muted">Live · refreshes automatically</p>
+        <button type="button" class="btn btn-ghost scoreboard-live-refresh" data-scoreboard-sync>Refresh now</button>
       </div>`;
-    
+
     bindPublicScoreboardChrome();
     bindScoreboardPinch();
   }
@@ -9715,14 +9775,15 @@
       e.stopPropagation();
       refreshScoreboardLive();
     });
-    
+
     if (!scoreboardPoll.visBound) {
       scoreboardPoll.visBound = true;
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden || st.view !== "live-scoreboard") return;
+        if (document.hidden || !isScoreboardView()) return;
         refreshScoreboardLive();
       });
     }
+    armScoreboardPoll(false);
   }
 
   global.ShotTracker = {

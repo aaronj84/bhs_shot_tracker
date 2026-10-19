@@ -18,6 +18,8 @@ ASSIST = {
     "Cross": "cross",
     "Rebound": "rebound",
     "Over the Top": "over_the_top",
+    "Long": "long",
+    "Short": "short",
 }
 
 

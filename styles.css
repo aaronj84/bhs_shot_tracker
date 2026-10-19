@@ -3335,6 +3335,25 @@ body.scoreboard-view .app-main {
   color: #f4f7fb;
 }
 
+.scoreboard-page.is-public-live .scoreboard-live-hint,
+.scoreboard-page.is-public-live .scoreboard-live-refresh {
+  display: block;
+  width: min(100% - 2rem, 22rem);
+  margin: 0.75rem auto;
+  text-align: center;
+}
+
+.scoreboard-page.is-public-live .scoreboard-live-hint {
+  margin-top: 1rem;
+  color: rgba(244, 247, 251, 0.65);
+}
+
+.scoreboard-page.is-public-live .scoreboard-live-refresh {
+  margin-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  color: #f4f7fb;
+  border-color: rgba(244, 247, 251, 0.28);
+}
+
 .scoreboard-hero-pin {
   position: fixed;
   top: 0;
