@@ -33,10 +33,30 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
         `Anonymous sign-in failed: ${error.message}. Enable Anonymous auth on DEV.`
       );
     }
-    // Sweep leftovers from a crashed prior run (labels are unique per process).
-    await sb.from("seasons").delete().like("label", "CI ci-%");
-    await sb.from("teams").delete().like("name", "CI Opp ci-%");
-    await sb.from("players").delete().like("name", "CI Player ci-%");
+    // Sweep only stale leftovers from crashed runs. A broad `CI ci-%` delete
+    // races parallel CI jobs and cascades away their in-flight games (23503).
+    const staleBefore = Date.now() - 2 * 60 * 60 * 1000;
+    const { data: staleSeasons } = await sb.from("seasons").select("id, label").like("label", "CI ci-%");
+    for (const row of staleSeasons || []) {
+      const ts = Number(String(row.label || "").replace(/^CI ci-/, ""));
+      if (Number.isFinite(ts) && ts < staleBefore) {
+        await sb.from("seasons").delete().eq("id", row.id);
+      }
+    }
+    const { data: staleTeams } = await sb.from("teams").select("id, name").like("name", "CI Opp ci-%");
+    for (const row of staleTeams || []) {
+      const ts = Number(String(row.name || "").replace(/^CI Opp ci-/, ""));
+      if (Number.isFinite(ts) && ts < staleBefore) {
+        await sb.from("teams").delete().eq("id", row.id);
+      }
+    }
+    const { data: stalePlayers } = await sb.from("players").select("id, name").like("name", "CI Player ci-%");
+    for (const row of stalePlayers || []) {
+      const ts = Number(String(row.name || "").replace(/^CI Player ci-/, ""));
+      if (Number.isFinite(ts) && ts < staleBefore) {
+        await sb.from("players").delete().eq("id", row.id);
+      }
+    }
   });
 
   afterAll(async () => {

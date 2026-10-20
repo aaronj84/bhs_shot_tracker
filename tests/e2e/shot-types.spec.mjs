@@ -3,6 +3,7 @@ import {
   expect,
   finishTaker,
   openRecordModal,
+  pickMissDirection,
   recordPlay,
   signIn,
   singleTapPitch,
@@ -16,7 +17,7 @@ const SHOT_TYPES = [
   { actionId: "missed", missDir: "crossbar", log: /Crossbar/i },
   { actionId: "foul", restartResult: "foul", log: /Free Kick/i },
   { actionId: "foul", restartResult: "goal", log: /Goal/i, name: "free-kick-then-goal" },
-  { actionId: "foul", restartResult: "missed", log: /Missed/i, name: "free-kick-then-missed" },
+  { actionId: "foul", restartResult: "missed", missDir: "wide-left", log: /Missed/i, name: "free-kick-then-missed" },
   { actionId: "corner", restartResult: "corner", log: /Corner/i },
   { actionId: "pk-goal", log: /PK Goal/i },
   { actionId: "pk-missed", missDir: "post", log: /Post/i },
@@ -94,7 +95,7 @@ test.describe("Shot types home and visitor", () => {
     await createFriendlyAndOpenTracker(page);
     await openRecordModal(page, "us");
     await page.locator('[data-action-id="missed"]').click();
-    await page.locator('[data-miss-dir="over"]').click();
+    await pickMissDirection(page, "over");
     await finishTaker(page, "us");
     await expect(page.locator("#shot-modal-title")).toHaveText("Add a setup pass?");
     await expect(page.locator(".shot-action-heading")).toHaveText("Setup pass");

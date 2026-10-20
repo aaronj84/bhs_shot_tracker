@@ -270,6 +270,17 @@ export async function skipLinkedPlayIfAsked(page) {
   return true;
 }
 
+/** Wait for the miss-dir grid to settle, then click — avoids CI flakes on remount. */
+export async function pickMissDirection(page, missDir = "over") {
+  const modal = page.locator("#shot-event-modal");
+  await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
+  const btn = modal.locator(`#shot-action-grid [data-miss-dir="${missDir}"]`);
+  await expect(modal.locator("#shot-action-grid [data-miss-dir]")).toHaveCount(6, { timeout: 10000 });
+  await expect(btn).toBeVisible({ timeout: 10000 });
+  await btn.scrollIntoViewIfNeeded();
+  await btn.click({ timeout: 15000 });
+}
+
 /**
  * Record one play through the shot modal. `restartResult` is the follow-up after a
  * free kick or corner (`foul`/`corner` for set-piece only). A free-kick shot is
@@ -305,10 +316,7 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
         await page.locator('[data-corner-type="shot"]').click();
         await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?", { timeout: 10000 });
         await page.locator(`[data-restart-result="${restartResult}"]`).click();
-        if (restartResult === "missed") {
-          await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-          await page.locator(`[data-miss-dir="${missDir}"]`).click();
-        }
+        if (restartResult === "missed") await pickMissDirection(page, missDir);
       }
     } else {
       await expect(page.locator("#shot-modal-title")).toHaveText("Free kick — what next?", { timeout: 10000 });
@@ -317,20 +325,17 @@ export async function recordPlay(page, { team, actionId, restartResult, missDir 
       } else {
         await page.locator('[data-setpiece-follow="shot"]').click();
         await expect(page.locator("#shot-modal-title")).toHaveText("Free kick shot result?", { timeout: 10000 });
+        await expect(modal.locator("[data-restart-result]")).toHaveCount(4, { timeout: 10000 });
         await page.locator(`[data-restart-result="${restartResult}"]`).click();
-        if (restartResult === "missed") {
-          await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-          await page.locator(`[data-miss-dir="${missDir}"]`).click();
-        }
+        if (restartResult === "missed") await pickMissDirection(page, missDir);
       }
     }
-    await expect(modal).toBeHidden({ timeout: 15000 });
+    await expect(modal).toBeHidden({ timeout: 20000 });
     return;
   }
 
   if (actionId === "missed" || actionId === "pk-missed") {
-    await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
-    await page.locator(`[data-miss-dir="${missDir}"]`).click();
+    await pickMissDirection(page, missDir);
   }
   await finishTaker(page, team);
 

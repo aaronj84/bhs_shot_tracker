@@ -4612,9 +4612,11 @@
       position: shotModalDraft.position,
       action: shotModalDraft.action,
     };
+    // Keep the modal open through the set-piece row so a follow-up miss-dir
+    // click isn't racing a mid-save close/redraw.
     shotModalDraft.fkOutcome = "foul";
     shotModalDraft.missDirection = "";
-    await commitShotEvent("foul", player, null, null);
+    await commitShotEvent("foul", player, null, null, { keepOpen: true });
     st.team = team;
     Object.assign(shotModalDraft, keep, {
       player,
@@ -4639,7 +4641,7 @@
     shotModalDraft.fkOutcome = "corner";
     shotModalDraft.missDirection = "";
     shotModalDraft.cornerDelivery = "";
-    await commitShotEvent("corner", player, null, null);
+    await commitShotEvent("corner", player, null, null, { keepOpen: true });
     st.team = team;
     Object.assign(shotModalDraft, keep, {
       player,
@@ -4715,9 +4717,10 @@
     };
   }
 
-  async function commitShotEvent(result, shooter, assist, secondAssist) {
+  async function commitShotEvent(result, shooter, assist, secondAssist, opts = {}) {
     const loc = shotModalDraft.location;
     if (!loc) return;
+    const keepOpen = !!opts.keepOpen;
     const team = recordingTeam();
     const payload = payloadFromDraft(result, shooter, assist, secondAssist);
     const view = mapShot({
@@ -4752,9 +4755,11 @@
     }
     st.shots = [view, ...st.shots];
     trackAppEvent("play", result, { team, period: normalizePeriod(st.period) });
-    closeShotModal();
-    resetTrackerDraft();
-    draw();
+    if (!keepOpen) {
+      closeShotModal();
+      resetTrackerDraft();
+    }
+    draw({ keepScroll: true });
     const missBit = view.missDirection ? ` (${MISS_DIRECTION_LABELS[view.missDirection]})` : "";
     const foulerBit = view.foulerNumber || view.foulerName || view.foulerShort
       ? ` · foul: ${eventPersonLabel(oppositeTeam(team), view.foulerNumber, view.foulerName, view.foulerShort)}`
