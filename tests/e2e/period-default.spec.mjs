@@ -17,6 +17,7 @@ test.describe("Default first half", () => {
     await createFriendlyAndOpenTracker(page);
     const periodBtn = page.locator("button.score-strip-btn[data-open-clock-setup], button.scoreboard-period[data-open-clock-setup]");
     await expect(periodBtn.first()).toContainText(/1st Half/i);
+    await expect(page.locator("#tracker-status")).toContainText(/Brighton goal on the right/i);
 
     await periodBtn.first().click();
     await expect(page.locator("#clock-setup-modal")).toBeVisible();
@@ -24,6 +25,7 @@ test.describe("Default first half", () => {
     await page.locator("#clock-setup-save").click();
     await expect(page.locator("#clock-setup-modal")).toBeHidden();
     await expect(periodBtn.first()).toContainText(/2nd Half/i);
+    await expect(page.locator("#tracker-status")).toContainText(/Brighton goal on the left/i);
 
     page.once("dialog", async (dialog) => {
       expect(dialog.message()).toMatch(/1st-half/i);
@@ -32,5 +34,10 @@ test.describe("Default first half", () => {
     await openRecordModal(page, "us");
     await expect(page.locator("#shot-event-modal")).toBeVisible();
     await expect(periodBtn.first()).toContainText(/1st Half/i);
+    const ui = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("brighton-varsity-shot-tracker-ui-v2") || "{}")
+    );
+    expect(ui.period).toBe("1");
+    expect(ui.swapSides).toBe(false);
   });
 });

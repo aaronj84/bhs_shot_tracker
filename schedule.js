@@ -903,7 +903,7 @@
               if (!phones.length) missing.push(s.booking.player_name);
               for (const ph of phones) if (!numbers.includes(ph)) numbers.push(ph);
             }
-            const list = numbers.join(", ");
+            const list = numbers.join("\n");
             const times = g.slots.map((s) => `${s.booking.player_name} ${timeLabel(s.starts_at)}`).join(", ");
             const message = `Reminder: Brighton Blue ’26 postseason meetings are ${g.label}. ${times}. See you there!`;
             return `
@@ -911,7 +911,7 @@
                 <h3>${escapeHtml(g.label)} <span class="muted">· ${g.slots.length} meeting${g.slots.length === 1 ? "" : "s"}</span></h3>
                 ${
                   numbers.length
-                    ? `<textarea class="text-gate-input schedule-copy" readonly rows="2" aria-label="Phone numbers for ${escapeHtml(g.label)}">${escapeHtml(list)}</textarea>
+                    ? `<textarea class="text-gate-input schedule-copy" readonly rows="${Math.min(numbers.length, 8)}" aria-label="Phone numbers for ${escapeHtml(g.label)}">${escapeHtml(list)}</textarea>
                        <div class="schedule-row-actions">
                          <button type="button" class="btn btn-secondary" data-act="copy" data-copy="${escapeHtml(list)}" data-done="Numbers copied">Copy ${numbers.length} number${numbers.length === 1 ? "" : "s"}</button>
                          <button type="button" class="btn btn-ghost" data-act="copy" data-copy="${escapeHtml(message)}" data-done="Message copied">Copy message</button>

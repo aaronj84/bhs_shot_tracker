@@ -37,6 +37,8 @@ ASSIST = {
     "Cross": "cross",
     "Rebound": "rebound",
     "Over the Top": "over_the_top",
+    "Long": "long",
+    "Short": "short",
 }
 
 # Brighton jersey → Medville jersey, pitch slot, note

@@ -32,3 +32,10 @@ Process one paragraph at a time. Commit after each. Update this file as work pro
 ## Current work
 
 All 12 features done. Olympus prod swap SQL still not applied (see #8). Leftover untracked backup/maxprep work was not committed.
+
+## Backlog / todo
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| B1 | Establish backup routine triggered from GitHub Actions | todo | Daily (or scheduled) data dump — not elaborate; enough to regenerate inserts if a bug or bad entry corrupts data. Builds on existing PR/merge PROD dump in `docs/backup.md`. |
+| B2 | Make team formation recordable throughout a match | todo | Capture / update formation as the match progresses, not only at lineup setup. |

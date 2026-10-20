@@ -26,29 +26,35 @@ test.describe("Corners", () => {
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
-    await expect(page.locator("#shot-modal-title")).toHaveText("Corner — what next?");
-    await expect(page.locator('[data-setpiece-follow="shot"]')).toBeVisible();
-    await expect(page.locator('[data-setpiece-follow="pass"]')).toBeVisible();
-    await expect(page.locator('[data-setpiece-follow="none"]')).toBeVisible();
+    await expect(page.locator("#shot-modal-title")).toHaveText("What type of corner?");
+    await expect(page.locator('[data-corner-type="shot"]')).toBeVisible();
+    await expect(page.locator('[data-corner-type="long"]')).toBeVisible();
+    await expect(page.locator('[data-corner-type="short"]')).toBeVisible();
+    await page.locator('[data-corner-type="long"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText(/after the long pass/i);
     await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log")).toContainText(/Corner/i, { timeout: 20000 });
+    await expect(page.locator("#tracker-log")).toContainText(/Long/i);
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
+    await page.locator('[data-corner-type="short"]').click();
     await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(2);
   });
 
-  test("a shot off a corner uses the corner as the assist / setup pass", async ({ page }) => {
+  test("a shot off a long corner uses the corner as the assist / setup pass", async ({ page }) => {
     test.setTimeout(90000);
     await signIn(page);
     await createFriendlyAndOpenTracker(page);
 
     await startCornerFromFlag(page, "us", "right");
     await finishTaker(page, "us");
-    await expect(page.locator("#shot-modal-title")).toHaveText("Corner — what next?");
+    await expect(page.locator("#shot-modal-title")).toHaveText("What type of corner?");
+    await page.locator('[data-corner-type="long"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText(/after the long pass/i);
     await page.locator('[data-setpiece-follow="shot"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log")).toContainText(/Corner/i, { timeout: 20000 });
@@ -64,17 +70,35 @@ test.describe("Corners", () => {
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
-    // Corner delivery is stored as the goal's assist (type cross).
-    await expect(page.locator("#tracker-log")).toContainText(/Cross/i);
+    // Corner delivery is stored as the goal's assist (type long).
+    await expect(page.locator("#tracker-log")).toContainText(/Long/i);
   });
 
-  test("pass off a corner keeps the corner as setup and asks for next pass or shot", async ({ page }) => {
+  test("corner taken as a direct shot records shot result from the flag", async ({ page }) => {
     test.setTimeout(90000);
     await signIn(page);
     await createFriendlyAndOpenTracker(page);
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
+    await page.locator('[data-corner-type="shot"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText("Shot result?");
+    await expect(page.locator(".tracker-recording-banner")).toBeHidden();
+    await page.locator('[data-restart-result="goal"]').click();
+    await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
+    await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
+    await expect(page.locator("#tracker-log .shot-result-pill.goal")).toHaveCount(1);
+  });
+
+  test("pass off a short corner keeps the corner as setup and asks for next pass or shot", async ({ page }) => {
+    test.setTimeout(90000);
+    await signIn(page);
+    await createFriendlyAndOpenTracker(page);
+
+    await startCornerFromFlag(page, "us", "left");
+    await finishTaker(page, "us");
+    await page.locator('[data-corner-type="short"]').click();
+    await expect(page.locator("#shot-modal-title")).toHaveText(/after the short pass/i);
     await page.locator('[data-setpiece-follow="pass"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator(".tracker-recording-banner")).toBeVisible({ timeout: 10000 });
@@ -88,8 +112,7 @@ test.describe("Corners", () => {
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-log .shot-result-pill.corner")).toHaveCount(1);
     await expect(page.locator("#tracker-log .shot-result-pill.on-target")).toHaveCount(1);
-    // Corner delivery is stored as the shot's setup pass (type pass).
-    await expect(page.locator("#tracker-log")).toContainText(/Pass/i);
+    await expect(page.locator("#tracker-log")).toContainText(/Short/i);
   });
 
   test("inspect popup can add another play on an occupied mark", async ({ page }) => {
@@ -99,6 +122,7 @@ test.describe("Corners", () => {
 
     await startCornerFromFlag(page, "us", "left");
     await finishTaker(page, "us");
+    await page.locator('[data-corner-type="long"]').click();
     await page.locator('[data-setpiece-follow="none"]').click();
     await expect(page.locator("#shot-event-modal")).toBeHidden({ timeout: 15000 });
     await expect(page.locator("#tracker-pitch-us [data-inspect-id]")).toBeVisible({ timeout: 15000 });
