@@ -460,6 +460,12 @@ body.tracker-view .brand-sub {
   cursor: not-allowed;
 }
 
+.btn-sm {
+  min-height: 36px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+}
+
 .text-gate {
   display: flex;
   flex-wrap: wrap;
@@ -819,6 +825,22 @@ body.tracker-view .brand-sub {
   color: var(--text-muted);
 }
 
+.tracker-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.tracker-status-bar .tracker-status {
+  flex: 1;
+}
+
+.tracker-status-bar .btn {
+  flex-shrink: 0;
+}
+
 .tracker-status.is-live {
   color: var(--brand);
 }
@@ -1110,6 +1132,29 @@ body.is-recording-play .app-header {
 
 .tracker-shot-dot.missed + .tracker-shot-num {
   fill: #ffffff;
+}
+
+.tracker-event.shots-hidden {
+  display: none;
+}
+
+.shots-emphasis-normal {
+  opacity: 0.4;
+}
+
+.shots-emphasis-high {
+  opacity: 1;
+}
+
+.shots-emphasis-super {
+  opacity: 1;
+  filter: drop-shadow(0 0 2px rgba(241, 90, 36, 0.8));
+}
+
+.shots-emphasis-super .tracker-shot-dot,
+.shots-emphasis-super circle,
+.shots-emphasis-super rect {
+  stroke-width: 0.5;
 }
 
 .tracker-inspect-hit {
