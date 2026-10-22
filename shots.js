@@ -6883,6 +6883,7 @@
         }" aria-controls="tracker-map-stats-panel">
           <span class="prep-tool-hash" aria-hidden="true">#</span>
         </button>
+        ${shotsOnlySwitchMarkup("tracker-map-shots-only-toggle")}
       </div>`;
   }
 
@@ -6945,16 +6946,17 @@
     const aggregates = prepAggregates(visible);
     const selected = visible.find((e) => e.id === st.trackerMapShotId) || null;
     if (st.trackerMapShotId && !selected) st.trackerMapShotId = "";
-    // Always full plays here — overview half-pitches keep the shots-only switch.
-    const pitch = tacticalPitchMarkup(visible, st.trackerMapShotId, { shotsOnlyMode: false });
+    const pitch = tacticalPitchMarkup(visible, st.trackerMapShotId);
     return `
       <section class="tracker-map-panel" id="tracker-map-panel">
         <div class="prep-pitch-wrap tracker-map-wrap">
           ${trackerMapToolbarMarkup()}
-          ${trackerMapFilterPanelMarkup()}
-          ${trackerMapStatsPanelMarkup(aggregates)}
-          <div class="prep-pitch-field">${pitch}</div>
-          ${selected ? prepShotPopupMarkup(selected) : ""}
+          <div class="prep-pitch-field">
+            ${trackerMapFilterPanelMarkup()}
+            ${trackerMapStatsPanelMarkup(aggregates)}
+            ${pitch}
+            ${selected ? prepShotPopupMarkup(selected) : ""}
+          </div>
         </div>
         <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"}${
           trackerMapFilterCount() ? ` of ${events.length}` : ""
@@ -7150,6 +7152,12 @@
       if (st.trackerMapShowStats) st.trackerMapShowFilters = false;
       draw({ keepScroll: true });
     });
+    $("#tracker-map-shots-only-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
+      draw({ keepScroll: true });
+    });
     $("#tracker-map-filter-panel")?.addEventListener("click", (e) => e.stopPropagation());
     $("#tracker-map-stats-panel")?.addEventListener("click", (e) => e.stopPropagation());
     $$("[data-tracker-map-filter]").forEach((btn) => {
@@ -7286,7 +7294,8 @@
     const usActive = recordingTeam() === "us";
     const usSwapped = !!st.swapSides;
     const oppSwapped = !usSwapped;
-    const pitchOpts = { showGrid: st.showGrid, period };
+    // Recording half-pitches always show full plays; shots-only lives on the Shot Map tab.
+    const pitchOpts = { showGrid: st.showGrid, period, shotsOnlyMode: false };
     const goalSide = usSwapped ? "left" : "right";
     let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
@@ -7346,10 +7355,7 @@
             </div>
             <p class="tracker-status is-live" id="tracker-status">${escapeHtml(status)}</p>
           </div>`
-              : `<div class="tracker-status-bar">
-            <p class="tracker-status" id="tracker-status">${escapeHtml(status)}</p>
-            ${shotsOnlySwitchMarkup("tracker-shots-only-toggle")}
-          </div>`
+              : `<p class="tracker-status" id="tracker-status">${escapeHtml(status)}</p>`
           }
           <div class="tracker-pitches">
             <div class="tracker-pitch-block ${usActive || !awaitingShot ? "is-active" : ""}">
@@ -7387,11 +7393,6 @@
       closeShotModal();
       resetTrackerDraft();
       draw();
-    });
-    $("#tracker-shots-only-toggle")?.addEventListener("click", () => {
-      st.shotsOnlyMode = !st.shotsOnlyMode;
-      saveUi();
-      draw({ keepScroll: true });
     });
     $$("[data-record-corner]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -9366,10 +9367,12 @@
           <section class="prep-pitch-section">
             <div class="prep-pitch-wrap">
               ${prepPitchToolbarMarkup()}
-              ${prepFilterPanelMarkup()}
-              ${prepStatsPanelMarkup(aggregates)}
-              <div class="prep-pitch-field">${tacticalPitchMarkup(visible, st.prep.selectedShotId)}</div>
-              ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
+              <div class="prep-pitch-field">
+                ${prepFilterPanelMarkup()}
+                ${prepStatsPanelMarkup(aggregates)}
+                ${tacticalPitchMarkup(visible, st.prep.selectedShotId)}
+                ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
+              </div>
             </div>
             <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · Brighton attack up${
               selectedShot ? "" : " · tap a shot"
