@@ -3,6 +3,7 @@ import {
   createFriendlyAndOpenTracker,
   doubleTapUsPitch,
   expect,
+  openTrackerPanel,
   signIn,
   test,
 } from "./helpers.mjs";
@@ -73,6 +74,7 @@ test.describe("Shot tracker smoke", () => {
     await gameBtn.click();
     await page.locator("[data-open-mode=track]").click();
     await expect(page.locator(".tracker-page")).toBeVisible({ timeout: 20000 });
+    await openTrackerPanel(page, "settings");
     await page.locator(".prep-game-link a").click();
     await expect(page.locator(".shots-admin h1")).toHaveText("Prep", { timeout: 15000 });
     await expect(page.locator(".prep-tab.is-on")).toHaveText("Opponent Prep");

@@ -837,8 +837,59 @@ body.tracker-view .brand-sub {
   flex: 1;
 }
 
-.tracker-status-bar .btn {
+.tracker-status-bar .shots-only-switch {
   flex-shrink: 0;
+}
+
+.shots-only-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shots-only-switch-track {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: #8b97a8;
+  box-shadow: inset 0 0 0 1px rgba(11, 31, 51, 0.12);
+  transition: background 0.18s ease;
+}
+
+.shots-only-switch.is-on .shots-only-switch-track {
+  background: var(--brand);
+}
+
+.shots-only-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #5a6b7e;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 3px rgba(11, 31, 51, 0.28);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.shots-only-switch.is-on .shots-only-switch-thumb {
+  transform: translateX(18px);
+  color: var(--brand);
+}
+
+.shots-only-bullseye {
+  display: block;
 }
 
 .tracker-status.is-live {
@@ -918,8 +969,8 @@ body.is-recording-play .app-header {
 }
 
 .tracker-page.is-recording-play .lineup-section,
-.tracker-page.is-recording-play .tracker-units,
-.tracker-page.is-recording-play .tracker-log {
+.tracker-page.is-recording-play .tracker-panel-tabs,
+.tracker-page.is-recording-play .tracker-panel {
   opacity: 0.34;
   pointer-events: none;
 }
@@ -2316,8 +2367,65 @@ button.formation-card.is-empty {
   font-size: 0.92rem;
 }
 
+.tracker-panel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 1rem 0 0.75rem;
+}
+
+.tracker-panel-tab {
+  min-height: 40px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tracker-panel-tab.is-on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.tracker-panel {
+  margin: 0 0 1.5rem;
+}
+
+.tracker-map-wrap {
+  position: relative;
+}
+
+.tracker-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.tracker-settings-card {
+  padding: 0.85rem 0.75rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tracker-settings-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.tracker-settings-panel .stamp-offset-card {
+  margin-top: 0;
+}
+
 .tracker-units {
-  margin: 1.25rem 0 0.5rem;
+  margin: 0.25rem 0 0.5rem;
 }
 
 .loc-flag {
@@ -3941,6 +4049,12 @@ button.scoreboard-period:focus-visible {
   backdrop-filter: blur(8px);
 }
 
+.prep-pitch-tool-icon {
+  justify-content: center;
+  min-width: 36px;
+  padding: 0.25rem 0.55rem;
+}
+
 .prep-pitch-tool:hover,
 .prep-pitch-tool.is-on {
   background: rgba(11, 31, 51, 0.92);
@@ -3949,6 +4063,25 @@ button.scoreboard-period:focus-visible {
 
 .prep-pitch-tool.is-filtered {
   border-color: #f7e27c;
+}
+
+.prep-tool-icon {
+  display: block;
+}
+
+.prep-tool-hash {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.prep-pitch-toolbar .shots-only-switch-track {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.prep-pitch-toolbar .shots-only-switch:not(.is-on) .shots-only-switch-track {
+  background: #6b7788;
 }
 
 .prep-tool-badge {
