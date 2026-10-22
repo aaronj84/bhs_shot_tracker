@@ -422,6 +422,7 @@
         period: st.period,
         team: st.team,
         showGrid: st.showGrid,
+        shotsOnlyMode: st.shotsOnlyMode,
         swapSides: st.swapSides,
         logTeam: st.logTeam,
         logResult: st.logResult,
@@ -641,6 +642,7 @@
     mode: "idle",
     pending: null,
     showGrid: savedUi.showGrid !== false,
+    shotsOnlyMode: savedUi.shotsOnlyMode !== false,
     period: normalizePeriod(savedUi.period || "1"),
     team: savedUi.team === "opp" ? "opp" : "us",
     swapSides: !!savedUi.swapSides,
@@ -3340,11 +3342,14 @@
     return marks.filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
   }
 
-  function nearestInspectHit(events, team, loc, maxDist = 3.6) {
+  function nearestInspectHit(events, team, loc, maxDist = 3.6, opts = {}) {
+    const shotOnly = !!opts.shotOnly;
     let best = null;
     (events || []).forEach((ev) => {
       if (eventTeam(ev) !== team) return;
+      if (shotOnly && !shouldShowInShotsOnlyMode(ev.result)) return;
       pitchInspectMarks(ev).forEach((m) => {
+        if (shotOnly && m.role !== "shot") return;
         const d = Math.hypot(m.x - loc.x, m.y - loc.y);
         if (d > maxDist) return;
         if (!best || d < best.d) best = { id: ev.id, role: m.role, d };
@@ -3497,6 +3502,7 @@
       }
     }
     const numRot = swapped ? 90 : -90;
+    const shotsOnly = opts.shotsOnlyMode !== undefined ? opts.shotsOnlyMode : st.shotsOnlyMode;
     const markers = events
       .filter((ev) => {
         if (eventTeam(ev) !== team) return false;
@@ -3504,19 +3510,24 @@
         return eventPeriod(ev) === (opts.period || st.period);
       })
       .map((ev) => {
+        if (shotsOnly && !shouldShowInShotsOnlyMode(ev.result)) return "";
+        const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const from = ev.assist || ev.shot;
-          html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
-          html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
-        }
-        if (ev.assist) {
-          html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
-          html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+        if (!shotsOnly) {
+          if (ev.secondAssist) {
+            const from = ev.assist || ev.shot;
+            html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
+            html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
+          }
+          if (ev.assist) {
+            html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
+            html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+          }
         }
         html += shotShapeMarkup(ev, ev.shot.x, ev.shot.y, {
           size: 3.4,
-          className: `tracker-shot-dot ${escapeHtml(ev.result)}`,
+          className: `tracker-shot-dot ${escapeHtml(ev.result)} ${emphasisClass}`,
         });
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && ev.shooterNumber !== "") {
           html += `<text class="tracker-shot-num" x="${ev.shot.x}" y="${ev.shot.y}" transform="rotate(${numRot} ${ev.shot.x} ${ev.shot.y})">${escapeHtml(String(ev.shooterNumber))}</text>`;
@@ -3524,12 +3535,15 @@
         if (opts.inspectable) {
           const selected = ev.id === opts.inspectId;
           const selectedRole = selected ? opts.inspectRole || "shot" : "";
-          [...pitchInspectMarks(ev)].reverse().forEach((m) => {
+          const marks = shotsOnly
+            ? pitchInspectMarks(ev).filter((m) => m.role === "shot")
+            : pitchInspectMarks(ev);
+          [...marks].reverse().forEach((m) => {
             const on = selected && selectedRole === m.role;
             html += `<circle class="tracker-inspect-hit${on ? " is-on" : ""}" data-inspect-id="${escapeHtml(ev.id)}" data-inspect-role="${escapeHtml(m.role)}" cx="${m.x}" cy="${m.y}" r="3.2" />`;
           });
         }
-        return `<g class="tracker-event ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
+        return `<g class="tracker-event ${emphasisClass} ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
       })
       .join("");
     const inner = swapped
@@ -5432,7 +5446,7 @@
             id: hitEl.getAttribute("data-inspect-id") || "",
             role: hitEl.getAttribute("data-inspect-role") || "shot",
           }) ||
-          nearestInspectHit(periodEvents, team, loc);
+          nearestInspectHit(periodEvents, team, loc, 3.6, { shotOnly: !!st.shotsOnlyMode });
         if (inspectHit?.id) {
           const same = st.inspectEventId === inspectHit.id && (st.inspectRole || "shot") === (inspectHit.role || "shot");
           if (same) clearPitchInspect();
@@ -6223,6 +6237,7 @@
       showGrid: true,
       period: eventPeriod(ev),
       noPending: true,
+      shotsOnlyMode: false,
     };
     const assistPitch = $("#shot-edit-assist-pitch");
     const secondPitch = $("#shot-edit-second-pitch");
@@ -6824,7 +6839,10 @@
             </div>
             <p class="tracker-status is-live" id="tracker-status">${escapeHtml(status)}</p>
           </div>`
-              : `<p class="tracker-status" id="tracker-status">${escapeHtml(status)}</p>`
+              : `<div class="tracker-status-bar">
+            <p class="tracker-status" id="tracker-status">${escapeHtml(status)}</p>
+            <button type="button" class="btn btn-${st.shotsOnlyMode ? "primary" : "ghost"} btn-sm" id="tracker-shots-only-toggle">Shots only</button>
+          </div>`
           }
           <div class="tracker-pitches">
             <div class="tracker-pitch-block ${usActive || !awaitingShot ? "is-active" : ""}">
@@ -6869,6 +6887,11 @@
       resetTrackerDraft();
       draw();
     });
+    $("#tracker-shots-only-toggle")?.addEventListener("click", () => {
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
+      draw({ keepScroll: true });
+    });
     $$("[data-record-corner]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const team = btn.getAttribute("data-record-team") === "opp" ? "opp" : "us";
@@ -6906,6 +6929,7 @@
     if (result === "blocked") return "#6d5a8c";
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
+    if (result === "missed" || result === "pk-missed") return "none";
     return "rgba(11,31,51,0.4)";
   }
 
@@ -6917,6 +6941,21 @@
 
   function isSquareEvent(result) {
     return result === "foul" || result === "corner";
+  }
+
+  function isActualShot(result) {
+    return result === "goal" || result === "pk-goal" || result === "on-target" || 
+           result === "blocked" || result === "missed" || result === "pk-missed";
+  }
+
+  function shouldShowInShotsOnlyMode(result) {
+    return isActualShot(result);
+  }
+
+  function getShotsOnlyEmphasis(result) {
+    if (result === "goal" || result === "pk-goal") return "super";
+    if (result === "on-target" || result === "missed" || result === "pk-missed") return "high";
+    return "normal";
   }
 
   function svgSquare(cx, cy, size, attrs) {
@@ -6966,24 +7005,31 @@
     }
     const markers = events
       .map((ev) => {
+        const hide = st.shotsOnlyMode && !shouldShowInShotsOnlyMode(ev.result);
+        if (hide) return "";
         const period = eventPeriod(ev);
         const team = eventTeam(ev);
         const shot = toFullFieldPoint(ev.shot, period, team);
         const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = markerNumberFill(ev, team);
+        const emphasis = st.shotsOnlyMode ? getShotsOnlyEmphasis(ev.result) : "";
         let html = "";
         const ring = team === "opp" ? "#c0392b" : "#0b1f33";
-        if (ev.secondAssist) {
-          const s = toFullFieldPoint(ev.secondAssist, period, team);
-          const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
-          html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        if (!st.shotsOnlyMode) {
+          if (ev.secondAssist) {
+            const s = toFullFieldPoint(ev.secondAssist, period, team);
+            const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
+            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+          }
+          if (ev.assist) {
+            const a = toFullFieldPoint(ev.assist, period, team);
+            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+          }
         }
-        if (ev.assist) {
-          const a = toFullFieldPoint(ev.assist, period, team);
-          html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-        }
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
+        html += `<g class="${emphasisClass}">`;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: 3.3,
           fill: resultFill(ev.result),
@@ -6993,6 +7039,7 @@
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && String(ev.shooterNumber) !== "") {
           html += `<text x="${shot.fx}" y="${shot.fy}" fill="${numFill}" font-size="1.25" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(String(ev.shooterNumber))}</text>`;
         }
+        html += `</g>`;
         return html;
       })
       .join("");
@@ -7103,6 +7150,7 @@
         ${trackerNav("map")}
         <div class="shot-map-actions no-print">
           <a class="btn btn-ghost" href="#shots">Back</a>
+          <button type="button" class="btn btn-${st.shotsOnlyMode ? "primary" : "ghost"}" id="shots-only-toggle">Shots only</button>
           <button type="button" class="btn btn-primary" id="shot-map-print">Print / PDF</button>
           <button type="button" class="btn btn-ghost" id="shot-map-save" ${events.length ? "" : "disabled"}>Save image</button>
         </div>
@@ -7170,6 +7218,11 @@
       </div>`;
     $("#shot-map-print")?.addEventListener("click", () => window.print());
     $("#shot-map-save")?.addEventListener("click", () => downloadSummaryImage());
+    $("#shots-only-toggle")?.addEventListener("click", () => {
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
+      draw();
+    });
   }
 
   function historyViewRow(row) {
@@ -7790,31 +7843,38 @@
     }
     const markers = events
       .map((ev) => {
+        const hide = st.shotsOnlyMode && !shouldShowInShotsOnlyMode(ev.result);
+        if (hide) return "";
         const team = eventTeam(ev);
         const shot = tacticalPoint(ev.shot, team);
         if (!shot) return "";
         const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = markerNumberFill(ev, team);
+        const emphasis = st.shotsOnlyMode ? getShotsOnlyEmphasis(ev.result) : "";
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const s = tacticalPoint(ev.secondAssist, team);
-          const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
-          if (s && aEnd) {
-            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        if (!st.shotsOnlyMode) {
+          if (ev.secondAssist) {
+            const s = tacticalPoint(ev.secondAssist, team);
+            const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+            if (s && aEnd) {
+              html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+              html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+            }
+          }
+          if (ev.assist) {
+            const a = tacticalPoint(ev.assist, team);
+            if (a) {
+              html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+              html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+            }
           }
         }
-        if (ev.assist) {
-          const a = tacticalPoint(ev.assist, team);
-          if (a) {
-            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-          }
-        }
+        html = `<g class="${emphasisClass}">` + html;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: selected ? 4.7 : 3.7,
-          className: "prep-shot-dot",
+          className: `prep-shot-dot ${emphasisClass}`,
           fill: resultFill(ev.result),
           stroke: selected ? "#f7e27c" : ring,
           strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
@@ -7825,6 +7885,7 @@
             String(ev.shooterNumber)
           )}</text>`;
         }
+        html += `</g>`;
         return html;
       })
       .join("");
@@ -8114,6 +8175,9 @@
           st.prep.showStats ? "true" : "false"
         }" aria-controls="prep-stats-panel">
           Stats
+        </button>
+        <button type="button" class="prep-pitch-tool${st.shotsOnlyMode ? " is-on" : ""}" id="prep-shots-only-toggle">
+          Shots only
         </button>
       </div>`;
   }
@@ -8815,6 +8879,12 @@
       e.stopPropagation();
       st.prep.showStats = !st.prep.showStats;
       if (st.prep.showStats) st.prep.showFilters = false;
+      draw({ keepScroll: true });
+    });
+    $("#prep-shots-only-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
       draw({ keepScroll: true });
     });
     $("#prep-filter-panel")?.addEventListener("click", (e) => e.stopPropagation());
