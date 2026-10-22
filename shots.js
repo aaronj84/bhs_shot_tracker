@@ -3342,11 +3342,14 @@
     return marks.filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
   }
 
-  function nearestInspectHit(events, team, loc, maxDist = 3.6) {
+  function nearestInspectHit(events, team, loc, maxDist = 3.6, opts = {}) {
+    const shotOnly = !!opts.shotOnly;
     let best = null;
     (events || []).forEach((ev) => {
       if (eventTeam(ev) !== team) return;
+      if (shotOnly && !shouldShowInShotsOnlyMode(ev.result)) return;
       pitchInspectMarks(ev).forEach((m) => {
+        if (shotOnly && m.role !== "shot") return;
         const d = Math.hypot(m.x - loc.x, m.y - loc.y);
         if (d > maxDist) return;
         if (!best || d < best.d) best = { id: ev.id, role: m.role, d };
@@ -3507,18 +3510,20 @@
         return eventPeriod(ev) === (opts.period || st.period);
       })
       .map((ev) => {
-        const hide = shotsOnly && !shouldShowInShotsOnlyMode(ev.result);
+        if (shotsOnly && !shouldShowInShotsOnlyMode(ev.result)) return "";
         const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
         const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const from = ev.assist || ev.shot;
-          html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
-          html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
-        }
-        if (ev.assist) {
-          html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
-          html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+        if (!shotsOnly) {
+          if (ev.secondAssist) {
+            const from = ev.assist || ev.shot;
+            html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
+            html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
+          }
+          if (ev.assist) {
+            html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
+            html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+          }
         }
         html += shotShapeMarkup(ev, ev.shot.x, ev.shot.y, {
           size: 3.4,
@@ -3530,13 +3535,15 @@
         if (opts.inspectable) {
           const selected = ev.id === opts.inspectId;
           const selectedRole = selected ? opts.inspectRole || "shot" : "";
-          [...pitchInspectMarks(ev)].reverse().forEach((m) => {
+          const marks = shotsOnly
+            ? pitchInspectMarks(ev).filter((m) => m.role === "shot")
+            : pitchInspectMarks(ev);
+          [...marks].reverse().forEach((m) => {
             const on = selected && selectedRole === m.role;
             html += `<circle class="tracker-inspect-hit${on ? " is-on" : ""}" data-inspect-id="${escapeHtml(ev.id)}" data-inspect-role="${escapeHtml(m.role)}" cx="${m.x}" cy="${m.y}" r="3.2" />`;
           });
         }
-        const hideClass = hide ? "shots-hidden" : "";
-        return `<g class="tracker-event ${hideClass} ${emphasisClass} ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
+        return `<g class="tracker-event ${emphasisClass} ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
       })
       .join("");
     const inner = swapped
@@ -5439,7 +5446,7 @@
             id: hitEl.getAttribute("data-inspect-id") || "",
             role: hitEl.getAttribute("data-inspect-role") || "shot",
           }) ||
-          nearestInspectHit(periodEvents, team, loc);
+          nearestInspectHit(periodEvents, team, loc, 3.6, { shotOnly: !!st.shotsOnlyMode });
         if (inspectHit?.id) {
           const same = st.inspectEventId === inspectHit.id && (st.inspectRole || "shot") === (inspectHit.role || "shot");
           if (same) clearPitchInspect();
@@ -6230,6 +6237,7 @@
       showGrid: true,
       period: eventPeriod(ev),
       noPending: true,
+      shotsOnlyMode: false,
     };
     const assistPitch = $("#shot-edit-assist-pitch");
     const secondPitch = $("#shot-edit-second-pitch");
@@ -6921,6 +6929,7 @@
     if (result === "blocked") return "#6d5a8c";
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
+    if (result === "missed" || result === "pk-missed") return "none";
     return "rgba(11,31,51,0.4)";
   }
 
@@ -6945,7 +6954,7 @@
 
   function getShotsOnlyEmphasis(result) {
     if (result === "goal" || result === "pk-goal") return "super";
-    if (result === "on-target") return "high";
+    if (result === "on-target" || result === "missed" || result === "pk-missed") return "high";
     return "normal";
   }
 
@@ -7006,16 +7015,18 @@
         const emphasis = st.shotsOnlyMode ? getShotsOnlyEmphasis(ev.result) : "";
         let html = "";
         const ring = team === "opp" ? "#c0392b" : "#0b1f33";
-        if (ev.secondAssist) {
-          const s = toFullFieldPoint(ev.secondAssist, period, team);
-          const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
-          html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
-        }
-        if (ev.assist) {
-          const a = toFullFieldPoint(ev.assist, period, team);
-          html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+        if (!st.shotsOnlyMode) {
+          if (ev.secondAssist) {
+            const s = toFullFieldPoint(ev.secondAssist, period, team);
+            const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
+            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+          }
+          if (ev.assist) {
+            const a = toFullFieldPoint(ev.assist, period, team);
+            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+          }
         }
         const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         html += `<g class="${emphasisClass}">`;
@@ -7843,19 +7854,21 @@
         const emphasis = st.shotsOnlyMode ? getShotsOnlyEmphasis(ev.result) : "";
         const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const s = tacticalPoint(ev.secondAssist, team);
-          const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
-          if (s && aEnd) {
-            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        if (!st.shotsOnlyMode) {
+          if (ev.secondAssist) {
+            const s = tacticalPoint(ev.secondAssist, team);
+            const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+            if (s && aEnd) {
+              html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+              html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+            }
           }
-        }
-        if (ev.assist) {
-          const a = tacticalPoint(ev.assist, team);
-          if (a) {
-            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+          if (ev.assist) {
+            const a = tacticalPoint(ev.assist, team);
+            if (a) {
+              html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+              html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+            }
           }
         }
         html = `<g class="${emphasisClass}">` + html;
