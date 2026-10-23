@@ -82,7 +82,12 @@ Club Data → CSV import accepts teams, affiliations, facilities, fields, compet
 
 ## Itinerary calendar export
 
-On **Itinerary**, **Add to calendar** downloads a `.ics` file (one event per stop: planned arrival→departure, venue, players, 15‑minute reminder). Open/import on iPhone Calendar or Outlook. This is a one-shot export — re-download after edits. Live subscribe feeds are post-MVP.
+On **Itinerary**, **Add to calendar** builds an RFC 5545 `.ics` (one event per stop: planned arrival→departure, venue, players, 15‑minute reminder).
+
+- **iPhone Safari:** tap opens Apple’s Add to Calendar flow (or the share sheet). Safari ignores `<a download>` on `data:` URLs, so the app navigates to a `text/calendar` base64 data URL instead of a silent no-op download.
+- **Desktop:** downloads `*.ics` for Outlook / Google Calendar import.
+
+One-shot export — tap again after edits. Live subscribe feeds are post-MVP.
 
 ## Known limitations
 
