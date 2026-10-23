@@ -1645,7 +1645,7 @@
       <div class="club-itin-actions">
         <button type="button" class="btn btn-primary" id="club-itin-save" ${st.itinerary.busy ? "disabled" : ""}>Save</button>
         <button type="button" class="btn btn-secondary" id="club-itin-copy">Copy text</button>
-        <a class="btn btn-secondary" id="club-itin-ics" ${st.itinerary.stops?.length ? "" : "hidden"} download="club-visits.ics">Add to calendar</a>
+        <button type="button" class="btn btn-secondary" id="club-itin-ics" ${st.itinerary.stops?.length ? "" : "hidden"}>Add to calendar</button>
         <button type="button" class="btn btn-ghost" id="club-itin-delete" ${st.itinerary.currentId ? "" : "hidden"}>Delete</button>
       </div>
       <section class="club-gemini">
@@ -1714,6 +1714,28 @@
       .replace(/;/g, "\\;")
       .replace(/,/g, "\\,");
   }
+  /** RFC 5545 line folding (75 octets); Apple Calendar is picky about long unfolded lines. */
+  function icsFoldLine(line) {
+    const enc = new TextEncoder();
+    if (enc.encode(line).length <= 75) return line;
+    const parts = [];
+    let cur = "";
+    let curBytes = 0;
+    let limit = 75;
+    for (const ch of line) {
+      const n = enc.encode(ch).length;
+      if (curBytes + n > limit) {
+        parts.push(cur);
+        cur = "";
+        curBytes = 0;
+        limit = 74;
+      }
+      cur += ch;
+      curBytes += n;
+    }
+    parts.push(cur);
+    return parts.join("\r\n ");
+  }
   function itineraryIcsFilename(itin) {
     const raw = String(itin?.name || "club-visits")
       .toLowerCase()
@@ -1747,7 +1769,8 @@
         endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
       }
       const team = s.team_line || s.label || "Club game";
-      const summary = s.brighton_line ? `Visit: ${s.brighton_line} — ${team}` : `Visit: ${team}`;
+      // ASCII hyphen — Safari/Calendar is happier than an em dash in SUMMARY
+      const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
       const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
       const mapUrl = mapsLink(s.lat, s.lng);
       const desc = [
@@ -1771,7 +1794,10 @@
         `DTEND:${icsStamp(endIso)}`,
         `SUMMARY:${icsEsc(summary)}`,
         `DESCRIPTION:${icsEsc(desc)}`,
-        `LOCATION:${icsEsc(venue)}`,
+        `LOCATION:${icsEsc(venue)}`
+      );
+      if (mapUrl) lines.push(`URL:${mapUrl}`);
+      lines.push(
         "STATUS:CONFIRMED",
         "TRANSP:OPAQUE",
         "BEGIN:VALARM",
@@ -1782,29 +1808,76 @@
         "END:VEVENT"
       );
     });
-    lines.push("END:VCALENDAR", "");
-    return lines.join("\r\n");
+    lines.push("END:VCALENDAR");
+    return lines.map(icsFoldLine).join("\r\n") + "\r\n";
   }
 
-  function refreshIcsLink() {
-    const link = $("#club-itin-ics");
-    if (!link) return;
-    const stops = st.itinerary.stops || [];
-    if (!stops.length) {
-      link.hidden = true;
-      link.removeAttribute("href");
-      return;
-    }
+  /** Safari Calendar import: base64 data URL (encodeURIComponent data: links often no-op on iOS). */
+  function icsDataUrl(ics) {
+    const b64 = btoa(unescape(encodeURIComponent(ics)));
+    return `data:text/calendar;charset=utf-8;base64,${b64}`;
+  }
+
+  function currentItineraryIcsPayload() {
     const draft = st.itinerary.draft || {};
+    const stops = st.itinerary.stops || [];
     const itin = {
       id: st.itinerary.currentId || draft.id || "draft",
       name: draft.name || "Club visitation",
       notes: draft.notes || "",
     };
-    const ics = buildItineraryIcs(itin, stops);
-    link.download = itineraryIcsFilename(itin);
-    link.href = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
-    link.hidden = false;
+    return {
+      itin,
+      stops,
+      ics: buildItineraryIcs(itin, stops),
+      filename: itineraryIcsFilename(itin),
+    };
+  }
+
+  /**
+   * iPhone Safari ignores <a download> on data: URLs (tap does nothing).
+   * Hand Safari a text/calendar payload (base64 data URL or blob) so it opens
+   * the system “Add to Calendar” sheet.
+   */
+  async function presentItineraryIcs() {
+    readItineraryForm();
+    const stops = st.itinerary.stops || [];
+    if (!stops.length) {
+      showToast("Add a stop before exporting to calendar");
+      return;
+    }
+    const { ics, filename } = currentItineraryIcsPayload();
+    if (!ics.includes("BEGIN:VEVENT")) {
+      showToast("No dated stops to add to calendar");
+      return;
+    }
+
+    if (isIosDevice()) {
+      const dataUrl = icsDataUrl(ics);
+      // No `download` attribute — iOS Safari ignores it and the tap does nothing.
+      // Open a text/calendar data URL so Safari presents Add to Calendar.
+      const win = window.open(dataUrl, "_blank");
+      if (!win) window.location.assign(dataUrl);
+      return;
+    }
+
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+    showToast("Calendar file downloaded");
+  }
+
+  function refreshIcsButton() {
+    const btn = $("#club-itin-ics");
+    if (!btn) return;
+    btn.hidden = !(st.itinerary.stops || []).length;
   }
 
   function bindItineraryAdds() {
@@ -1966,7 +2039,10 @@
         global.prompt("Copy itinerary:", text);
       }
     });
-    refreshIcsLink();
+    $("#club-itin-ics")?.addEventListener("click", () => {
+      void presentItineraryIcs();
+    });
+    refreshIcsButton();
     $("#club-itin-delete")?.addEventListener("click", () => deleteItinerary());
     $("#club-gemini-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -2882,6 +2958,8 @@
     shouldDriveFromPrior,
     buildItineraryIcs,
     itineraryIcsFilename,
+    icsDataUrl,
+    presentItineraryIcs,
     CHAIN_GAP_MS,
     onLeave() {
       stopLoadingLines();

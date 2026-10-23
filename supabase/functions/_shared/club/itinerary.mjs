@@ -312,7 +312,7 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
       endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
     }
     const team = s.team_line || s.label || "Club game";
-    const summary = s.brighton_line ? `Visit: ${s.brighton_line} — ${team}` : `Visit: ${team}`;
+    const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
     const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
     const descParts = [];
     if (itin?.name) descParts.push(itin.name);
@@ -322,9 +322,10 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
       descParts.push(`Kickoff: ${formatLocalKickoff(s.kickoff_at, s.timezone || "America/Denver")}`);
     }
     descParts.push(`Venue: ${venue}`);
+    let mapUrl = null;
     if (s.lat != null && s.lng != null) {
-      const url = mapsDirectionsUrl(s.lat, s.lng, venue);
-      if (url) descParts.push(`Map: ${url}`);
+      mapUrl = mapsDirectionsUrl(s.lat, s.lng, venue);
+      if (mapUrl) descParts.push(`Map: ${mapUrl}`);
     }
     if (s.notes) descParts.push(s.notes);
     if (itin?.notes && i === 0) descParts.push(`Itinerary notes: ${itin.notes}`);
@@ -338,6 +339,9 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
       `SUMMARY:${icsEscape(summary)}`,
       `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
       `LOCATION:${icsEscape(venue)}`,
+    );
+    if (mapUrl) lines.push(`URL:${mapUrl}`);
+    lines.push(
       "STATUS:CONFIRMED",
       "TRANSP:OPAQUE",
       "BEGIN:VALARM",
@@ -351,4 +355,12 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
 
   lines.push("END:VCALENDAR");
   return lines.map(foldLine).join("\r\n") + "\r\n";
+}
+
+/** Base64 data URL for Safari / Apple Calendar import (avoids broken encodeURIComponent data: taps on iOS). */
+export function icsDataUrl(ics) {
+  const bytes = new TextEncoder().encode(ics);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return `data:text/calendar;charset=utf-8;base64,${btoa(bin)}`;
 }
