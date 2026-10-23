@@ -32,7 +32,7 @@ Required env: `SHOTS_SUPABASE_URL`, `SHOTS_SUPABASE_ANON_KEY`. Optional: `SHOTS_
 ```bash
 npm ci
 npm run test:api    # Vitest vs DEV (+ unit tests incl. club planner)
-npm run test:e2e    # Playwright smokes
+npm run test:e2e    # Playwright smokes (core paths; home/visitor alternate by CI run — override with E2E_TEAM=us|opp)
 ```
 
 Club Player Visitation Planner (`#club`): see [`docs/club-visitation.md`](docs/club-visitation.md). Migration `club_visitation`, Edge Functions `club-visitation` + `club-sync`. Optional Supabase secret `OPENROUTESERVICE_API_KEY` for routed drive times (Photon geocodes without a key).

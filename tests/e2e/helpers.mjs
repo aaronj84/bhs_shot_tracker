@@ -8,6 +8,22 @@ export { expect };
 
 export const pin = process.env.SHOTS_PIN || "KEPPA";
 
+/**
+ * Alternate Brighton vs visitor across CI runs so we don't pay for both every time.
+ * Override with E2E_TEAM=us|opp when debugging a side.
+ */
+export function alternatingRecordingTeam() {
+  const override = String(process.env.E2E_TEAM || "").toLowerCase();
+  if (override === "us" || override === "opp") return override;
+  const run = Number(process.env.GITHUB_RUN_NUMBER || 0);
+  if (Number.isFinite(run) && run > 0) return run % 2 === 0 ? "us" : "opp";
+  return Math.floor(Date.now() / 86_400_000) % 2 === 0 ? "us" : "opp";
+}
+
+export function teamSideLabel(team) {
+  return team === "opp" ? "visitor" : "home";
+}
+
 const createdGameIds = [];
 const createdTeamNames = [];
 let e2eClientPromise;
@@ -190,6 +206,16 @@ export async function startCornerFromFlag(page, team, side = "left") {
   await expect(modal).toBeVisible({ timeout: 10000 });
 }
 
+/** Tracker bottom tabs: map | detail | notes | settings */
+export async function openTrackerPanel(page, id = "detail") {
+  const btn = page.locator(`[data-tracker-panel="${id}"]`);
+  await expect(btn).toBeVisible({ timeout: 10000 });
+  if (!(await btn.evaluate((el) => el.classList.contains("is-on")))) {
+    await btn.click();
+  }
+  await expect(btn).toHaveClass(/is-on/);
+}
+
 export async function createFriendlyAndOpenTracker(page) {
   await page.goto("/#shots-games");
   await expect(page.locator("#new-game-form")).toBeVisible({ timeout: 15000 });
@@ -221,6 +247,7 @@ export async function createFriendlyAndOpenTracker(page) {
   createdGameIds.push(gameId);
   await expect(page.locator("#tracker-pitch-us .pitch-svg")).toBeVisible();
   await expect(page.locator("#tracker-pitch-opp .pitch-svg")).toBeVisible();
+  await openTrackerPanel(page, "detail");
   await page.waitForTimeout(400);
   return gameId;
 }

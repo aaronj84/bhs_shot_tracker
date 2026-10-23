@@ -221,6 +221,10 @@
     pk: { label: "PKs", match: (e) => e.result === "pk-goal" || e.result === "pk-missed" },
   };
 
+  function normalizeTrackerPanel(value) {
+    return value === "detail" || value === "settings" || value === "notes" ? value : "map";
+  }
+
   function normalizeLogResult(value) {
     return LOG_RESULT_FILTERS[value] ? value : "all";
   }
@@ -422,9 +426,11 @@
         period: st.period,
         team: st.team,
         showGrid: st.showGrid,
+        shotsOnlyMode: st.shotsOnlyMode,
         swapSides: st.swapSides,
         logTeam: st.logTeam,
         logResult: st.logResult,
+        trackerPanel: st.trackerPanel,
         seasonId: st.seasonId,
         gameId: st.gameId,
       })
@@ -641,11 +647,25 @@
     mode: "idle",
     pending: null,
     showGrid: savedUi.showGrid !== false,
+    shotsOnlyMode: !!savedUi.shotsOnlyMode,
     period: normalizePeriod(savedUi.period || "1"),
     team: savedUi.team === "opp" ? "opp" : "us",
     swapSides: !!savedUi.swapSides,
     logTeam: savedUi.logTeam === "us" || savedUi.logTeam === "opp" ? savedUi.logTeam : "all",
     logResult: normalizeLogResult(savedUi.logResult),
+    trackerPanel: normalizeTrackerPanel(savedUi.trackerPanel),
+    trackerMapShotId: "",
+    trackerMapShowFilters: false,
+    trackerMapShowStats: false,
+    trackerMapTeamFilter: "both",
+    trackerMapResultFilter: "all",
+    trackerMapPeriodFilter: "all",
+    trackerNotes: null,
+    trackerNotesGameId: "",
+    trackerNoteBody: "",
+    trackerNoteTags: "",
+    trackerNoteAuthor: localStorage.getItem(LS_NOTE_AUTHOR) || "",
+    trackerShowNoteForm: false,
     lineup: savedLineup,
     defaultLineup: loadDefaultLineup(),
     csvPending: null,
@@ -2417,6 +2437,9 @@
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
     if (!hasFirstHalfPlays()) st.period = "1";
+    st.trackerNotes = null;
+    st.trackerNotesGameId = "";
+    st.trackerMapShotId = "";
     saveUi();
     rememberGame(st.game);
     await ensureGameClockDefaults();
@@ -3340,11 +3363,14 @@
     return marks.filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
   }
 
-  function nearestInspectHit(events, team, loc, maxDist = 3.6) {
+  function nearestInspectHit(events, team, loc, maxDist = 3.6, opts = {}) {
+    const shotOnly = !!opts.shotOnly;
     let best = null;
     (events || []).forEach((ev) => {
       if (eventTeam(ev) !== team) return;
+      if (shotOnly && !shouldShowInShotsOnlyMode(ev.result)) return;
       pitchInspectMarks(ev).forEach((m) => {
+        if (shotOnly && m.role !== "shot") return;
         const d = Math.hypot(m.x - loc.x, m.y - loc.y);
         if (d > maxDist) return;
         if (!best || d < best.d) best = { id: ev.id, role: m.role, d };
@@ -3497,6 +3523,7 @@
       }
     }
     const numRot = swapped ? 90 : -90;
+    const shotsOnly = opts.shotsOnlyMode !== undefined ? opts.shotsOnlyMode : st.shotsOnlyMode;
     const markers = events
       .filter((ev) => {
         if (eventTeam(ev) !== team) return false;
@@ -3504,19 +3531,24 @@
         return eventPeriod(ev) === (opts.period || st.period);
       })
       .map((ev) => {
+        if (shotsOnly && !shouldShowInShotsOnlyMode(ev.result)) return "";
+        const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const from = ev.assist || ev.shot;
-          html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
-          html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
-        }
-        if (ev.assist) {
-          html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
-          html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+        if (!shotsOnly) {
+          if (ev.secondAssist) {
+            const from = ev.assist || ev.shot;
+            html += `<line class="tracker-assist-line is-second" x1="${ev.secondAssist.x}" y1="${ev.secondAssist.y}" x2="${from.x}" y2="${from.y}" />`;
+            html += svgSquare(ev.secondAssist.x, ev.secondAssist.y, 1.45, `class="tracker-assist-dot is-second"`);
+          }
+          if (ev.assist) {
+            html += `<line class="tracker-assist-line" x1="${ev.assist.x}" y1="${ev.assist.y}" x2="${ev.shot.x}" y2="${ev.shot.y}" />`;
+            html += svgSquare(ev.assist.x, ev.assist.y, 1.65, `class="tracker-assist-dot"`);
+          }
         }
         html += shotShapeMarkup(ev, ev.shot.x, ev.shot.y, {
           size: 3.4,
-          className: `tracker-shot-dot ${escapeHtml(ev.result)}`,
+          className: `tracker-shot-dot ${escapeHtml(ev.result)} ${emphasisClass}`,
         });
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && ev.shooterNumber !== "") {
           html += `<text class="tracker-shot-num" x="${ev.shot.x}" y="${ev.shot.y}" transform="rotate(${numRot} ${ev.shot.x} ${ev.shot.y})">${escapeHtml(String(ev.shooterNumber))}</text>`;
@@ -3524,12 +3556,15 @@
         if (opts.inspectable) {
           const selected = ev.id === opts.inspectId;
           const selectedRole = selected ? opts.inspectRole || "shot" : "";
-          [...pitchInspectMarks(ev)].reverse().forEach((m) => {
+          const marks = shotsOnly
+            ? pitchInspectMarks(ev).filter((m) => m.role === "shot")
+            : pitchInspectMarks(ev);
+          [...marks].reverse().forEach((m) => {
             const on = selected && selectedRole === m.role;
             html += `<circle class="tracker-inspect-hit${on ? " is-on" : ""}" data-inspect-id="${escapeHtml(ev.id)}" data-inspect-role="${escapeHtml(m.role)}" cx="${m.x}" cy="${m.y}" r="3.2" />`;
           });
         }
-        return `<g class="tracker-event ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
+        return `<g class="tracker-event ${emphasisClass} ${team === "opp" ? "is-opp" : ""} ${ev.saveFailed ? "is-failed" : ""} ${opts.inspectable && ev.id === opts.inspectId ? "is-inspecting" : ""}" data-event-id="${escapeHtml(ev.id)}">${html}</g>`;
       })
       .join("");
     const inner = swapped
@@ -5432,7 +5467,7 @@
             id: hitEl.getAttribute("data-inspect-id") || "",
             role: hitEl.getAttribute("data-inspect-role") || "shot",
           }) ||
-          nearestInspectHit(periodEvents, team, loc);
+          nearestInspectHit(periodEvents, team, loc, 3.6, { shotOnly: !!st.shotsOnlyMode });
         if (inspectHit?.id) {
           const same = st.inspectEventId === inspectHit.id && (st.inspectRole || "shot") === (inspectHit.role || "shot");
           if (same) clearPitchInspect();
@@ -6223,6 +6258,7 @@
       showGrid: true,
       period: eventPeriod(ev),
       noPending: true,
+      shotsOnlyMode: false,
     };
     const assistPitch = $("#shot-edit-assist-pitch");
     const secondPitch = $("#shot-edit-second-pitch");
@@ -6741,11 +6777,28 @@
     });
   }
 
-  function renderRecorder(opts = {}) {
-    bindShotModal();
-    bindEditModal();
-    const scrollY = window.scrollY;
-    const events = st.shots;
+  function trackerPanelTabsMarkup() {
+    const panel = normalizeTrackerPanel(st.trackerPanel);
+    const tabs = [
+      { id: "map", label: "Shot Map" },
+      { id: "detail", label: "Shot Detail" },
+      { id: "notes", label: "Notes" },
+      { id: "settings", label: "Settings" },
+    ];
+    return `
+      <nav class="tracker-panel-tabs" aria-label="Game details">
+        ${tabs
+          .map(
+            (t) =>
+              `<button type="button" class="tracker-panel-tab${panel === t.id ? " is-on" : ""}" data-tracker-panel="${t.id}" ${
+                panel === t.id ? 'aria-current="page"' : ""
+              }>${escapeHtml(t.label)}</button>`
+          )
+          .join("")}
+      </nav>`;
+  }
+
+  function trackerDetailPanelMarkup(events) {
     const period = st.period;
     const etMode = period === "ET1" || period === "ET2";
     const firstHalf = events.filter((e) => eventPeriod(e) === "1" && eventMatchesLogFilter(e));
@@ -6760,11 +6813,489 @@
       logFilterActive() && events.length
         ? `<p class="plays-filter-count muted">${filteredCount} of ${events.length} plays</p>`
         : "";
+    return `
+      <section class="tracker-units" id="tracker-units">
+        <h2>Units &amp; trends</h2>
+        ${unitsMarkup(events.filter((e) => eventTeam(e) === "us"))}
+      </section>
+      <section class="tracker-log" id="tracker-log">
+        <h2>Recorded plays</h2>
+        ${playsFilterMarkup()}
+        ${playsBulkBarMarkup()}
+        ${logCount}
+        ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty, period: "1", bulkHalf: true })}
+        ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty, period: "2", bulkHalf: true })}
+        ${
+          showEtLog
+            ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty, period: "ET1", bulkHalf: true }) +
+              shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty, period: "ET2", bulkHalf: true })
+            : ""
+        }
+      </section>`;
+  }
+
+  function trackerMapVisibleRows(events) {
+    return (events || []).filter((ev) => {
+      const team = eventTeam(ev);
+      if (st.trackerMapTeamFilter === "us" && team !== "us") return false;
+      if (st.trackerMapTeamFilter === "opp" && team !== "opp") return false;
+      const period = eventPeriod(ev);
+      if (st.trackerMapPeriodFilter !== "all" && period !== st.trackerMapPeriodFilter) return false;
+      if (st.trackerMapResultFilter === "goals") {
+        return ev.result === "goal" || ev.result === "pk-goal";
+      }
+      if (st.trackerMapResultFilter === "on-frame") {
+        return ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal";
+      }
+      return true;
+    });
+  }
+
+  function trackerMapFilterCount() {
+    let n = 0;
+    if (st.trackerMapTeamFilter !== "both") n += 1;
+    if (st.trackerMapResultFilter !== "all") n += 1;
+    if (st.trackerMapPeriodFilter !== "all") n += 1;
+    return n;
+  }
+
+  function trackerMapFilterChip(name, value, current, label) {
+    return `<button type="button" class="plays-filter-btn ${current === value ? "is-on" : ""}" data-tracker-map-filter="${name}" data-tracker-map-value="${escapeHtml(
+      value
+    )}">${escapeHtml(label)}</button>`;
+  }
+
+  function trackerMapToolbarMarkup() {
+    const filterN = trackerMapFilterCount();
+    return `
+      <div class="prep-pitch-toolbar">
+        <button type="button" class="prep-pitch-tool prep-pitch-tool-icon${st.trackerMapShowFilters ? " is-on" : ""}${
+          filterN ? " is-filtered" : ""
+        }" id="tracker-map-filter-toggle" aria-label="Filter${filterN ? ` (${filterN} active)` : ""}" aria-expanded="${
+          st.trackerMapShowFilters ? "true" : "false"
+        }" aria-controls="tracker-map-filter-panel">
+          ${iconFilterMarkup()}${filterN ? `<span class="prep-tool-badge">${filterN}</span>` : ""}
+        </button>
+        <button type="button" class="prep-pitch-tool prep-pitch-tool-icon${
+          st.trackerMapShowStats ? " is-on" : ""
+        }" id="tracker-map-stats-toggle" aria-label="Shot totals" aria-expanded="${
+          st.trackerMapShowStats ? "true" : "false"
+        }" aria-controls="tracker-map-stats-panel">
+          <span class="prep-tool-hash" aria-hidden="true">#</span>
+        </button>
+        ${shotsOnlySwitchMarkup("tracker-map-shots-only-toggle")}
+      </div>`;
+  }
+
+  function trackerMapFilterPanelMarkup() {
+    if (!st.trackerMapShowFilters) return "";
+    return `
+      <div class="prep-pitch-panel" id="tracker-map-filter-panel" role="dialog" aria-label="Shot filters">
+        <div class="plays-filters">
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Team</span>
+            <div class="plays-filter-btns">
+              ${trackerMapFilterChip("teamFilter", "both", st.trackerMapTeamFilter, "Both")}
+              ${trackerMapFilterChip("teamFilter", "us", st.trackerMapTeamFilter, ourTeamName())}
+              ${trackerMapFilterChip("teamFilter", "opp", st.trackerMapTeamFilter, "Opp")}
+            </div>
+          </div>
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Result</span>
+            <div class="plays-filter-btns">
+              ${trackerMapFilterChip("resultFilter", "all", st.trackerMapResultFilter, "All")}
+              ${trackerMapFilterChip("resultFilter", "goals", st.trackerMapResultFilter, "Goals")}
+              ${trackerMapFilterChip("resultFilter", "on-frame", st.trackerMapResultFilter, "On frame")}
+            </div>
+          </div>
+          <div class="plays-filter-row">
+            <span class="plays-filter-label">Period</span>
+            <div class="plays-filter-btns">
+              ${trackerMapFilterChip("periodFilter", "all", st.trackerMapPeriodFilter, "All")}
+              ${trackerMapFilterChip("periodFilter", "1", st.trackerMapPeriodFilter, "1st")}
+              ${trackerMapFilterChip("periodFilter", "2", st.trackerMapPeriodFilter, "2nd")}
+              ${trackerMapFilterChip("periodFilter", "ET1", st.trackerMapPeriodFilter, "ET1")}
+              ${trackerMapFilterChip("periodFilter", "ET2", st.trackerMapPeriodFilter, "ET2")}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function trackerMapStatsPanelMarkup(aggregates) {
+    if (!st.trackerMapShowStats) return "";
+    const oppName = opponentOf(st.game)?.name || "Opponent";
+    return `
+      <div class="prep-pitch-panel prep-stats-panel" id="tracker-map-stats-panel" role="dialog" aria-label="Shot totals">
+        <div class="prep-stats-grid">
+          <div>
+            <p class="prep-stat-split">${escapeHtml(ourTeamName())}</p>
+            <div class="tracker-summary">${summaryPills(aggregates.us)}</div>
+          </div>
+          <div>
+            <p class="prep-stat-split">${escapeHtml(oppName)}</p>
+            <div class="tracker-summary">${summaryPills(aggregates.opp)}</div>
+          </div>
+        </div>
+        <p class="prep-legend">Orange goal · White on target · Purple blocked · Hollow missed. Blue square assist · Lavender 2nd assist.</p>
+      </div>`;
+  }
+
+  function trackerMapPanelMarkup(events) {
+    const visible = trackerMapVisibleRows(events);
+    const aggregates = prepAggregates(visible);
+    const selected = visible.find((e) => e.id === st.trackerMapShotId) || null;
+    if (st.trackerMapShotId && !selected) st.trackerMapShotId = "";
+    const pitch = tacticalPitchMarkup(visible, st.trackerMapShotId);
+    return `
+      <section class="tracker-map-panel" id="tracker-map-panel">
+        <div class="prep-pitch-wrap tracker-map-wrap">
+          ${trackerMapToolbarMarkup()}
+          <div class="prep-pitch-field">
+            ${trackerMapFilterPanelMarkup()}
+            ${trackerMapStatsPanelMarkup(aggregates)}
+            ${pitch}
+            ${selected ? prepShotPopupMarkup(selected) : ""}
+          </div>
+        </div>
+        <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"}${
+          trackerMapFilterCount() ? ` of ${events.length}` : ""
+        } · Brighton attack up${selected ? "" : " · tap a shot"}</p>
+      </section>`;
+  }
+
+  function trackerSettingsPanelMarkup() {
+    const g = st.game;
+    if (!g) return `<p class="muted">Open a game to edit settings.</p>`;
+    const date = String(g.date || "").slice(0, 10);
+    const type = g.game_type || "friendly";
+    const seasonId = g.season_id || st.seasonId || "";
+    const homeId = g.home_team_id || "";
+    const awayId = g.away_team_id || "";
+    const playCount = (st.shots || []).length;
+    return `
+      <section class="tracker-settings-panel" id="tracker-settings-panel">
+        ${stampOffsetMarkup()}
+        <section class="tracker-settings-card">
+          <h2>Export</h2>
+          <p class="muted">Download every recorded play for this game.</p>
+          <button type="button" class="btn btn-primary" id="tracker-export-csv" ${playCount ? "" : "disabled"}>Export CSV</button>
+        </section>
+        <section class="tracker-settings-card">
+          <h2>Game details</h2>
+          <p class="muted">Change date, type, home/away, or teams — same fields as Add game.</p>
+          <form id="edit-game-form" class="shots-form">
+            <label class="shots-field">Date <input type="date" id="edit-game-date" required value="${escapeHtml(date)}" /></label>
+            <label class="shots-field">Type
+              <select id="edit-game-type">${GAME_TYPES.map(
+                (t) => `<option value="${t}" ${t === type ? "selected" : ""}>${t}</option>`
+              ).join("")}</select>
+            </label>
+            <label class="shots-field">Season
+              <select id="edit-game-season">${seasonOptions(seasonId, false)}</select>
+            </label>
+            <label class="shots-field">Home
+              <select id="edit-game-home">${teamOptions(homeId, true)}</select>
+            </label>
+            <input type="text" id="edit-home-name" class="text-gate-input" placeholder="New home team name" hidden />
+            <label class="shots-field">Away
+              <select id="edit-game-away">${teamOptions(awayId, true)}</select>
+            </label>
+            <input type="text" id="edit-away-name" class="text-gate-input" placeholder="New away team name" hidden />
+            <button type="submit" class="btn btn-primary">Save game details</button>
+          </form>
+        </section>
+        <p class="prep-game-link">
+          <a href="#shots-prep?game=${encodeURIComponent(st.gameId)}">Opponent prep — this game</a>
+          <span class="muted">Halftime / pre-ET glance</span>
+        </p>
+      </section>`;
+  }
+
+  function trackerNotesPanelMarkup() {
+    const notes = st.trackerNotes;
+    const loading = notes == null;
+    const list =
+      loading
+        ? `<p class="muted">Loading notes…</p>`
+        : notes.length
+          ? notes
+              .map((note) => {
+                const tags = (note.tags || [])
+                  .map((t) => `<span class="prep-tag">${escapeHtml(t)}</span>`)
+                  .join("");
+                return `
+                <article class="prep-note">
+                  <p class="prep-note-meta">${
+                    note.author_label ? escapeHtml(note.author_label) : "Note"
+                  }${note.created_at ? ` · ${escapeHtml(String(note.created_at).slice(0, 16).replace("T", " "))}` : ""}</p>
+                  <p class="prep-note-body">${escapeHtml(note.body)}</p>
+                  ${tags ? `<p class="prep-note-tags">${tags}</p>` : ""}
+                  <button type="button" class="btn btn-ghost prep-note-del" data-tracker-del-note="${escapeHtml(
+                    note.id
+                  )}">Delete</button>
+                </article>`;
+              })
+              .join("")
+          : `<p class="muted">No notes for this game yet.</p>`;
+    const open = st.trackerShowNoteForm;
+    return `
+      <section class="tracker-notes-panel prep-notes" id="tracker-notes-panel">
+        <div class="prep-section-head">
+          <h2>Game notes</h2>
+        </div>
+        <button type="button" class="btn btn-ghost prep-note-add-btn" id="tracker-note-add">${
+          open ? "Cancel" : "Add note"
+        }</button>
+        <div class="prep-note-list">${list}</div>
+        ${
+          open
+            ? `<form id="tracker-note-form" class="shots-form prep-note-form">
+            <label class="shots-field">Note
+              <textarea id="tracker-note-body" class="explore-input" rows="4" maxlength="4000" placeholder="Halftime: overload left flank after 30'">${escapeHtml(
+                st.trackerNoteBody
+              )}</textarea>
+            </label>
+            <label class="shots-field">Tags
+              <input type="text" id="tracker-note-tags" value="${escapeHtml(
+                st.trackerNoteTags
+              )}" placeholder="pip, #9, press" />
+            </label>
+            <label class="shots-field">Author
+              <input type="text" id="tracker-note-author" maxlength="40" value="${escapeHtml(
+                st.trackerNoteAuthor
+              )}" />
+            </label>
+            <button type="submit" class="btn btn-primary">Save note</button>
+          </form>`
+            : ""
+        }
+      </section>`;
+  }
+
+  async function ensureTrackerNotes(opts = {}) {
+    if (!st.gameId) {
+      st.trackerNotes = [];
+      st.trackerNotesGameId = "";
+      return;
+    }
+    if (!opts.force && st.trackerNotesGameId === st.gameId && Array.isArray(st.trackerNotes)) return;
+    try {
+      st.trackerNotes = await API.notesForGames([st.gameId]);
+      st.trackerNotesGameId = st.gameId;
+    } catch (err) {
+      st.trackerNotes = [];
+      st.trackerNotesGameId = st.gameId;
+      showToast(err.message || "Could not load notes");
+    }
+  }
+
+  async function saveGameDetailsFromForm() {
+    const g = st.game;
+    if (!g || !st.gameId) throw new Error("No game open");
+    const date = $("#edit-game-date")?.value;
+    const type = $("#edit-game-type")?.value;
+    const seasonId = $("#edit-game-season")?.value;
+    const pickTeam = async (selId, newId) => {
+      const v = $(selId)?.value;
+      if (v === "__new__") {
+        const name = $(newId)?.value.trim();
+        if (!name) throw new Error("Enter a team name");
+        const team = await API.createTeam(name);
+        st.teams.push(team);
+        return team.id;
+      }
+      return v;
+    };
+    const homeId = await pickTeam("#edit-game-home", "#edit-home-name");
+    const awayId = await pickTeam("#edit-game-away", "#edit-away-name");
+    const b = brighton();
+    if (!date || !seasonId || !homeId || !awayId) throw new Error("Date, season, and both teams are required");
+    if (homeId === awayId) throw new Error("Home and away must be different");
+    if (!b || (homeId !== b.id && awayId !== b.id)) throw new Error("Brighton must be home or away");
+    if (!GAME_TYPES.includes(type)) throw new Error("Pick a valid game type");
+    await API.updateGame(st.gameId, {
+      season_id: seasonId,
+      date,
+      game_type: type,
+      home_team_id: homeId,
+      away_team_id: awayId,
+      our_team_id: b.id,
+    });
+    st.seasonId = seasonId;
+    await refreshMeta();
+    await loadGameContext();
+    showToast("Game details saved");
+  }
+
+  function bindTrackerBottomPanel() {
+    $$("[data-tracker-panel]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const next = normalizeTrackerPanel(btn.getAttribute("data-tracker-panel"));
+        if (next === st.trackerPanel) return;
+        st.trackerPanel = next;
+        saveUi();
+        if (next === "notes") await ensureTrackerNotes();
+        draw({ keepScroll: true });
+      });
+    });
+
+    $("#tracker-map-filter-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.trackerMapShowFilters = !st.trackerMapShowFilters;
+      if (st.trackerMapShowFilters) st.trackerMapShowStats = false;
+      draw({ keepScroll: true });
+    });
+    $("#tracker-map-stats-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.trackerMapShowStats = !st.trackerMapShowStats;
+      if (st.trackerMapShowStats) st.trackerMapShowFilters = false;
+      draw({ keepScroll: true });
+    });
+    $("#tracker-map-shots-only-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
+      draw({ keepScroll: true });
+    });
+    $("#tracker-map-filter-panel")?.addEventListener("click", (e) => e.stopPropagation());
+    $("#tracker-map-stats-panel")?.addEventListener("click", (e) => e.stopPropagation());
+    $$("[data-tracker-map-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.getAttribute("data-tracker-map-filter");
+        const value = btn.getAttribute("data-tracker-map-value");
+        if (name === "teamFilter") st.trackerMapTeamFilter = value;
+        if (name === "resultFilter") st.trackerMapResultFilter = value;
+        if (name === "periodFilter") st.trackerMapPeriodFilter = value;
+        draw({ keepScroll: true });
+      });
+    });
+    $$("#tracker-map-panel [data-prep-shot]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = el.getAttribute("data-prep-shot") || "";
+        st.trackerMapShotId = st.trackerMapShotId === id ? "" : id;
+        st.trackerMapShowFilters = false;
+        st.trackerMapShowStats = false;
+        draw({ keepScroll: true });
+      });
+    });
+    $("#tracker-map-panel .prep-pitch-svg")?.addEventListener("click", () => {
+      let changed = false;
+      if (st.trackerMapShotId) {
+        st.trackerMapShotId = "";
+        changed = true;
+      }
+      if (st.trackerMapShowFilters || st.trackerMapShowStats) {
+        st.trackerMapShowFilters = false;
+        st.trackerMapShowStats = false;
+        changed = true;
+      }
+      if (changed) draw({ keepScroll: true });
+    });
+    $("#tracker-map-panel #prep-shot-popup-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      st.trackerMapShotId = "";
+      draw({ keepScroll: true });
+    });
+    $("#tracker-map-panel #prep-shot-popup")?.addEventListener("click", (e) => e.stopPropagation());
+
+    $("#tracker-export-csv")?.addEventListener("click", () => {
+      exportShotsCsv(st.shots || [], `bengals-shots-${String(st.game?.date || "").slice(0, 10) || "game"}.csv`);
+    });
+    const bindNewToggle = (sel, extra) => {
+      $(sel)?.addEventListener("change", () => {
+        const show = $(sel).value === "__new__";
+        if ($(extra)) $(extra).hidden = !show;
+      });
+    };
+    bindNewToggle("#edit-game-home", "#edit-home-name");
+    bindNewToggle("#edit-game-away", "#edit-away-name");
+    $("#edit-game-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await saveGameDetailsFromForm();
+        draw({ keepScroll: true });
+      } catch (err) {
+        showToast(err.message || "Could not save game");
+      }
+    });
+
+    $("#tracker-note-add")?.addEventListener("click", () => {
+      st.trackerShowNoteForm = !st.trackerShowNoteForm;
+      draw({ keepScroll: true });
+      if (st.trackerShowNoteForm) {
+        $("#tracker-note-form")?.scrollIntoView({ block: "center", behavior: "smooth" });
+        $("#tracker-note-body")?.focus();
+      }
+    });
+    $("#tracker-note-body")?.addEventListener("input", (e) => {
+      st.trackerNoteBody = e.target.value;
+    });
+    $("#tracker-note-tags")?.addEventListener("input", (e) => {
+      st.trackerNoteTags = e.target.value;
+    });
+    $("#tracker-note-author")?.addEventListener("input", (e) => {
+      st.trackerNoteAuthor = e.target.value;
+      localStorage.setItem(LS_NOTE_AUTHOR, st.trackerNoteAuthor);
+    });
+    $("#tracker-note-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = String(st.trackerNoteBody || "").trim();
+      if (!st.gameId || !body) {
+        showToast("Write a note first");
+        return;
+      }
+      try {
+        await API.createNote({
+          game_id: st.gameId,
+          body,
+          author_label: st.trackerNoteAuthor,
+          tags: st.trackerNoteTags,
+        });
+        st.trackerNoteBody = "";
+        st.trackerNoteTags = "";
+        st.trackerShowNoteForm = false;
+        await ensureTrackerNotes({ force: true });
+        showToast("Note saved");
+        draw({ keepScroll: true });
+      } catch (err) {
+        showToast(err.message || "Could not save note");
+      }
+    });
+    $$("[data-tracker-del-note]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Delete this note?")) return;
+        const id = btn.getAttribute("data-tracker-del-note");
+        const result = await API.deleteNote(id);
+        if (!result.ok) {
+          showToast(result.error || "Could not delete");
+          return;
+        }
+        await ensureTrackerNotes({ force: true });
+        draw({ keepScroll: true });
+      });
+    });
+  }
+
+  function renderRecorder(opts = {}) {
+    bindShotModal();
+    bindEditModal();
+    const scrollY = window.scrollY;
+    const events = st.shots;
+    const period = st.period;
+    const panel = normalizeTrackerPanel(st.trackerPanel);
+    if (panel === "notes" && st.trackerNotes == null && st.gameId) {
+      ensureTrackerNotes().then(() => draw({ keepScroll: true }));
+    }
     const awaitingShot = awaitingFollowUp();
     const usActive = recordingTeam() === "us";
     const usSwapped = !!st.swapSides;
     const oppSwapped = !usSwapped;
-    const pitchOpts = { showGrid: st.showGrid, period };
+    // Recording half-pitches always show full plays; shots-only lives on the Shot Map tab.
+    const pitchOpts = { showGrid: st.showGrid, period, shotsOnlyMode: false };
     const goalSide = usSwapped ? "left" : "right";
     let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
@@ -6840,24 +7371,18 @@
           </div>
         </section>
         ${lineupEditorMarkup()}
-        <section class="tracker-units" id="tracker-units">
-          <h2>Units &amp; trends</h2>
-          ${unitsMarkup(events.filter((e) => eventTeam(e) === "us"))}
-        </section>
-        <section class="tracker-log" id="tracker-log">
-          <h2>Recorded plays</h2>
-          ${playsFilterMarkup()}
-          ${playsBulkBarMarkup()}
-          ${logCount}
-          ${shotTableMarkup("1st Half", firstHalf, { emptyLabel: logEmpty, period: "1", bulkHalf: true })}
-          ${shotTableMarkup("2nd Half", secondHalf, { emptyLabel: logEmpty, period: "2", bulkHalf: true })}
-          ${showEtLog ? shotTableMarkup("ET 1", etOne, { emptyLabel: logEmpty, period: "ET1", bulkHalf: true }) + shotTableMarkup("ET 2", etTwo, { emptyLabel: logEmpty, period: "ET2", bulkHalf: true }) : ""}
-        </section>
-        ${stampOffsetMarkup()}
-        <p class="prep-game-link">
-          <a href="#shots-prep?game=${encodeURIComponent(st.gameId)}">Opponent prep — this game</a>
-          <span class="muted">Halftime / pre-ET glance</span>
-        </p>
+        ${trackerPanelTabsMarkup()}
+        <div class="tracker-panel" data-tracker-panel-active="${panel}">
+          ${
+            panel === "detail"
+              ? trackerDetailPanelMarkup(events)
+              : panel === "map"
+                ? trackerMapPanelMarkup(events)
+                : panel === "settings"
+                  ? trackerSettingsPanelMarkup()
+                  : trackerNotesPanelMarkup()
+          }
+        </div>
       </div>`;
 
     $("#tracker-cancel-record")?.addEventListener("click", () => {
@@ -6880,8 +7405,11 @@
     bindScoreStripMenu();
     bindTrackerPitches();
     bindLineupEditor();
-    bindPlaysFilters();
-    bindLogActions();
+    bindTrackerBottomPanel();
+    if (panel === "detail") {
+      bindPlaysFilters();
+      bindLogActions();
+    }
     ensureLineupLivePull();
     if (opts.keepScroll) window.scrollTo(0, scrollY);
   }
@@ -6906,6 +7434,7 @@
     if (result === "blocked") return "#6d5a8c";
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
+    if (result === "missed" || result === "pk-missed") return "none";
     return "rgba(11,31,51,0.4)";
   }
 
@@ -6917,6 +7446,21 @@
 
   function isSquareEvent(result) {
     return result === "foul" || result === "corner";
+  }
+
+  function isActualShot(result) {
+    return result === "goal" || result === "pk-goal" || result === "on-target" || 
+           result === "blocked" || result === "missed" || result === "pk-missed";
+  }
+
+  function shouldShowInShotsOnlyMode(result) {
+    return isActualShot(result);
+  }
+
+  function getShotsOnlyEmphasis(result) {
+    if (result === "goal" || result === "pk-goal") return "super";
+    if (result === "on-target" || result === "missed" || result === "pk-missed") return "high";
+    return "normal";
   }
 
   function svgSquare(cx, cy, size, attrs) {
@@ -6966,24 +7510,31 @@
     }
     const markers = events
       .map((ev) => {
+        const hide = st.shotsOnlyMode && !shouldShowInShotsOnlyMode(ev.result);
+        if (hide) return "";
         const period = eventPeriod(ev);
         const team = eventTeam(ev);
         const shot = toFullFieldPoint(ev.shot, period, team);
         const stroke = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = markerNumberFill(ev, team);
+        const emphasis = st.shotsOnlyMode ? getShotsOnlyEmphasis(ev.result) : "";
         let html = "";
         const ring = team === "opp" ? "#c0392b" : "#0b1f33";
-        if (ev.secondAssist) {
-          const s = toFullFieldPoint(ev.secondAssist, period, team);
-          const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
-          html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        if (!st.shotsOnlyMode) {
+          if (ev.secondAssist) {
+            const s = toFullFieldPoint(ev.secondAssist, period, team);
+            const aEnd = ev.assist ? toFullFieldPoint(ev.assist, period, team) : shot;
+            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+          }
+          if (ev.assist) {
+            const a = toFullFieldPoint(ev.assist, period, team);
+            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+          }
         }
-        if (ev.assist) {
-          const a = toFullFieldPoint(ev.assist, period, team);
-          html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-        }
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
+        html += `<g class="${emphasisClass}">`;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: 3.3,
           fill: resultFill(ev.result),
@@ -6993,6 +7544,7 @@
         if (ev.shooterNumber !== undefined && ev.shooterNumber !== null && String(ev.shooterNumber) !== "") {
           html += `<text x="${shot.fx}" y="${shot.fy}" fill="${numFill}" font-size="1.25" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeHtml(String(ev.shooterNumber))}</text>`;
         }
+        html += `</g>`;
         return html;
       })
       .join("");
@@ -7103,6 +7655,7 @@
         ${trackerNav("map")}
         <div class="shot-map-actions no-print">
           <a class="btn btn-ghost" href="#shots">Back</a>
+          ${shotsOnlySwitchMarkup("shots-only-toggle")}
           <button type="button" class="btn btn-primary" id="shot-map-print">Print / PDF</button>
           <button type="button" class="btn btn-ghost" id="shot-map-save" ${events.length ? "" : "disabled"}>Save image</button>
         </div>
@@ -7170,6 +7723,11 @@
       </div>`;
     $("#shot-map-print")?.addEventListener("click", () => window.print());
     $("#shot-map-save")?.addEventListener("click", () => downloadSummaryImage());
+    $("#shots-only-toggle")?.addEventListener("click", () => {
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
+      draw();
+    });
   }
 
   function historyViewRow(row) {
@@ -7769,7 +8327,8 @@
     return { us: byTeam("us"), opp: byTeam("opp"), players: players.slice(0, 16) };
   }
 
-  function tacticalPitchMarkup(events, selectedId) {
+  function tacticalPitchMarkup(events, selectedId, opts = {}) {
+    const shotsOnly = opts.shotsOnlyMode !== undefined ? !!opts.shotsOnlyMode : !!st.shotsOnlyMode;
     const line = "#f2f6f3";
     const goalW = 7.32;
     const goalX = (PW - goalW) / 2;
@@ -7790,31 +8349,38 @@
     }
     const markers = events
       .map((ev) => {
+        const hide = shotsOnly && !shouldShowInShotsOnlyMode(ev.result);
+        if (hide) return "";
         const team = eventTeam(ev);
         const shot = tacticalPoint(ev.shot, team);
         if (!shot) return "";
         const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
         const numFill = markerNumberFill(ev, team);
+        const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
+        const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
         let html = "";
-        if (ev.secondAssist) {
-          const s = tacticalPoint(ev.secondAssist, team);
-          const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
-          if (s && aEnd) {
-            html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-            html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        if (!shotsOnly) {
+          if (ev.secondAssist) {
+            const s = tacticalPoint(ev.secondAssist, team);
+            const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+            if (s && aEnd) {
+              html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+              html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+            }
+          }
+          if (ev.assist) {
+            const a = tacticalPoint(ev.assist, team);
+            if (a) {
+              html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+              html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+            }
           }
         }
-        if (ev.assist) {
-          const a = tacticalPoint(ev.assist, team);
-          if (a) {
-            html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-            html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-          }
-        }
+        html = `<g class="${emphasisClass}">` + html;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: selected ? 4.7 : 3.7,
-          className: "prep-shot-dot",
+          className: `prep-shot-dot ${emphasisClass}`,
           fill: resultFill(ev.result),
           stroke: selected ? "#f7e27c" : ring,
           strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
@@ -7825,6 +8391,7 @@
             String(ev.shooterNumber)
           )}</text>`;
         }
+        html += `</g>`;
         return html;
       })
       .join("");
@@ -8101,20 +8668,40 @@
       </div>`;
   }
 
+  function iconFilterMarkup() {
+    return `<svg class="prep-tool-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6.2 7.4V19l-3.6 2v-8.6L4 5z"/></svg>`;
+  }
+
+  function iconBullseyeMarkup() {
+    return `<svg class="shots-only-bullseye" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>`;
+  }
+
+  function shotsOnlySwitchMarkup(id) {
+    const on = !!st.shotsOnlyMode;
+    return `<button type="button" class="shots-only-switch${on ? " is-on" : ""}" id="${escapeHtml(id)}" role="switch" aria-checked="${
+      on ? "true" : "false"
+    }" aria-label="Shots only"><span class="shots-only-switch-track"><span class="shots-only-switch-thumb">${iconBullseyeMarkup()}</span></span></button>`;
+  }
+
   function prepPitchToolbarMarkup() {
     const filterN = prepActiveFilterCount();
     return `
       <div class="prep-pitch-toolbar">
-        <button type="button" class="prep-pitch-tool${st.prep.showFilters ? " is-on" : ""}${
+        <button type="button" class="prep-pitch-tool prep-pitch-tool-icon${st.prep.showFilters ? " is-on" : ""}${
           filterN ? " is-filtered" : ""
-        }" id="prep-filter-toggle" aria-expanded="${st.prep.showFilters ? "true" : "false"}" aria-controls="prep-filter-panel">
-          Filter${filterN ? `<span class="prep-tool-badge">${filterN}</span>` : ""}
+        }" id="prep-filter-toggle" aria-label="Filter${filterN ? ` (${filterN} active)` : ""}" aria-expanded="${
+          st.prep.showFilters ? "true" : "false"
+        }" aria-controls="prep-filter-panel">
+          ${iconFilterMarkup()}${filterN ? `<span class="prep-tool-badge">${filterN}</span>` : ""}
         </button>
-        <button type="button" class="prep-pitch-tool${st.prep.showStats ? " is-on" : ""}" id="prep-stats-toggle" aria-expanded="${
+        <button type="button" class="prep-pitch-tool prep-pitch-tool-icon${
+          st.prep.showStats ? " is-on" : ""
+        }" id="prep-stats-toggle" aria-label="Shot totals" aria-expanded="${
           st.prep.showStats ? "true" : "false"
         }" aria-controls="prep-stats-panel">
-          Stats
+          <span class="prep-tool-hash" aria-hidden="true">#</span>
         </button>
+        ${shotsOnlySwitchMarkup("prep-shots-only-toggle")}
       </div>`;
   }
 
@@ -8780,10 +9367,12 @@
           <section class="prep-pitch-section">
             <div class="prep-pitch-wrap">
               ${prepPitchToolbarMarkup()}
-              ${prepFilterPanelMarkup()}
-              ${prepStatsPanelMarkup(aggregates)}
-              <div class="prep-pitch-field">${tacticalPitchMarkup(visible, st.prep.selectedShotId)}</div>
-              ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
+              <div class="prep-pitch-field">
+                ${prepFilterPanelMarkup()}
+                ${prepStatsPanelMarkup(aggregates)}
+                ${tacticalPitchMarkup(visible, st.prep.selectedShotId)}
+                ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
+              </div>
             </div>
             <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · Brighton attack up${
               selectedShot ? "" : " · tap a shot"
@@ -8815,6 +9404,12 @@
       e.stopPropagation();
       st.prep.showStats = !st.prep.showStats;
       if (st.prep.showStats) st.prep.showFilters = false;
+      draw({ keepScroll: true });
+    });
+    $("#prep-shots-only-toggle")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.shotsOnlyMode = !st.shotsOnlyMode;
+      saveUi();
       draw({ keepScroll: true });
     });
     $("#prep-filter-panel")?.addEventListener("click", (e) => e.stopPropagation());

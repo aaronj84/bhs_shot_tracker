@@ -14,6 +14,7 @@
     "db:sync-history": "node scripts/migrate.mjs sync-history",
     "backup:prod": "./scripts/backup-db.sh --env prod",
     "backup:dev": "./scripts/backup-db.sh --env dev",
+    "club:upload-mesquite": "node scripts/upload-mesquite-club-games.mjs",
     "mp:refresh-snapshot": "node scripts/refresh-mp-snapshot.mjs",
     "schedule:mock": "node tests/fixtures/schedule-dev-server.mjs"
   },

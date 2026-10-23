@@ -84,3 +84,9 @@
   warnings.warn(
 /Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
   warnings.warn(
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
+/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/.venv/bin/python: can't open file '/Users/aaron/Code/bhs_shot_tracker/maxprep/rank_watch/poll.py': [Errno 2] No such file or directory
