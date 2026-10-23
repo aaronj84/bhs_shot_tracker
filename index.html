@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20261022g" />
+  <link rel="stylesheet" href="styles.css?v=20261022i" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -110,7 +110,7 @@
     <div class="modal-panel">
       <h2 id="shot-edit-title">Edit play</h2>
       <div class="shot-edit-body">
-      <p class="muted">Fix team, player, result, or add an assist from film. Tap the pitch to set pass location and type (Pass / Gap / Cross).</p>
+      <p class="muted">Fix team, player, result, shot mark, or assist from film. Tap a pitch to move the shot or set a pass location.</p>
       <label class="shots-field">Team
         <select id="shot-edit-team">
           <option value="us">Brighton</option>
@@ -162,6 +162,11 @@
           <option value="post">Post</option>
         </select>
       </label>
+      <div class="edit-loc-block" id="shot-edit-shot-loc-wrap">
+        <p class="edit-loc-label">Shot location <span id="shot-edit-shot-loc-text" class="muted"></span></p>
+        <p class="muted edit-loc-hint">Tap to move the shot mark.</p>
+        <div class="edit-loc-pitch" id="shot-edit-shot-pitch" data-edit-loc="shot"></div>
+      </div>
       <label class="shots-field" id="shot-edit-fouler-wrap">Fouler (infringement)
         <select id="shot-edit-fouler"></select>
       </label>
@@ -211,12 +216,6 @@
         <p class="muted edit-loc-hint">Tap where the pass before the assist was.</p>
         <div class="edit-loc-pitch" id="shot-edit-second-pitch" data-edit-loc="second"></div>
       </div>
-      <label class="shots-field">Player name
-        <input type="text" id="shot-edit-name" class="text-gate-input" autocomplete="off" placeholder="Full name (Veo review)" />
-      </label>
-      <label class="shots-field">Short name
-        <input type="text" id="shot-edit-short" class="text-gate-input" autocomplete="off" placeholder="Kate, Ari…" />
-      </label>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-shot-edit>Cancel</button>
@@ -280,7 +279,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
   <script src="shots-api.js?v=20261017a"></script>
-  <script src="shots.js?v=20261022g"></script>
+  <script src="shots.js?v=20261022i"></script>
   <script src="schedule.js?v=20261012a"></script>
   <script src="club-visitation.js?v=20261017g"></script>
   <script src="app.js?v=20261016a"></script>

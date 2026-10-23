@@ -278,12 +278,6 @@
       return rosterInsert.data;
     },
 
-    async updatePlayer(id, patch) {
-      const { data, error } = await getClient().from("players").update(patch).eq("id", id).select().single();
-      throwIfError(error, "Could not update player");
-      return data;
-    },
-
     async shotsForGame(gameId) {
       const { data, error } = await runShotSelect((select) =>
         getClient().from("shots").select(select).eq("game_id", gameId).order("created_at", { ascending: false })

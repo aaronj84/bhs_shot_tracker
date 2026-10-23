@@ -20,8 +20,7 @@
  *     node scripts/upload-mesquite-club-games.mjs --allow-prod --apply
  *
  * Point the URL at DEV and pass --apply to rehearse before production.
- * Utah Rio has no players in this file. Add names to that team's `players`
- * array and re-run; those fixtures then show on the club agenda.
+ * Utah Rio FC U16G DH is tracked through a club player named "Utah Rio".
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -71,7 +70,7 @@ const FACILITIES = [
 
 /**
  * `players` are club-roster names. A shot-tracker link is added only when
- * public.players has that exact name. Add Utah Rio names here and re-run.
+ * public.players has that exact name.
  */
 const TEAMS = [
   {
@@ -116,9 +115,8 @@ const TEAMS = [
     ageGroup: "U16",
     genderDivision: "Girls",
     aliases: ["Utah Rio"],
-    notes: "Tracked team. No Brighton players were named in the Nov 2026 upload.",
     tracked: true,
-    players: [],
+    players: ["Utah Rio"],
   },
   {
     teamName: "Peak SC 2011G TH",
@@ -356,6 +354,7 @@ const NOT_LOADED = [
 
 const SHORT_NAMES = {
   "Abigail Platz": "Abby",
+  "Utah Rio": "Utah Rio",
 };
 
 function shortName(name) {
@@ -393,7 +392,7 @@ function validateCatalog() {
     if (!game.home && !game.rawHome) problems.push(`Game ${game.gotSportId} has no home side`);
     if (!game.away && !game.rawAway) problems.push(`Game ${game.gotSportId} has no away side`);
   }
-  for (const team of TEAMS.filter((t) => t.tracked && t.teamName !== "Utah Rio FC U16G DH")) {
+  for (const team of TEAMS.filter((t) => t.tracked)) {
     if (!team.players.length) problems.push(`${team.teamName} has no players`);
     const plays = GAMES.some((g) => g.home === team.teamName || g.away === team.teamName);
     if (!plays) problems.push(`${team.teamName} has no games`);
@@ -423,12 +422,6 @@ function printSchedule() {
   console.log("Not loaded:");
   for (const row of NOT_LOADED) console.log(`  GotSport ${row.gotSportId} · ${row.when}`);
   console.log(`  ${NOT_LOADED[0].reason}`);
-  const rio = teamByName("Utah Rio FC U16G DH");
-  if (!rio.players.length) {
-    console.log("");
-    console.log("Utah Rio FC U16G DH has no players in this file.");
-    console.log("Those fixtures are saved. They show on the agenda after you add names and re-run.");
-  }
 }
 
 function parseArgs(argv) {
