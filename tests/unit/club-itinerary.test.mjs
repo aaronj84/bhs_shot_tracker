@@ -4,6 +4,7 @@ import {
   buildItineraryIcs,
   buildLegs,
   formatItineraryText,
+  icsDataUrl,
   icsEscape,
   itineraryIcsFilename,
   proposeOrder,
@@ -134,12 +135,18 @@ describe("club itinerary ICS", () => {
     expect(unfolded).toContain("UID:itin-1-g1@bhs-club-visits");
     expect(unfolded).toContain("DTSTART:20260411T214000Z");
     expect(unfolded).toContain("DTEND:20260411T221000Z");
-    expect(unfolded).toContain("SUMMARY:Visit: Jackie\\, Jane — Avalanche vs Wasatch");
+    expect(unfolded).toContain("SUMMARY:Visit: Jackie\\, Jane - Avalanche vs Wasatch");
     expect(unfolded).toContain("LOCATION:RAC · Field 5");
     expect(unfolded).toContain("TRIGGER:-PT15M");
     expect(unfolded).toContain("Bring chairs");
+    expect(unfolded).toMatch(/URL:https:\/\/www\.google\.com\/maps/);
     // Second stop falls back to kickoff − 5m when no planned arrival
     expect(unfolded).toContain("DTSTART:20260411T232500Z");
     expect(unfolded).toContain("X-WR-CALNAME:Saturday visits");
+    const dataUrl = icsDataUrl(ics);
+    expect(dataUrl.startsWith("data:text/calendar;charset=utf-8;base64,")).toBe(true);
+    const decoded = Buffer.from(dataUrl.split(",")[1], "base64").toString("utf8");
+    expect(decoded).toContain("BEGIN:VCALENDAR");
+    expect(decoded).toContain("BEGIN:VEVENT");
   });
 });
