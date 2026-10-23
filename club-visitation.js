@@ -11,7 +11,8 @@
   "use strict";
 
   const TZ = "America/Denver";
-  const DEFAULT_VISIT = 30;
+  /** Typical club-game block on calendar / at the field (kickoff window). */
+  const DEFAULT_VISIT = 105;
   const WALK_MIN = 8;
   /** Same-day games within this kickoff gap chain from the prior venue; larger gaps reset from home. */
   const CHAIN_GAP_MS = 3 * 60 * 60 * 1000;
@@ -52,6 +53,7 @@
       currentId: "",
       draft: null,
       engaged: false,
+      listEditing: false,
       pickerOpen: false,
       stops: [],
       legs: [],
@@ -1435,11 +1437,9 @@
   // ---------------------------------------------------------------------------
 
   function readItineraryForm() {
-    if (!st.itinerary.draft) {
-      st.itinerary.draft = emptyItineraryDraft();
-    }
     const name = $("#club-itin-name");
     if (!name) return;
+    if (!st.itinerary.draft) st.itinerary.draft = emptyItineraryDraft();
     st.itinerary.draft.name = name.value;
     st.itinerary.draft.target_date = $("#club-itin-date")?.value || "";
     const startVal = $("#club-itin-start")?.value || "";
@@ -1451,6 +1451,55 @@
     }
     st.itinerary.draft.start_location_label = startVal;
     st.itinerary.draft.notes = $("#club-itin-notes")?.value || "";
+  }
+
+  function resetItineraryWorkspace() {
+    st.itinerary.currentId = "";
+    st.itinerary.draft = null;
+    st.itinerary.stops = [];
+    st.itinerary.legs = [];
+    st.itinerary.startLeg = null;
+    st.itinerary.orderManual = false;
+    st.itinerary.warnings = [];
+    st.itinerary.pickerOpen = false;
+    st.itinerary.needsStartPrompt = false;
+    st.itinerary.matchPrompt = [];
+  }
+
+  function leaveItineraryWorkspace() {
+    st.itinerary.engaged = false;
+    st.itinerary.pickerOpen = false;
+    st.itinerary.listEditing = false;
+    resetItineraryWorkspace();
+  }
+
+  function beginNewItinerary(name) {
+    const n = String(name || "").trim();
+    if (!n) {
+      showToast("Name this itinerary first");
+      return false;
+    }
+    resetItineraryWorkspace();
+    st.itinerary.listEditing = false;
+    st.itinerary.draft = emptyItineraryDraft({ name: n });
+    st.itinerary.engaged = true;
+    return true;
+  }
+
+  async function openItinerary(id) {
+    if (!id) return;
+    st.loading = true;
+    paint();
+    try {
+      await loadItinerary(id);
+      st.itinerary.engaged = true;
+      st.itinerary.pickerOpen = false;
+    } catch (err) {
+      st.error = err.message || "Could not load itinerary";
+      st.itinerary.engaged = false;
+    }
+    st.loading = false;
+    paint();
   }
 
   function itineraryFinderMarkup() {
@@ -1508,14 +1557,62 @@
       </section>`;
   }
 
-  function itineraryMarkup() {
-    const draft = st.itinerary.draft;
-    const listOpts = st.itinerary.list
-      .map(
-        (i) =>
-          `<option value="${escapeHtml(i.id)}" ${st.itinerary.currentId === i.id ? "selected" : ""}>${escapeHtml(i.name)}${i.target_date ? ` (${i.target_date})` : ""}</option>`
-      )
+  function itineraryPickerMarkup() {
+    const editing = !!st.itinerary.listEditing;
+    const list = st.itinerary.list || [];
+    const items = list
+      .map((i) => {
+        const date = i.target_date ? `<span class="club-itin-pick-meta">${escapeHtml(i.target_date)}</span>` : "";
+        if (editing) {
+          return `<li class="club-itin-pick-row is-editing">
+            <div class="club-itin-pick is-static">
+              <span class="club-itin-pick-name">${escapeHtml(i.name || "Untitled")}</span>
+              ${date}
+            </div>
+            <button type="button" class="btn btn-ghost club-itin-pick-del" data-delete-itin="${escapeHtml(i.id)}" aria-label="Delete ${escapeHtml(i.name || "itinerary")}">Delete</button>
+          </li>`;
+        }
+        return `<li>
+          <button type="button" class="club-itin-pick" data-open-itin="${escapeHtml(i.id)}">
+            <span class="club-itin-pick-name">${escapeHtml(i.name || "Untitled")}</span>
+            ${date}
+          </button>
+        </li>`;
+      })
       .join("");
+    const editToggle = list.length
+      ? `<button type="button" class="btn btn-ghost" id="club-itin-edit-list">${editing ? "Done" : "Edit"}</button>`
+      : "";
+    return `
+      <section class="club-itin-picker" aria-labelledby="club-itin-picker-title">
+        <div class="club-itin-picker-head">
+          <h2 id="club-itin-picker-title">${editing ? "Edit itineraries" : "Choose an itinerary"}</h2>
+          ${editToggle}
+        </div>
+        <p class="muted">${
+          editing
+            ? "Tap Delete to remove a saved plan."
+            : "Open a saved plan, or name a new one — games load after you pick."
+        }</p>
+        ${
+          items
+            ? `<ul class="club-itin-pick-list">${items}</ul>`
+            : `<p class="empty-state">No saved itineraries yet.</p>`
+        }
+        ${
+          editing
+            ? ""
+            : `<div class="club-itin-create">
+          <label for="club-itin-create-name">New itinerary</label>
+          <input id="club-itin-create-name" type="text" maxlength="80" placeholder="Saturday North Valley" enterkeyhint="done" autocomplete="off" />
+          <button type="button" class="btn btn-primary" id="club-itin-create">Create</button>
+        </div>`
+        }
+      </section>`;
+  }
+
+  function itineraryWorkspaceMarkup() {
+    const draft = st.itinerary.draft;
     const draftStart = {
       lat: draft?.start_latitude,
       lng: draft?.start_longitude,
@@ -1608,19 +1705,20 @@
       )
       .join("");
 
+    const stopCount = (st.itinerary.stops || []).length;
+    const stopLabel = stopCount === 1 ? "1 stop" : `${stopCount} stops`;
+
     return `
       ${matchPromptMarkup()}
-      <div class="club-itin-toolbar">
-        <label>Saved
-          <select id="club-itin-select">
-            <option value="">New itinerary…</option>
-            ${listOpts}
-          </select>
+      <div class="club-itin-head">
+        <button type="button" class="btn btn-ghost" id="club-itin-back">All itineraries</button>
+        <label class="club-itin-title">
+          <span class="sr-only">Name</span>
+          <input id="club-itin-name" value="${escapeHtml(draft?.name || "")}" placeholder="Itinerary name" maxlength="80" />
         </label>
-        <button type="button" class="btn btn-ghost" id="club-itin-new">New</button>
+        <p class="club-itin-sub muted">${escapeHtml(draft?.target_date || "No date")} · ${stopLabel}</p>
       </div>
       <div class="club-itin-form">
-        <label>Name<input id="club-itin-name" value="${escapeHtml(draft?.name || "")}" placeholder="Saturday North Valley" /></label>
         <div class="club-split">
           <label>Date<input type="date" id="club-itin-date" value="${escapeHtml(draft?.target_date || "")}" /></label>
           <label>Start / home
@@ -1641,13 +1739,14 @@
       ${startPrompt}
       ${itineraryFinderMarkup()}
       ${warns ? `<ul class="club-warn-list">${warns}</ul>` : ""}
-      <div class="club-stops">${startBlock}${stops || `<p class="empty-state">No stops yet. Use Find games to add club games to this itinerary.</p>`}</div>
+      <div class="club-stops">${startBlock}${stops || `<p class="empty-state">No stops yet. Tap Find games to add club games to this itinerary.</p>`}</div>
       <div class="club-itin-actions">
         <button type="button" class="btn btn-primary" id="club-itin-save" ${st.itinerary.busy ? "disabled" : ""}>Save</button>
         <button type="button" class="btn btn-secondary" id="club-itin-copy">Copy text</button>
-        <button type="button" class="btn btn-secondary" id="club-itin-ics" ${st.itinerary.stops?.length ? "" : "hidden"}>Add to calendar</button>
+        <button type="button" class="btn btn-secondary" id="club-itin-ics" ${st.itinerary.stops?.length ? "" : "hidden"}>Download .ics</button>
         <button type="button" class="btn btn-ghost" id="club-itin-delete" ${st.itinerary.currentId ? "" : "hidden"}>Delete</button>
       </div>
+      ${itineraryFeedMarkup()}
       <section class="club-gemini">
         <h2>Ask Gemini</h2>
         <p class="muted">Questions use live club data tools — fixtures and drive times are not invented.</p>
@@ -1660,6 +1759,54 @@
           <button type="button" class="btn btn-ghost" id="club-gemini-suggest" ${g.loading ? "disabled" : ""}>Suggest order</button>
         </form>
       </section>`;
+  }
+
+  function itineraryMarkup() {
+    if (!isEngaged()) return itineraryPickerMarkup();
+    return itineraryWorkspaceMarkup();
+  }
+
+  function newFeedToken() {
+    const bytes = new Uint8Array(24);
+    global.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  function itineraryFeedUrls(token) {
+    const base = String(global.SHOTS_CONFIG?.supabaseUrl || "").replace(/\/+$/, "");
+    const tok = String(token || "");
+    if (!base || !/^[0-9a-f]{48}$/i.test(tok)) return { https: "", webcal: "" };
+    const https = `${base}/functions/v1/club-itinerary-ics/${tok.toLowerCase()}.ics`;
+    return { https, webcal: https.replace(/^https?:/, "webcal:") };
+  }
+
+  function itineraryFeedMarkup() {
+    const token = st.itinerary.draft?.feed_token;
+    if (!st.itinerary.currentId) {
+      return `<section class="club-itin-feed">
+        <h2>Calendar subscribe</h2>
+        <p class="muted">Save this itinerary to get a private link. Keep adding games — the same link stays in sync.</p>
+      </section>`;
+    }
+    if (!token) {
+      return `<section class="club-itin-feed">
+        <h2>Calendar subscribe</h2>
+        <p class="muted">No feed link yet.</p>
+        <button type="button" class="btn btn-secondary" id="club-itin-feed-mint">Create link</button>
+      </section>`;
+    }
+    const { https, webcal } = itineraryFeedUrls(token);
+    return `<section class="club-itin-feed">
+      <h2>Calendar subscribe</h2>
+      <p class="muted">Subscribe once in Apple Calendar or Outlook. Edits and new stops show up on refresh. Anyone with this link can see the visits — share only with staff.</p>
+      <label class="sr-only" for="club-itin-feed">Feed URL</label>
+      <input id="club-itin-feed" class="club-itin-feed-url" readonly value="${escapeHtml(https)}" />
+      <div class="club-itin-feed-actions">
+        <button type="button" class="btn btn-secondary" id="club-itin-feed-copy">Copy link</button>
+        <a class="btn btn-primary" id="club-itin-feed-sub" href="${escapeHtml(webcal)}">Subscribe on this device</a>
+        <button type="button" class="btn btn-ghost" id="club-itin-feed-rotate">New link</button>
+      </div>
+    </section>`;
   }
 
   function buildCopyText() {
@@ -1744,6 +1891,20 @@
       .slice(0, 48);
     return `${raw || "club-visits"}.ics`;
   }
+  /** Keep in sync with supabase/functions/_shared/club/itinerary.mjs formatVisitSummary. */
+  function formatVisitSummary(brightonLine, teamLine, maxNames = 2) {
+    const team = String(teamLine || "").trim() || "Club game";
+    const names = String(brightonLine || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (!names.length) return `Visit: ${team}`;
+    const limit = Math.max(1, Number(maxNames) || 2);
+    const shown = names.slice(0, limit);
+    const extra = names.length - shown.length;
+    const who = extra > 0 ? `${shown.join(", ")} +${extra}` : shown.join(", ");
+    return `Visit: ${who} - ${team}`;
+  }
   function buildItineraryIcs(itin, stops) {
     const stamp = icsStamp(new Date().toISOString());
     const itinKey = itin?.id || "draft";
@@ -1758,19 +1919,17 @@
       "X-WR-TIMEZONE:America/Denver",
     ];
     (stops || []).forEach((s, i) => {
-      const visitMin = Number(s.visit_minutes) || DEFAULT_VISIT;
+      // Game blocks are at least a full match window (105m); longer visits still win.
+      const visitMin = Math.max(Number(s.visit_minutes) || DEFAULT_VISIT, DEFAULT_VISIT);
       let startIso = s.planned_arrival_at;
-      let endIso = s.planned_departure_at;
       if (!startIso && s.kickoff_at) {
         startIso = new Date(new Date(s.kickoff_at).getTime() - 5 * 60000).toISOString();
       }
       if (!startIso) return;
-      if (!endIso) {
-        endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
-      }
+      const endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
       const team = s.team_line || s.label || "Club game";
       // ASCII hyphen — Safari/Calendar is happier than an em dash in SUMMARY
-      const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
+      const summary = formatVisitSummary(s.brighton_line, team);
       const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
       const mapUrl = mapsLink(s.lat, s.lng);
       const desc = [
@@ -1812,7 +1971,7 @@
     return lines.map(icsFoldLine).join("\r\n") + "\r\n";
   }
 
-  /** Safari Calendar import: base64 data URL (encodeURIComponent data: links often no-op on iOS). */
+  /** Fallback for non-share environments; encodeURIComponent data: links often no-op on iOS. */
   function icsDataUrl(ics) {
     const b64 = btoa(unescape(encodeURIComponent(ics)));
     return `data:text/calendar;charset=utf-8;base64,${b64}`;
@@ -1834,10 +1993,54 @@
     };
   }
 
+  function icsFile(ics, filename, type) {
+    return new File([ics], filename, { type: type || "text/calendar" });
+  }
+
+  /** iOS share sheet — best client-side path for Calendar / Save to Files. */
+  async function tryIcsShare(ics, filename) {
+    if (!global.navigator?.share) return false;
+    const candidates = [
+      icsFile(ics, filename, "text/calendar"),
+      icsFile(ics, filename, "text/calendar;charset=utf-8"),
+      icsFile(ics, filename, "application/octet-stream"),
+    ];
+    for (const file of candidates) {
+      try {
+        if (global.navigator.canShare && !global.navigator.canShare({ files: [file] })) continue;
+        await global.navigator.share({ files: [file], title: filename });
+        return true;
+      } catch (err) {
+        // User dismissed share sheet — treat as handled, don't fall through.
+        if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) return true;
+      }
+    }
+    return false;
+  }
+
+  function tryIcsBlobNavigate(ics) {
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    global.location.assign(URL.createObjectURL(blob));
+    return true;
+  }
+
+  function tryIcsDownload(ics, filename) {
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+    return true;
+  }
+
   /**
-   * iPhone Safari ignores <a download> on data: URLs (tap does nothing).
-   * Hand Safari a text/calendar payload (base64 data URL or blob) so it opens
-   * the system “Add to Calendar” sheet.
+   * One-shot ICS export. Desktop downloads. iPhone: share sheet first, then
+   * blob/data URL fallbacks. Stable subscribe links wait for per-user ownership.
    */
   async function presentItineraryIcs() {
     readItineraryForm();
@@ -1852,25 +2055,21 @@
       return;
     }
 
-    if (isIosDevice()) {
-      // No `download` attribute — iOS Safari ignores it and the tap does nothing.
-      // Same-tab navigation to a text/calendar data URL is what triggers
-      // Safari’s Add to Calendar sheet (window.open(data:) is often blocked).
-      window.location.assign(icsDataUrl(ics));
+    if (!isIosDevice()) {
+      tryIcsDownload(ics, filename);
+      showToast("Calendar file downloaded");
       return;
     }
 
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2500);
-    showToast("Calendar file downloaded");
+    if (await tryIcsShare(ics, filename)) {
+      showToast("Share sheet — pick Calendar or Save to Files");
+      return;
+    }
+    if (tryIcsBlobNavigate(ics)) {
+      showToast("Opened calendar file");
+      return;
+    }
+    global.location.assign(icsDataUrl(ics));
   }
 
   function refreshIcsButton() {
@@ -1906,41 +2105,44 @@
     });
     if (st.itinerary.pickerOpen) bindAgendaFilters();
     bindItineraryAdds();
-    $("#club-itin-select")?.addEventListener("change", async (e) => {
-      const id = e.target.value;
-      if (!id) {
-        st.itinerary.currentId = "";
-        st.itinerary.draft = emptyItineraryDraft();
-        st.itinerary.stops = [];
-        st.itinerary.legs = [];
-        st.itinerary.startLeg = null;
-        st.itinerary.orderManual = false;
-        st.itinerary.warnings = [];
-        st.itinerary.engaged = true;
-        paint();
-        return;
-      }
-      st.loading = true;
-      paint();
-      try {
-        await loadItinerary(id);
-        st.itinerary.engaged = true;
-      } catch (err) {
-        st.error = err.message || "Could not load itinerary";
-      }
-      st.loading = false;
+    $$("[data-open-itin]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        void openItinerary(btn.getAttribute("data-open-itin"));
+      });
+    });
+    $("#club-itin-edit-list")?.addEventListener("click", () => {
+      st.itinerary.listEditing = !st.itinerary.listEditing;
       paint();
     });
-    $("#club-itin-new")?.addEventListener("click", () => {
-      st.itinerary.currentId = "";
-      st.itinerary.draft = emptyItineraryDraft();
-      st.itinerary.stops = [];
-      st.itinerary.legs = [];
-      st.itinerary.startLeg = null;
-      st.itinerary.orderManual = false;
-      st.itinerary.warnings = [];
-      st.itinerary.engaged = true;
+    $$("[data-delete-itin]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        void deleteItineraryById(btn.getAttribute("data-delete-itin"));
+      });
+    });
+    const createFromPicker = () => {
+      if (!beginNewItinerary($("#club-itin-create-name")?.value)) {
+        $("#club-itin-create-name")?.focus();
+        return;
+      }
       paint();
+      $("#club-itin-name")?.focus();
+    };
+    $("#club-itin-create")?.addEventListener("click", createFromPicker);
+    $("#club-itin-create-name")?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      createFromPicker();
+    });
+    $("#club-itin-back")?.addEventListener("click", () => {
+      leaveItineraryWorkspace();
+      paint();
+    });
+    $("#club-itin-date")?.addEventListener("change", () => {
+      readItineraryForm();
+      const sub = document.querySelector(".club-itin-sub");
+      if (!sub || !st.itinerary.draft) return;
+      const n = (st.itinerary.stops || []).length;
+      sub.textContent = `${st.itinerary.draft.target_date || "No date"} · ${n === 1 ? "1 stop" : `${n} stops`}`;
     });
     const applyStartInput = async (el) => {
       if (!st.itinerary.draft) st.itinerary.draft = emptyItineraryDraft();
@@ -2042,6 +2244,23 @@
       void presentItineraryIcs();
     });
     refreshIcsButton();
+    $("#club-itin-feed-copy")?.addEventListener("click", async () => {
+      const url = $("#club-itin-feed")?.value || itineraryFeedUrls(st.itinerary.draft?.feed_token).https;
+      if (!url) return;
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("Calendar link copied");
+      } catch (_) {
+        global.prompt("Copy calendar link:", url);
+      }
+    });
+    $("#club-itin-feed-mint")?.addEventListener("click", () => {
+      void ensureItineraryFeedToken();
+    });
+    $("#club-itin-feed-rotate")?.addEventListener("click", () => {
+      if (!global.confirm("Create a new link? The old subscribe URL will stop working.")) return;
+      void rotateItineraryFeedToken();
+    });
     $("#club-itin-delete")?.addEventListener("click", () => deleteItinerary());
     $("#club-gemini-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -2164,6 +2383,7 @@
     };
     try {
       let id = st.itinerary.currentId;
+      let feedToken = draft.feed_token || "";
       if (id) {
         const { error } = await sb.from("club_itineraries").update(row).eq("id", id);
         if (error) throw error;
@@ -2172,6 +2392,7 @@
         const { data, error } = await sb.from("club_itineraries").insert(row).select().single();
         if (error) throw error;
         id = data.id;
+        feedToken = data.feed_token || feedToken;
         st.itinerary.currentId = id;
       }
       if (st.itinerary.stops.length) {
@@ -2188,7 +2409,11 @@
         const { error } = await sb.from("club_itinerary_stops").insert(stops);
         if (error) throw error;
       }
-      st.itinerary.draft = { ...st.itinerary.draft, ...row, id };
+      if (!feedToken && id) {
+        const { data: tokRow } = await sb.from("club_itineraries").select("feed_token").eq("id", id).maybeSingle();
+        feedToken = tokRow?.feed_token || "";
+      }
+      st.itinerary.draft = { ...st.itinerary.draft, ...row, id, feed_token: feedToken };
       await loadItineraryList();
       showToast("Itinerary saved");
     } catch (err) {
@@ -2198,17 +2423,62 @@
     paint();
   }
 
-  async function deleteItinerary() {
-    if (!st.itinerary.currentId) return;
-    if (!global.confirm("Delete this itinerary?")) return;
+  async function ensureItineraryFeedToken() {
+    if (!st.itinerary.currentId) {
+      showToast("Save the itinerary first");
+      return;
+    }
+    if (st.itinerary.draft?.feed_token) {
+      paint();
+      return;
+    }
+    await rotateItineraryFeedToken(false);
+  }
+
+  async function rotateItineraryFeedToken(toast = true) {
+    if (!st.itinerary.currentId) {
+      showToast("Save the itinerary first");
+      return;
+    }
+    const token = newFeedToken();
     const sb = api().getClient();
-    await sb.from("club_itineraries").delete().eq("id", st.itinerary.currentId);
-    st.itinerary.currentId = "";
-    st.itinerary.draft = null;
-    st.itinerary.stops = [];
+    const { error } = await sb
+      .from("club_itineraries")
+      .update({ feed_token: token, updated_at: new Date().toISOString() })
+      .eq("id", st.itinerary.currentId);
+    if (error) {
+      st.error = error.message || "Could not update calendar link";
+      paint();
+      return;
+    }
+    if (!st.itinerary.draft) st.itinerary.draft = emptyItineraryDraft();
+    st.itinerary.draft.feed_token = token;
+    if (toast) showToast("New calendar link ready");
+    paint();
+  }
+
+  async function deleteItineraryById(id) {
+    if (!id) return;
+    const row = (st.itinerary.list || []).find((i) => i.id === id);
+    const label = row?.name || "this itinerary";
+    if (!global.confirm(`Delete “${label}”?`)) return;
+    const sb = api().getClient();
+    const { error } = await sb.from("club_itineraries").delete().eq("id", id);
+    if (error) {
+      st.error = error.message || "Delete failed";
+      paint();
+      return;
+    }
+    if (st.itinerary.currentId === id) leaveItineraryWorkspace();
     await loadItineraryList();
+    if (!(st.itinerary.list || []).length) st.itinerary.listEditing = false;
     showToast("Deleted");
     paint();
+  }
+
+  async function deleteItinerary() {
+    if (!st.itinerary.currentId) return;
+    await deleteItineraryById(st.itinerary.currentId);
   }
 
   async function askGemini(question) {
@@ -2956,9 +3226,13 @@
     renderClubMarkdown,
     shouldDriveFromPrior,
     buildItineraryIcs,
+    formatVisitSummary,
     itineraryIcsFilename,
     icsDataUrl,
     presentItineraryIcs,
+    tryIcsShare,
+    itineraryFeedUrls,
+    newFeedToken,
     CHAIN_GAP_MS,
     onLeave() {
       stopLoadingLines();

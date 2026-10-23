@@ -435,7 +435,7 @@ async function proposeClubItinerary(args, ctx) {
     lat: g.lat,
     lng: g.lng,
     kickoff_at: g.kickoff_at,
-    visit_minutes: args.viewing_minutes || 30,
+    visit_minutes: args.viewing_minutes || 105,
     locked: locked.includes(g.game_id),
     label: `${g.home_team} vs ${g.away_team}`,
     team_line: `${g.home_team} vs ${g.away_team}`,
@@ -470,7 +470,7 @@ async function proposeClubItinerary(args, ctx) {
     },
   });
   const { stops: timed, warnings } = assessFeasibility(ordered, legs, {
-    defaultVisitMinutes: args.viewing_minutes || 30,
+    defaultVisitMinutes: args.viewing_minutes || 105,
   });
 
   return {

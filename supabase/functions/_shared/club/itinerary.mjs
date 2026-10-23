@@ -4,7 +4,8 @@
 
 import { formatLocalKickoff, mapsDirectionsUrl } from "./normalize.mjs";
 
-export const DEFAULT_VISIT_MINUTES = 30;
+/** Typical club-game block on calendar / at the field (kickoff window). */
+export const DEFAULT_VISIT_MINUTES = 105;
 export const DEFAULT_WALK_MINUTES = 8;
 export const TIGHT_BUFFER_MINUTES = 5;
 
@@ -276,6 +277,32 @@ export function itineraryIcsFilename(itin = {}) {
 }
 
 /**
+ * Calendar SUMMARY: up to `maxNames` players, then +N, plus match suffix.
+ * Full roster belongs in DESCRIPTION, not here.
+ */
+export function formatVisitSummary(brightonLine, teamLine, maxNames = 2) {
+  const team = String(teamLine || "").trim() || "Club game";
+  const names = String(brightonLine || "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (!names.length) return `Visit: ${team}`;
+  const limit = Math.max(1, Number(maxNames) || 2);
+  const shown = names.slice(0, limit);
+  const extra = names.length - shown.length;
+  const who = extra > 0 ? `${shown.join(", ")} +${extra}` : shown.join(", ");
+  return `Visit: ${who} - ${team}`;
+}
+
+/** Subscribe URL for an itinerary feed_token (48 hex). Empty if base/token invalid. */
+export function itineraryFeedUrl(baseUrl, token) {
+  const base = String(baseUrl || "").replace(/\/+$/, "");
+  const tok = String(token || "");
+  if (!base || !/^[0-9a-f]{48}$/.test(tok)) return "";
+  return `${base}/functions/v1/club-itinerary-ics/${tok}.ics`;
+}
+
+/**
  * One VEVENT per stop for phone calendar import.
  * Uses planned arrival→departure when present; otherwise kickoff − 5m through visit window.
  *
@@ -301,18 +328,16 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
   ];
 
   (stops || []).forEach((s, i) => {
-    const visitMin = Number(s.visit_minutes) || defaultVisit;
+    // Game blocks are at least a full match window (105m); longer visits still win.
+    const visitMin = Math.max(Number(s.visit_minutes) || defaultVisit, defaultVisit);
     let startIso = s.planned_arrival_at;
-    let endIso = s.planned_departure_at;
     if (!startIso && s.kickoff_at) {
       startIso = new Date(new Date(s.kickoff_at).getTime() - 5 * 60000).toISOString();
     }
     if (!startIso) return;
-    if (!endIso) {
-      endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
-    }
+    const endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
     const team = s.team_line || s.label || "Club game";
-    const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
+    const summary = formatVisitSummary(s.brighton_line, team);
     const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
     const descParts = [];
     if (itin?.name) descParts.push(itin.name);

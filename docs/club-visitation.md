@@ -82,12 +82,13 @@ Club Data → CSV import accepts teams, affiliations, facilities, fields, compet
 
 ## Itinerary calendar export
 
-On **Itinerary**, **Add to calendar** builds an RFC 5545 `.ics` (one event per stop: planned arrival→departure, venue, players, 15‑minute reminder).
+On **Itinerary**, each saved plan has a private **Calendar subscribe** URL (`club-itinerary-ics` Edge Function). The 48-hex `feed_token` on `club_itineraries` is the only credential (no JWT — calendar apps can’t send one).
 
-- **iPhone Safari:** tap opens Apple’s Add to Calendar flow (or the share sheet). Safari ignores `<a download>` on `data:` URLs, so the app navigates to a `text/calendar` base64 data URL instead of a silent no-op download.
-- **Desktop:** downloads `*.ics` for Outlook / Google Calendar import.
+- **Subscribe:** Copy link or tap **Subscribe on this device** (`webcal:`). Keep adding/removing stops; the same URL stays in sync on refresh.
+- **Rotate:** **New link** revokes the old token.
+- **One-shot:** **Download .ics** still builds a snapshot (share sheet on iPhone Safari; file download on desktop).
 
-One-shot export — tap again after edits. Live subscribe feeds are post-MVP.
+Feed path: `GET /functions/v1/club-itinerary-ics/<feed_token>.ics` (`Content-Type: text/calendar`).
 
 ## Known limitations
 
@@ -98,5 +99,4 @@ One-shot export — tap again after edits. Live subscribe feeds are post-MVP.
 
 ## Post-MVP
 
-- **Itinerary ICS subscribe** — Publish a stable ICS (or webcal) URL per itinerary so phone calendars stay in sync when the coach edits visits in-app (downloadable `.ics` export already ships).
 - **Schedule URL refresh testing** — End-to-end verification that `club-sync` / Sync Now correctly refreshes games from live schedule source URLs (ICS/CSV/HTML/JSON), including change detection and failure handling.

@@ -32,6 +32,9 @@ verify_jwt = true
 [functions.schedule-ics]
 verify_jwt = false
 
+[functions.club-itinerary-ics]
+verify_jwt = false
+
 [functions.club-visitation]
 verify_jwt = true
 

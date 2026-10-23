@@ -23,7 +23,7 @@ test.describe("Club Player Visitation Planner", () => {
     await expect(page.locator(".club-shell")).toBeVisible();
   });
 
-  test("itinerary Add to calendar builds an iOS-safe ICS data URL", async ({ page }) => {
+  test("itinerary Add to calendar prefers iOS share sheet", async ({ page }) => {
     await page.goto("/#club-itinerary");
     await expect(page.locator(".club-shell")).toBeVisible({ timeout: 15000 });
     const pinInput = page.locator("#club-pin");
@@ -58,7 +58,6 @@ test.describe("Club Player Visitation Planner", () => {
       return {
         body,
         filename: itineraryIcsFilename({ name: "E2E Saturday" }),
-        dataUrl,
         dataUrlPrefix: dataUrl.slice(0, "data:text/calendar;charset=utf-8;base64,".length),
       };
     });
@@ -70,7 +69,6 @@ test.describe("Club Player Visitation Planner", () => {
     expect(ics.body).toMatch(/URL:https:\/\/www\.google\.com\/maps/);
     expect(ics.dataUrlPrefix).toBe("data:text/calendar;charset=utf-8;base64,");
 
-    // iPhone UA: button opens calendar data URL (not a silent download attribute)
     await page.addInitScript(() => {
       Object.defineProperty(navigator, "userAgent", {
         get: () =>
@@ -84,14 +82,8 @@ test.describe("Club Player Visitation Planner", () => {
       await page.locator("#club-pin-form button[type=submit]").click();
       await expect(page.locator(".club-tabs")).toBeVisible({ timeout: 20000 });
     }
-    const opened = await page.evaluate(async () => {
-      const urls = [];
-      const realOpen = window.open.bind(window);
-      window.open = (url) => {
-        urls.push(String(url));
-        return { closed: false };
-      };
-      // Seed one stop and paint via present path
+
+    const shared = await page.evaluate(async () => {
       const body = window.ClubVisitation.buildItineraryIcs(
         { id: "ios", name: "iOS test" },
         [
@@ -105,11 +97,21 @@ test.describe("Club Player Visitation Planner", () => {
           },
         ]
       );
-      const dataUrl = window.ClubVisitation.icsDataUrl(body);
-      window.open(dataUrl, "_blank");
-      window.open = realOpen;
-      return urls[0] || "";
+      const filename = window.ClubVisitation.itineraryIcsFilename({ name: "iOS test" });
+      let sharedFile = null;
+      navigator.canShare = () => true;
+      navigator.share = async (data) => {
+        sharedFile = data?.files?.[0] || null;
+      };
+      const ok = await window.ClubVisitation.tryIcsShare(body, filename);
+      return {
+        ok,
+        name: sharedFile?.name || "",
+        type: sharedFile?.type || "",
+      };
     });
-    expect(opened.startsWith("data:text/calendar;charset=utf-8;base64,")).toBe(true);
+    expect(shared.ok).toBe(true);
+    expect(shared.name).toBe("ios-test.ics");
+    expect(shared.type).toMatch(/calendar|octet-stream/);
   });
 });
