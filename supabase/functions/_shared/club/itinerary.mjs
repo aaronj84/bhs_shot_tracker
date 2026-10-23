@@ -276,6 +276,24 @@ export function itineraryIcsFilename(itin = {}) {
   return `${raw || "club-visits"}.ics`;
 }
 
+/**
+ * Calendar SUMMARY: up to `maxNames` players, then +N, plus match suffix.
+ * Full roster belongs in DESCRIPTION, not here.
+ */
+export function formatVisitSummary(brightonLine, teamLine, maxNames = 2) {
+  const team = String(teamLine || "").trim() || "Club game";
+  const names = String(brightonLine || "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (!names.length) return `Visit: ${team}`;
+  const limit = Math.max(1, Number(maxNames) || 2);
+  const shown = names.slice(0, limit);
+  const extra = names.length - shown.length;
+  const who = extra > 0 ? `${shown.join(", ")} +${extra}` : shown.join(", ");
+  return `Visit: ${who} - ${team}`;
+}
+
 /** Subscribe URL for an itinerary feed_token (48 hex). Empty if base/token invalid. */
 export function itineraryFeedUrl(baseUrl, token) {
   const base = String(baseUrl || "").replace(/\/+$/, "");
@@ -319,7 +337,7 @@ export function buildItineraryIcs(itin, stops, opts = {}) {
     if (!startIso) return;
     const endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
     const team = s.team_line || s.label || "Club game";
-    const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
+    const summary = formatVisitSummary(s.brighton_line, team);
     const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
     const descParts = [];
     if (itin?.name) descParts.push(itin.name);

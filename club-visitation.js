@@ -1891,6 +1891,20 @@
       .slice(0, 48);
     return `${raw || "club-visits"}.ics`;
   }
+  /** Keep in sync with supabase/functions/_shared/club/itinerary.mjs formatVisitSummary. */
+  function formatVisitSummary(brightonLine, teamLine, maxNames = 2) {
+    const team = String(teamLine || "").trim() || "Club game";
+    const names = String(brightonLine || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (!names.length) return `Visit: ${team}`;
+    const limit = Math.max(1, Number(maxNames) || 2);
+    const shown = names.slice(0, limit);
+    const extra = names.length - shown.length;
+    const who = extra > 0 ? `${shown.join(", ")} +${extra}` : shown.join(", ");
+    return `Visit: ${who} - ${team}`;
+  }
   function buildItineraryIcs(itin, stops) {
     const stamp = icsStamp(new Date().toISOString());
     const itinKey = itin?.id || "draft";
@@ -1915,7 +1929,7 @@
       const endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
       const team = s.team_line || s.label || "Club game";
       // ASCII hyphen — Safari/Calendar is happier than an em dash in SUMMARY
-      const summary = s.brighton_line ? `Visit: ${s.brighton_line} - ${team}` : `Visit: ${team}`;
+      const summary = formatVisitSummary(s.brighton_line, team);
       const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
       const mapUrl = mapsLink(s.lat, s.lng);
       const desc = [
@@ -3212,6 +3226,7 @@
     renderClubMarkdown,
     shouldDriveFromPrior,
     buildItineraryIcs,
+    formatVisitSummary,
     itineraryIcsFilename,
     icsDataUrl,
     presentItineraryIcs,
