@@ -80,6 +80,10 @@ Respect robots/terms; do not bypass login/CAPTCHA. A failed sync never deletes p
 
 Club Data → CSV import accepts teams, affiliations, facilities, fields, competitions, schedule sources, and games with preview/validation. Column headers are documented in the UI. Alternatively run `seed_club_demo.sql` for a repeatable demo set.
 
+## Itinerary calendar export
+
+On **Itinerary**, **Add to calendar** downloads a `.ics` file (one event per stop: planned arrival→departure, venue, players, 15‑minute reminder). Open/import on iPhone Calendar or Outlook. This is a one-shot export — re-download after edits. Live subscribe feeds are post-MVP.
+
 ## Known limitations
 
 - HTML adapters cover a small set of table-shaped public pages; many club sites need a new adapter key or manual/ICS entry.
@@ -89,5 +93,5 @@ Club Data → CSV import accepts teams, affiliations, facilities, fields, compet
 
 ## Post-MVP
 
-- **Itinerary ICS subscribe** — Publish a stable ICS (or webcal) URL per itinerary so phone calendars stay in sync when the coach edits visits in-app.
+- **Itinerary ICS subscribe** — Publish a stable ICS (or webcal) URL per itinerary so phone calendars stay in sync when the coach edits visits in-app (downloadable `.ics` export already ships).
 - **Schedule URL refresh testing** — End-to-end verification that `club-sync` / Sync Now correctly refreshes games from live schedule source URLs (ICS/CSV/HTML/JSON), including change detection and failure handling.

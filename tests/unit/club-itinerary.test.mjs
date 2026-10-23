@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   assessFeasibility,
+  buildItineraryIcs,
   buildLegs,
   formatItineraryText,
+  icsEscape,
+  itineraryIcsFilename,
   proposeOrder,
   sameFacility,
 } from "../../supabase/functions/_shared/club/itinerary.mjs";
@@ -87,5 +90,56 @@ describe("club itinerary feasibility", () => {
     expect(text).toContain("Jackie, Jane");
     expect(text).toContain("Warnings:");
     expect(text).toContain("Field changed");
+  });
+});
+
+describe("club itinerary ICS", () => {
+  it("escapes ICS text and builds a safe filename", () => {
+    expect(icsEscape("a,b;c\\d\ne")).toBe("a\\,b\\;c\\\\d\\ne");
+    expect(itineraryIcsFilename({ name: "Saturday RAC Visits!" })).toBe("saturday-rac-visits.ics");
+    expect(itineraryIcsFilename({})).toBe("club-visits.ics");
+  });
+
+  it("emits one VEVENT per stop with arrival window and reminder", () => {
+    const ics = buildItineraryIcs(
+      { id: "itin-1", name: "Saturday visits", notes: "Bring chairs" },
+      [
+        {
+          game_id: "g1",
+          team_line: "Avalanche vs Wasatch",
+          brighton_line: "Jackie, Jane",
+          kickoff_at: "2026-04-11T22:00:00.000Z",
+          planned_arrival_at: "2026-04-11T21:40:00.000Z",
+          planned_departure_at: "2026-04-11T22:10:00.000Z",
+          facility_name: "RAC",
+          field_label: "Field 5",
+          lat: 40.5,
+          lng: -112,
+          visit_minutes: 30,
+        },
+        {
+          game_id: "g2",
+          team_line: "Storm vs United",
+          kickoff_at: "2026-04-11T23:30:00.000Z",
+          facility_name: "Layton",
+          field_label: "Turf 2",
+        },
+      ],
+      { now: new Date("2026-04-01T12:00:00.000Z") }
+    );
+    const unfolded = ics.replace(/\r\n /g, "");
+    expect(ics.startsWith("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n")).toBe(true);
+    expect(ics.endsWith("END:VCALENDAR\r\n")).toBe(true);
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2);
+    expect(unfolded).toContain("UID:itin-1-g1@bhs-club-visits");
+    expect(unfolded).toContain("DTSTART:20260411T214000Z");
+    expect(unfolded).toContain("DTEND:20260411T221000Z");
+    expect(unfolded).toContain("SUMMARY:Visit: Jackie\\, Jane — Avalanche vs Wasatch");
+    expect(unfolded).toContain("LOCATION:RAC · Field 5");
+    expect(unfolded).toContain("TRIGGER:-PT15M");
+    expect(unfolded).toContain("Bring chairs");
+    // Second stop falls back to kickoff − 5m when no planned arrival
+    expect(unfolded).toContain("DTSTART:20260411T232500Z");
+    expect(unfolded).toContain("X-WR-CALNAME:Saturday visits");
   });
 });

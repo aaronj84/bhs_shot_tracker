@@ -1645,6 +1645,7 @@
       <div class="club-itin-actions">
         <button type="button" class="btn btn-primary" id="club-itin-save" ${st.itinerary.busy ? "disabled" : ""}>Save</button>
         <button type="button" class="btn btn-secondary" id="club-itin-copy">Copy text</button>
+        <a class="btn btn-secondary" id="club-itin-ics" ${st.itinerary.stops?.length ? "" : "hidden"} download="club-visits.ics">Add to calendar</a>
         <button type="button" class="btn btn-ghost" id="club-itin-delete" ${st.itinerary.currentId ? "" : "hidden"}>Delete</button>
       </div>
       <section class="club-gemini">
@@ -1700,6 +1701,110 @@
       st.itinerary.warnings.forEach((w) => lines.push(`- ${w.message}`));
     }
     return lines.join("\n").trim() + "\n";
+  }
+
+  /** Keep in sync with supabase/functions/_shared/club/itinerary.mjs buildItineraryIcs. */
+  function icsStamp(iso) {
+    return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  }
+  function icsEsc(text) {
+    return String(text ?? "")
+      .replace(/\\/g, "\\\\")
+      .replace(/\r?\n/g, "\\n")
+      .replace(/;/g, "\\;")
+      .replace(/,/g, "\\,");
+  }
+  function itineraryIcsFilename(itin) {
+    const raw = String(itin?.name || "club-visits")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    return `${raw || "club-visits"}.ics`;
+  }
+  function buildItineraryIcs(itin, stops) {
+    const stamp = icsStamp(new Date().toISOString());
+    const itinKey = itin?.id || "draft";
+    const calName = itin?.name || "Club visitation";
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Brighton Soccer//Club Visitation//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      `X-WR-CALNAME:${icsEsc(calName)}`,
+      "X-WR-TIMEZONE:America/Denver",
+    ];
+    (stops || []).forEach((s, i) => {
+      const visitMin = Number(s.visit_minutes) || DEFAULT_VISIT;
+      let startIso = s.planned_arrival_at;
+      let endIso = s.planned_departure_at;
+      if (!startIso && s.kickoff_at) {
+        startIso = new Date(new Date(s.kickoff_at).getTime() - 5 * 60000).toISOString();
+      }
+      if (!startIso) return;
+      if (!endIso) {
+        endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
+      }
+      const team = s.team_line || s.label || "Club game";
+      const summary = s.brighton_line ? `Visit: ${s.brighton_line} — ${team}` : `Visit: ${team}`;
+      const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
+      const mapUrl = mapsLink(s.lat, s.lng);
+      const desc = [
+        itin?.name,
+        s.brighton_line ? `Players: ${s.brighton_line}` : "",
+        `Match: ${team}`,
+        s.kickoff_at ? `Kickoff: ${formatKickoff(s.kickoff_at)}` : "",
+        `Venue: ${venue}`,
+        mapUrl ? `Map: ${mapUrl}` : "",
+        s.notes || "",
+        itin?.notes && i === 0 ? `Itinerary notes: ${itin.notes}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const uidGame = s.game_id || s.club_game_id || `stop-${i + 1}`;
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${itinKey}-${uidGame}@bhs-club-visits`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${icsStamp(startIso)}`,
+        `DTEND:${icsStamp(endIso)}`,
+        `SUMMARY:${icsEsc(summary)}`,
+        `DESCRIPTION:${icsEsc(desc)}`,
+        `LOCATION:${icsEsc(venue)}`,
+        "STATUS:CONFIRMED",
+        "TRANSP:OPAQUE",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "TRIGGER:-PT15M",
+        `DESCRIPTION:${icsEsc(summary)}`,
+        "END:VALARM",
+        "END:VEVENT"
+      );
+    });
+    lines.push("END:VCALENDAR", "");
+    return lines.join("\r\n");
+  }
+
+  function refreshIcsLink() {
+    const link = $("#club-itin-ics");
+    if (!link) return;
+    const stops = st.itinerary.stops || [];
+    if (!stops.length) {
+      link.hidden = true;
+      link.removeAttribute("href");
+      return;
+    }
+    const draft = st.itinerary.draft || {};
+    const itin = {
+      id: st.itinerary.currentId || draft.id || "draft",
+      name: draft.name || "Club visitation",
+      notes: draft.notes || "",
+    };
+    const ics = buildItineraryIcs(itin, stops);
+    link.download = itineraryIcsFilename(itin);
+    link.href = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+    link.hidden = false;
   }
 
   function bindItineraryAdds() {
@@ -1861,6 +1966,7 @@
         global.prompt("Copy itinerary:", text);
       }
     });
+    refreshIcsLink();
     $("#club-itin-delete")?.addEventListener("click", () => deleteItinerary());
     $("#club-gemini-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -2774,6 +2880,8 @@
     shotTrackerMatches,
     renderClubMarkdown,
     shouldDriveFromPrior,
+    buildItineraryIcs,
+    itineraryIcsFilename,
     CHAIN_GAP_MS,
     onLeave() {
       stopLoadingLines();
