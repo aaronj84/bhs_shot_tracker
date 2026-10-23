@@ -740,6 +740,7 @@
   };
 
   const editLocDraft = {
+    shot: null,
     assist: null,
     second: null,
   };
@@ -2751,15 +2752,37 @@
     return String(g?.date || "").slice(0, 10);
   }
 
-  /** Ascending by date, rotated so the first game on/after yesterday leads the list. */
+  function gameListRowMarkup(g, { past = false } = {}) {
+    const date = gameDateYmd(g);
+    const opp = opponentOf(g);
+    const vs = opp ? opp.name : "";
+    return `
+      <li class="shots-game-row${past ? " is-past" : ""}">
+        <button type="button" class="shots-game-btn" data-open-game="${g.id}">
+          <strong>${escapeHtml(date)}</strong>
+          <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
+        </button>
+      </li>`;
+  }
+
+  /** Upcoming: today+ and not final, soonest first. Completed: finals + past dates, newest first. */
+  function partitionGamesForList(gamesList) {
+    const today = localYmd();
+    const upcoming = [];
+    const completed = [];
+    (gamesList || []).forEach((g) => {
+      const date = gameDateYmd(g);
+      if (g.status === "final" || (date && date < today)) completed.push(g);
+      else upcoming.push(g);
+    });
+    upcoming.sort((a, b) => gameDateYmd(a).localeCompare(gameDateYmd(b)));
+    completed.sort((a, b) => gameDateYmd(b).localeCompare(gameDateYmd(a)));
+    return { upcoming, completed };
+  }
+
   function gamesForList(gamesList) {
-    const yesterday = addDaysYmd(localYmd(), -1);
-    const sorted = (gamesList || [])
-      .slice()
-      .sort((a, b) => gameDateYmd(a).localeCompare(gameDateYmd(b)));
-    const start = sorted.findIndex((g) => gameDateYmd(g) >= yesterday);
-    if (start <= 0) return sorted;
-    return sorted.slice(start).concat(sorted.slice(0, start));
+    const { upcoming, completed } = partitionGamesForList(gamesList);
+    return upcoming.concat(completed);
   }
 
   function parseScheduleCsv(text) {
@@ -2972,22 +2995,25 @@
   function renderGames() {
     const localCount = localEvents().length;
     const today = localYmd();
-    const yesterday = addDaysYmd(today, -1);
-    const games = gamesForList(st.games)
-      .map((g) => {
-        const date = gameDateYmd(g);
-        const past = date < yesterday;
-        const opp = opponentOf(g);
-        const vs = opp ? opp.name : "";
-        return `
-          <li class="shots-game-row${past ? " is-past" : ""}">
-            <button type="button" class="shots-game-btn" data-open-game="${g.id}">
-              <strong>${escapeHtml(date)}</strong>
-              <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
-            </button>
-          </li>`;
-      })
-      .join("");
+    const { upcoming, completed } = partitionGamesForList(st.games);
+    const upcomingList = upcoming.map((g) => gameListRowMarkup(g)).join("");
+    const completedList = completed.map((g) => gameListRowMarkup(g, { past: true })).join("");
+    const gamesBlock =
+      !upcoming.length && !completed.length
+        ? `<p class="muted">No games in this season yet.</p>`
+        : `
+        <section class="shots-game-section">
+          <h2 class="shots-game-section-title">Upcoming</h2>
+          <ul class="shots-game-list">${
+            upcomingList || `<li class="muted">No upcoming games.</li>`
+          }</ul>
+        </section>
+        <section class="shots-game-section">
+          <h2 class="shots-game-section-title">Completed</h2>
+          <ul class="shots-game-list">${
+            completedList || `<li class="muted">No completed games.</li>`
+          }</ul>
+        </section>`;
     const csvBox = st.csvPending
       ? `
         <div class="shots-confirm">
@@ -3010,7 +3036,7 @@
         <label class="shots-field">Season
           <select id="season-pick">${seasonOptions(st.seasonId, false)}</select>
         </label>
-        <ul class="shots-game-list">${games || `<li class="muted">No games in this season yet.</li>`}</ul>
+        ${gamesBlock}
 
         <h2>Add game</h2>
         <form id="new-game-form" class="shots-form">
@@ -6237,17 +6263,20 @@
     if (assistWrap) assistWrap.hidden = !assistType;
     if (secondWrap) secondWrap.hidden = !(assistType && secondType);
     const locLabel = (loc) => (loc ? `${formatLoc(loc)} · (${formatXY(loc)})` : "Tap the pitch");
+    const shotText = $("#shot-edit-shot-loc-text");
     const assistText = $("#shot-edit-assist-loc-text");
     const secondText = $("#shot-edit-second-loc-text");
+    if (shotText) shotText.textContent = locLabel(editLocDraft.shot);
     if (assistText) assistText.textContent = locLabel(editLocDraft.assist);
     if (secondText) secondText.textContent = locLabel(editLocDraft.second);
+    const shotLoc = editLocDraft.shot || locFromPlay(ev.shot) || ev.shot;
     const preview = {
       id: ev.id,
       team,
       period: eventPeriod(ev),
-      result: ev.result,
+      result: $("#shot-edit-result")?.value || ev.result,
       shooterNumber: ev.shooterNumber,
-      shot: ev.shot,
+      shot: shotLoc,
       assist: editLocDraft.assist,
       secondAssist: editLocDraft.second,
       saveFailed: false,
@@ -6260,8 +6289,10 @@
       noPending: true,
       shotsOnlyMode: false,
     };
+    const shotPitch = $("#shot-edit-shot-pitch");
     const assistPitch = $("#shot-edit-assist-pitch");
     const secondPitch = $("#shot-edit-second-pitch");
+    if (shotPitch && shotLoc) shotPitch.innerHTML = halfPitchMarkup([preview], opts);
     if (assistPitch && assistType) assistPitch.innerHTML = halfPitchMarkup([preview], opts);
     if (secondPitch && assistType && secondType) secondPitch.innerHTML = halfPitchMarkup([preview], opts);
   }
@@ -6343,10 +6374,9 @@
     if (assistPosSel) assistPosSel.innerHTML = positionSelectOptions(ev.assist?.position || "");
     const secondPosSel = $("#shot-edit-second-assist-position");
     if (secondPosSel) secondPosSel.innerHTML = positionSelectOptions(ev.secondAssist?.position || "");
+    editLocDraft.shot = locFromPlay(ev.shot);
     editLocDraft.assist = locFromPlay(ev.assist);
     editLocDraft.second = locFromPlay(ev.secondAssist);
-    $("#shot-edit-name").value = ev.shooterName || "";
-    $("#shot-edit-short").value = ev.shooterShort || "";
     const clockInput = $("#shot-edit-clock");
     if (clockInput) {
       const raw = ev.gameClockSeconds ?? ev.game_clock_seconds;
@@ -6377,8 +6407,6 @@
       const ev = currentEditShot();
       if (!ev) return;
       refreshEditModalRosters(ev, { clearPlayers: true });
-      $("#shot-edit-name").value = "";
-      $("#shot-edit-short").value = "";
       renderEditLocPitches(ev);
     });
     $("#shot-edit-result")?.addEventListener("change", () => {
@@ -6388,9 +6416,11 @@
         missSel.disabled = !needs;
         if (!needs) missSel.value = "";
       }
-      const id = modal.dataset.shotId;
-      const ev = st.shots.find((s) => s.id === id) || st.history.rows?.find((s) => s.id === id);
-      if (ev) fillFoulerEditOptions(Object.assign({}, ev, { result: $("#shot-edit-result").value }), editModalTeam());
+      const ev = currentEditShot();
+      if (ev) {
+        fillFoulerEditOptions(Object.assign({}, ev, { result: $("#shot-edit-result").value }), editModalTeam());
+        renderEditLocPitches(ev);
+      }
     });
     $("#shot-edit-assist-type")?.addEventListener("change", () => {
       const type = $("#shot-edit-assist-type").value;
@@ -6424,7 +6454,9 @@
       const p = svgEventPoint(svg, e);
       const pitch = pitchFromSvgPoint(p.x, p.y, editPitchSwapped(team));
       const loc = locatePitchPoint(pitch.x, pitch.y);
-      if (host.getAttribute("data-edit-loc") === "second") editLocDraft.second = loc;
+      const role = host.getAttribute("data-edit-loc");
+      if (role === "shot") editLocDraft.shot = loc;
+      else if (role === "second") editLocDraft.second = loc;
       else editLocDraft.assist = loc;
       renderEditLocPitches(ev);
     });
@@ -6460,6 +6492,10 @@
         showToast("Pick a 2nd assist type (or clear 2nd assist)");
         return;
       }
+      if (!editLocDraft.shot) {
+        showToast("Tap the pitch to set shot location");
+        return;
+      }
       if (assistType && !editLocDraft.assist) {
         showToast("Tap the pitch to set assist location");
         return;
@@ -6490,6 +6526,10 @@
         fouler_player_id: foulerId,
         fouler_jersey_number_at_time: fouler ? String(fouler.number) : null,
         game_clock_seconds: clockElapsed,
+        x: editLocDraft.shot.x,
+        y: editLocDraft.shot.y,
+        zone_id: editLocDraft.shot.zoneId || null,
+        zone_label: editLocDraft.shot.zoneLabel || null,
         ...locPatch(
           "assist",
           assistType,
@@ -6510,21 +6550,12 @@
         showToast("Not saved — check connection");
         return;
       }
-      const name = $("#shot-edit-name").value.trim();
-      const short = $("#shot-edit-short").value.trim();
-      const pid = playerId || ev.player_id;
-      if (pid && (name || short)) {
-        await API.updatePlayer(pid, { name: name || null, short_name: short || null });
-        if (st.view === "shots-history") await runHistoryQuery();
-        else if (st.game) await loadGameContext();
-      } else {
-        const mapped = mapShot(saved.data);
-        const idx = st.shots.findIndex((s) => s.id === id);
-        if (idx >= 0) st.shots[idx] = mapped;
-        if (st.history.rows) {
-          const hIdx = st.history.rows.findIndex((s) => s.id === id);
-          if (hIdx >= 0) st.history.rows[hIdx] = Object.assign({}, st.history.rows[hIdx], mapped);
-        }
+      const mapped = mapShot(saved.data);
+      const idx = st.shots.findIndex((s) => s.id === id);
+      if (idx >= 0) st.shots[idx] = mapped;
+      if (st.history.rows) {
+        const hIdx = st.history.rows.findIndex((s) => s.id === id);
+        if (hIdx >= 0) st.history.rows[hIdx] = Object.assign({}, st.history.rows[hIdx], mapped);
       }
       modal.hidden = true;
       showToast("Shot updated");

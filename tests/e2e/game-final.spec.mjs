@@ -30,6 +30,7 @@ test.describe("Mark game final", () => {
     await expect(page.locator("[data-clock-toggle]")).toBeDisabled();
 
     await page.goto("/#shots-games");
-    await expect(page.locator(".shots-game-list")).toContainText(/ · Final/i, { timeout: 15000 });
+    const completed = page.locator(".shots-game-section", { hasText: "Completed" });
+    await expect(completed.locator(".shots-game-list")).toContainText(/ · Final/i, { timeout: 15000 });
   });
 });
