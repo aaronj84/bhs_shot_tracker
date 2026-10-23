@@ -260,6 +260,24 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(data.map((r) => r.miss_direction).sort()).toEqual(["crossbar", "post"]);
   });
 
+  it("records a weak-to-goalkeeper miss", async () => {
+    const { data, error } = await sb
+      .from("shots")
+      .insert({
+        game_id: gameId,
+        period: "1",
+        team_id: brightonId,
+        x: 34,
+        y: 10,
+        result: "missed",
+        miss_direction: "weak-gk",
+      })
+      .select("miss_direction, result")
+      .single();
+    expect(error).toBeNull();
+    expect(data).toEqual({ miss_direction: "weak-gk", result: "missed" });
+  });
+
   it("lists shots for the game", async () => {
     const { data, error } = await sb
       .from("shots")
