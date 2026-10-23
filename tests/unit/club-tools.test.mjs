@@ -292,7 +292,7 @@ describe("club gemini tools", () => {
       {
         candidate_game_ids: ["g-one", "g-both"],
         locked_game_ids: ["g-both"],
-        viewing_minutes: 30,
+        viewing_minutes: 105,
       },
       { db: fakeDb(sampleGames), mapsApiKey: "" }
     );

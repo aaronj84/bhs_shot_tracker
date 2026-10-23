@@ -6,6 +6,7 @@ import {
   formatItineraryText,
   icsDataUrl,
   icsEscape,
+  itineraryFeedUrl,
   itineraryIcsFilename,
   proposeOrder,
   sameFacility,
@@ -101,6 +102,15 @@ describe("club itinerary ICS", () => {
     expect(itineraryIcsFilename({})).toBe("club-visits.ics");
   });
 
+  it("builds a subscribe URL only for a 48-hex feed token", () => {
+    const tok = "a".repeat(48);
+    expect(itineraryFeedUrl("https://x.supabase.co/", tok)).toBe(
+      `https://x.supabase.co/functions/v1/club-itinerary-ics/${tok}.ics`
+    );
+    expect(itineraryFeedUrl("https://x.supabase.co", "short")).toBe("");
+    expect(itineraryFeedUrl("", tok)).toBe("");
+  });
+
   it("emits one VEVENT per stop with arrival window and reminder", () => {
     const ics = buildItineraryIcs(
       { id: "itin-1", name: "Saturday visits", notes: "Bring chairs" },
@@ -116,7 +126,7 @@ describe("club itinerary ICS", () => {
           field_label: "Field 5",
           lat: 40.5,
           lng: -112,
-          visit_minutes: 30,
+          visit_minutes: 105,
         },
         {
           game_id: "g2",
@@ -134,14 +144,16 @@ describe("club itinerary ICS", () => {
     expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2);
     expect(unfolded).toContain("UID:itin-1-g1@bhs-club-visits");
     expect(unfolded).toContain("DTSTART:20260411T214000Z");
-    expect(unfolded).toContain("DTEND:20260411T221000Z");
+    // 21:40Z + 105m = 23:25Z
+    expect(unfolded).toContain("DTEND:20260411T232500Z");
     expect(unfolded).toContain("SUMMARY:Visit: Jackie\\, Jane - Avalanche vs Wasatch");
     expect(unfolded).toContain("LOCATION:RAC · Field 5");
     expect(unfolded).toContain("TRIGGER:-PT15M");
     expect(unfolded).toContain("Bring chairs");
     expect(unfolded).toMatch(/URL:https:\/\/www\.google\.com\/maps/);
-    // Second stop falls back to kickoff − 5m when no planned arrival
+    // Second stop: kickoff − 5m through default 105m visit
     expect(unfolded).toContain("DTSTART:20260411T232500Z");
+    expect(unfolded).toContain("DTEND:20260412T011000Z");
     expect(unfolded).toContain("X-WR-CALNAME:Saturday visits");
     const dataUrl = icsDataUrl(ics);
     expect(dataUrl.startsWith("data:text/calendar;charset=utf-8;base64,")).toBe(true);
