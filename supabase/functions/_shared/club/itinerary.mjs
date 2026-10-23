@@ -229,3 +229,126 @@ export function formatItineraryText(itin, stops, legs, warnings, opts = {}) {
   }
   return lines.join("\n").trim() + "\n";
 }
+
+/** RFC 5545 UTC timestamp (YYYYMMDDTHHMMSSZ). */
+export function icsDate(iso) {
+  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+export function icsEscape(text) {
+  return String(text ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\r?\n/g, "\\n")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,");
+}
+
+/** Fold to 75 octets per line (continuations start with a space). */
+export function foldLine(line) {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const parts = [];
+  let cur = "";
+  let curBytes = 0;
+  let limit = 75;
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (curBytes + n > limit) {
+      parts.push(cur);
+      cur = "";
+      curBytes = 0;
+      limit = 74;
+    }
+    cur += ch;
+    curBytes += n;
+  }
+  parts.push(cur);
+  return parts.join("\r\n ");
+}
+
+export function itineraryIcsFilename(itin = {}) {
+  const raw = String(itin.name || "club-visits")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return `${raw || "club-visits"}.ics`;
+}
+
+/**
+ * One VEVENT per stop for phone calendar import.
+ * Uses planned arrival→departure when present; otherwise kickoff − 5m through visit window.
+ *
+ * @param {{ id?: string, name?: string, notes?: string, target_date?: string }} itin
+ * @param {Array<object>} stops
+ * @param {{ now?: Date, alertMinutes?: number, defaultVisitMinutes?: number }} [opts]
+ */
+export function buildItineraryIcs(itin, stops, opts = {}) {
+  const now = opts.now || new Date();
+  const alertMin = opts.alertMinutes ?? 15;
+  const defaultVisit = opts.defaultVisitMinutes ?? DEFAULT_VISIT_MINUTES;
+  const calName = itin?.name || "Club visitation";
+  const itinKey = itin?.id || "draft";
+  const stamp = icsDate(now.toISOString());
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Brighton Soccer//Club Visitation//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsEscape(calName)}`,
+    "X-WR-TIMEZONE:America/Denver",
+  ];
+
+  (stops || []).forEach((s, i) => {
+    const visitMin = Number(s.visit_minutes) || defaultVisit;
+    let startIso = s.planned_arrival_at;
+    let endIso = s.planned_departure_at;
+    if (!startIso && s.kickoff_at) {
+      startIso = new Date(new Date(s.kickoff_at).getTime() - 5 * 60000).toISOString();
+    }
+    if (!startIso) return;
+    if (!endIso) {
+      endIso = new Date(new Date(startIso).getTime() + visitMin * 60000).toISOString();
+    }
+    const team = s.team_line || s.label || "Club game";
+    const summary = s.brighton_line ? `Visit: ${s.brighton_line} — ${team}` : `Visit: ${team}`;
+    const venue = [s.facility_name, s.field_label].filter(Boolean).join(" · ") || "Venue TBD";
+    const descParts = [];
+    if (itin?.name) descParts.push(itin.name);
+    if (s.brighton_line) descParts.push(`Players: ${s.brighton_line}`);
+    descParts.push(`Match: ${team}`);
+    if (s.kickoff_at) {
+      descParts.push(`Kickoff: ${formatLocalKickoff(s.kickoff_at, s.timezone || "America/Denver")}`);
+    }
+    descParts.push(`Venue: ${venue}`);
+    if (s.lat != null && s.lng != null) {
+      const url = mapsDirectionsUrl(s.lat, s.lng, venue);
+      if (url) descParts.push(`Map: ${url}`);
+    }
+    if (s.notes) descParts.push(s.notes);
+    if (itin?.notes && i === 0) descParts.push(`Itinerary notes: ${itin.notes}`);
+    const uidGame = s.game_id || s.club_game_id || `stop-${i + 1}`;
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${itinKey}-${uidGame}@bhs-club-visits`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${icsDate(startIso)}`,
+      `DTEND:${icsDate(endIso)}`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
+      `LOCATION:${icsEscape(venue)}`,
+      "STATUS:CONFIRMED",
+      "TRANSP:OPAQUE",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      `TRIGGER:-PT${alertMin}M`,
+      `DESCRIPTION:${icsEscape(summary)}`,
+      "END:VALARM",
+      "END:VEVENT",
+    );
+  });
+
+  lines.push("END:VCALENDAR");
+  return lines.map(foldLine).join("\r\n") + "\r\n";
+}
