@@ -38,4 +38,4 @@ All 12 features done. Olympus prod swap SQL still not applied (see #8). Leftover
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | B1 | Establish backup routine triggered from GitHub Actions | todo | Daily (or scheduled) data dump — not elaborate; enough to regenerate inserts if a bug or bad entry corrupts data. Builds on existing PR/merge PROD dump in `docs/backup.md`. |
-| B2 | Make team formation recordable throughout a match | todo | Capture / update formation as the match progresses, not only at lineup setup. |
+| B2 | Make team formation recordable throughout a match | notes | Capture who is in which position at which minute; toggle shapes (4-3-3, 4-4-2, …). Design notes only for now — see [`formation-tracking.md`](formation-tracking.md). Do not implement until notes are reviewed. |
