@@ -1853,11 +1853,10 @@
     }
 
     if (isIosDevice()) {
-      const dataUrl = icsDataUrl(ics);
       // No `download` attribute — iOS Safari ignores it and the tap does nothing.
-      // Open a text/calendar data URL so Safari presents Add to Calendar.
-      const win = window.open(dataUrl, "_blank");
-      if (!win) window.location.assign(dataUrl);
+      // Same-tab navigation to a text/calendar data URL is what triggers
+      // Safari’s Add to Calendar sheet (window.open(data:) is often blocked).
+      window.location.assign(icsDataUrl(ics));
       return;
     }
 
