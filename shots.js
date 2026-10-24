@@ -136,7 +136,16 @@
     { slot: 10, code: "CF", number: "13" }, // Kailee
     { slot: 11, code: "RW", number: "32" }, // Ari
   ];
-  const GAME_TYPES = ["preseason", "region", "playoffs", "friendly", "other"];
+  const GAME_TYPES = [
+    "preseason",
+    "region",
+    "league",
+    "playoffs",
+    "tournament",
+    "futsal",
+    "friendly",
+    "other",
+  ];
   // MaxPreps renders fixed 220px round columns with no mobile layout, so the frame is
   // sized to the whole bracket and the page scrolls it sideways. `x` is each round's left edge.
   const PLAYOFF_BRACKET = {
@@ -431,10 +440,12 @@
         logTeam: st.logTeam,
         logResult: st.logResult,
         trackerPanel: st.trackerPanel,
+        teamId: st.teamId,
         seasonId: st.seasonId,
         gameId: st.gameId,
       })
     );
+    if (st.teamId) sessionStorage.setItem("shots-team-id", st.teamId);
     if (st.seasonId) sessionStorage.setItem("shots-season-id", st.seasonId);
     if (st.gameId) sessionStorage.setItem("shots-game-id", st.gameId);
   }
@@ -637,6 +648,7 @@
     games: [],
     allGames: [],
     game: null,
+    teamId: savedUi.teamId || sessionStorage.getItem("shots-team-id") || "",
     seasonId: savedUi.seasonId || sessionStorage.getItem("shots-season-id") || "",
     gameId: savedUi.gameId || sessionStorage.getItem("shots-game-id") || "",
     ourRoster: [],
@@ -1411,8 +1423,27 @@
     else paintClockFaces();
   }
 
+  function oursTeams() {
+    return (st.teams || []).filter((t) => t.is_ours);
+  }
+
+  function currentTeam() {
+    if (st.teamId) {
+      const hit = st.teams.find((t) => t.id === st.teamId && t.is_ours);
+      if (hit) return hit;
+    }
+    return oursTeams()[0] || null;
+  }
+
+  /** @deprecated use currentTeam() */
   function brighton() {
-    return st.teams.find((t) => t.is_brighton) || null;
+    return currentTeam();
+  }
+
+  function opponentTeams(ownerId) {
+    const oid = ownerId || st.teamId || currentTeam()?.id;
+    if (!oid) return [];
+    return (st.teams || []).filter((t) => !t.is_ours && t.owner_team_id === oid);
   }
 
   function teamById(id) {
@@ -1421,8 +1452,8 @@
 
   function ourTeamOf(game) {
     const g = game || st.game;
-    if (!g) return brighton();
-    return g.our_team || teamById(g.our_team_id) || brighton();
+    if (!g) return currentTeam();
+    return g.our_team || teamById(g.our_team_id) || currentTeam();
   }
 
   function ourTeamName(game) {
@@ -1434,10 +1465,77 @@
     const usId = game.our_team_id || ourTeamOf(game)?.id;
     if (usId && game.home_team_id === usId) return game.away_team || teamById(game.away_team_id);
     if (usId && game.away_team_id === usId) return game.home_team || teamById(game.home_team_id);
-    const b = brighton();
-    if (b && game.home_team_id === b.id) return game.away_team || teamById(game.away_team_id);
-    if (b && game.away_team_id === b.id) return game.home_team || teamById(game.home_team_id);
+    const us = currentTeam();
+    if (us && game.home_team_id === us.id) return game.away_team || teamById(game.away_team_id);
+    if (us && game.away_team_id === us.id) return game.home_team || teamById(game.home_team_id);
     return game.away_team || teamById(game.away_team_id);
+  }
+
+  function paintBrandChrome(brand) {
+    const brandName = document.querySelector("#brand-name");
+    const brandSub = document.querySelector("#brand-sub");
+    const logo = document.querySelector("a.brand img");
+    if (brandName) brandName.textContent = brand.brandName;
+    if (brandSub) {
+      brandSub.textContent = brand.brandSub || "";
+      brandSub.hidden = !brand.brandSub;
+    }
+    if (logo && brand.logoPath) logo.setAttribute("src", brand.logoPath);
+    if (brand.primaryColor) {
+      document.documentElement.style.setProperty("--brand", brand.primaryColor);
+      document.documentElement.style.setProperty("--ours", brand.primaryColor);
+    }
+    if (brand.accentColor) {
+      document.documentElement.style.setProperty("--accent", brand.accentColor);
+    }
+  }
+
+  function applyTeamBrand() {
+    const t = currentTeam();
+    const cfg = window.SHOTS_CONFIG || {};
+    const brand = {
+      brandName: (t && t.brand_name) || cfg.brandName || "Brighton Bengals",
+      brandSub:
+        t && t.brand_sub != null && String(t.brand_sub) !== ""
+          ? String(t.brand_sub)
+          : cfg.brandSub != null
+            ? String(cfg.brandSub)
+            : "Shot Tracker",
+      primaryColor: (t && t.primary_color) || null,
+      accentColor: (t && t.accent_color) || null,
+      logoPath: (t && t.logo_path) || null,
+    };
+    window.__SHOTS_ACTIVE_BRAND = brand;
+    paintBrandChrome(brand);
+    syncNavTeamPicker();
+  }
+
+  function syncNavTeamPicker() {
+    const sel = document.querySelector("#nav-team-pick");
+    if (!sel) return;
+    const ours = oursTeams();
+    const prev = sel.value;
+    sel.innerHTML = ours.length
+      ? ours
+          .map((t) => {
+            const label = t.level ? `${t.name} · ${t.level}` : t.name;
+            return `<option value="${t.id}" ${t.id === st.teamId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+          })
+          .join("")
+      : `<option value="">No teams</option>`;
+    if (!ours.some((t) => t.id === st.teamId) && ours[0]) sel.value = ours[0].id;
+    else if (prev && ours.some((t) => t.id === prev)) sel.value = st.teamId || prev;
+    if (!sel.dataset.bound) {
+      sel.dataset.bound = "1";
+      sel.addEventListener("change", () => {
+        const id = sel.value;
+        if (!id || id === st.teamId) return;
+        selectTeam(id).catch((err) => {
+          st.error = err.message || "Could not switch team";
+          draw();
+        });
+      });
+    }
   }
 
   function slugify(name) {
@@ -1481,7 +1579,7 @@
     if (byId) return byId;
     const hits = teams.filter((t) => slugify(t.name) === ref);
     if (hits.length === 1) return hits[0];
-    return hits.find((t) => !t.is_brighton) || hits[0] || null;
+    return hits.find((t) => !t.is_ours) || hits[0] || null;
   }
 
   function shareSeasonRef(season) {
@@ -1827,20 +1925,20 @@
   }
 
   function teamIdFor(team) {
-    const b = brighton();
-    if (team === "us") return b ? b.id : st.game?.our_team_id;
+    const us = ourTeamOf(st.game) || currentTeam();
+    if (team === "us") return us ? us.id : st.game?.our_team_id;
     const opp = opponentOf(st.game);
     return opp ? opp.id : null;
   }
 
   function teamIdForEvent(team, ev) {
     const key = team === "opp" ? "opp" : "us";
-    const b = brighton();
-    if (key === "us") return b ? b.id : ev?.game?.our_team_id || st.game?.our_team_id || null;
+    const us = ourTeamOf(ev?.game || st.game) || currentTeam();
+    if (key === "us") return us ? us.id : ev?.game?.our_team_id || st.game?.our_team_id || null;
     const game = ev?.game || st.game;
-    if (game && b) {
-      if (game.home_team_id === b.id) return game.away_team_id;
-      if (game.away_team_id === b.id) return game.home_team_id;
+    if (game && us) {
+      if (game.home_team_id === us.id) return game.away_team_id;
+      if (game.away_team_id === us.id) return game.home_team_id;
     }
     return teamIdFor("opp");
   }
@@ -2344,8 +2442,8 @@
 
   function mapShot(row) {
     if (row._view) return row;
-    const b = brighton();
-    const team = b && row.team_id === b.id ? "us" : "opp";
+    const usId = st.game?.our_team_id || currentTeam()?.id;
+    const team = usId && row.team_id === usId ? "us" : "opp";
     const roster = team === "us" ? st.ourRoster : st.oppRoster;
     return {
       id: row.id,
@@ -2391,8 +2489,16 @@
       return;
     }
     st.teams = await API.teams();
-    st.seasons = await API.seasons();
-    if (!st.seasonId && st.seasons[0]) st.seasonId = st.seasons[0].id;
+    const ours = oursTeams();
+    if (!st.teamId || !ours.some((t) => t.id === st.teamId)) {
+      st.teamId = ours[0]?.id || "";
+    }
+    st.seasons = st.teamId ? await API.seasons(st.teamId) : [];
+    if (st.seasonId && !st.seasons.some((s) => s.id === st.seasonId)) {
+      st.seasonId = st.seasons[0]?.id || "";
+    } else if (!st.seasonId && st.seasons[0]) {
+      st.seasonId = st.seasons[0].id;
+    }
     st.allGames = await API.games();
     st.games = st.seasonId ? st.allGames.filter((g) => g.season_id === st.seasonId) : st.allGames.slice();
     try {
@@ -2400,6 +2506,20 @@
     } catch {
       st.namedPlayers = [];
     }
+    applyTeamBrand();
+  }
+
+  async function selectTeam(id) {
+    if (!id || id === st.teamId) return;
+    st.teamId = id;
+    st.seasonId = "";
+    st.gameId = "";
+    st.game = null;
+    st.games = [];
+    st.shots = [];
+    await refreshMeta();
+    saveUi();
+    draw();
   }
 
   async function loadGameContext() {
@@ -2429,9 +2549,10 @@
       );
     }
     st.seasonId = st.game.season_id;
-    const b = brighton();
+    if (st.game.our_team_id) st.teamId = st.game.our_team_id;
+    const us = ourTeamOf(st.game) || currentTeam();
     const opp = opponentOf(st.game);
-    st.ourRoster = b ? await API.roster(b.id, st.game.season_id) : [];
+    st.ourRoster = us ? await API.roster(us.id, st.game.season_id) : [];
     st.oppRoster = opp ? await API.roster(opp.id, st.game.season_id) : [];
     applyLineupFromGame(st.game);
     seedDefaultLineupIfEmpty();
@@ -2814,8 +2935,16 @@
     return rows;
   }
 
+  function knownGameTeamNames() {
+    const us = currentTeam();
+    const names = new Set();
+    if (us) names.add(us.name.toLowerCase());
+    opponentTeams().forEach((t) => names.add(t.name.toLowerCase()));
+    return names;
+  }
+
   function newTeamNames(rows) {
-    const known = new Set(st.teams.map((t) => t.name.toLowerCase()));
+    const known = knownGameTeamNames();
     const names = [];
     rows.forEach((r) => {
       [r.home_team, r.away_team].forEach((n) => {
@@ -2827,28 +2956,33 @@
     return names;
   }
 
+  function resolveGameSideName(name) {
+    const us = currentTeam();
+    if (us && us.name.toLowerCase() === String(name || "").toLowerCase()) return us;
+    return opponentTeams().find((t) => t.name.toLowerCase() === String(name || "").toLowerCase()) || null;
+  }
+
   async function importScheduleRows(rows, createNames) {
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before importing a schedule.");
     for (const name of createNames) {
-      await API.createTeam(name);
+      await API.createOpponent(us.id, name);
     }
     await refreshMeta();
-    const b = brighton();
-    if (!b) throw new Error("Brighton team is missing. Re-run schema.sql.");
-    const byName = (n) => st.teams.find((t) => t.name.toLowerCase() === n.toLowerCase());
     const bySeason = (label) => st.seasons.find((s) => s.label.toLowerCase() === label.toLowerCase());
     let created = 0;
     for (const row of rows) {
       let season = bySeason(row.season_label);
       if (!season) {
         const year = Number(String(row.season_label).slice(0, 4)) || new Date().getFullYear();
-        season = await API.createSeason(year, row.season_label);
+        season = await API.createSeason(us.id, year, row.season_label);
         st.seasons.push(season);
       }
-      const home = byName(row.home_team);
-      const away = byName(row.away_team);
+      const home = resolveGameSideName(row.home_team);
+      const away = resolveGameSideName(row.away_team);
       if (!home || !away) throw new Error(`Unknown team in ${row.date} ${row.home_team} vs ${row.away_team}`);
-      if (home.id !== b.id && away.id !== b.id) {
-        throw new Error(`${row.home_team} vs ${row.away_team} does not include Brighton`);
+      if (home.id !== us.id && away.id !== us.id) {
+        throw new Error(`${row.home_team} vs ${row.away_team} does not include ${us.name}`);
       }
       await API.createGame({
         season_id: season.id,
@@ -2856,7 +2990,7 @@
         game_type: row.game_type,
         home_team_id: home.id,
         away_team_id: away.id,
-        our_team_id: b.id,
+        our_team_id: us.id,
       });
       created += 1;
     }
@@ -2868,6 +3002,8 @@
   }
 
   async function createGameFromForm() {
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before adding a game");
     const date = $("#new-game-date").value;
     const type = $("#new-game-type").value;
     let seasonId = $("#new-game-season").value;
@@ -2875,7 +3011,7 @@
     if (seasonId === "__new__") {
       if (!newSeasonLabel) throw new Error("Enter a season label");
       const year = Number($("#new-season-year")?.value) || new Date().getFullYear();
-      const season = await API.createSeason(year, newSeasonLabel);
+      const season = await API.createSeason(us.id, year, newSeasonLabel);
       seasonId = season.id;
       st.seasons.unshift(season);
     }
@@ -2884,7 +3020,7 @@
       if (v === "__new__") {
         const name = $(newId).value.trim();
         if (!name) throw new Error("Enter a team name");
-        const team = await API.createTeam(name);
+        const team = await API.createOpponent(us.id, name);
         st.teams.push(team);
         return team.id;
       }
@@ -2892,17 +3028,16 @@
     };
     const homeId = await pickTeam("#new-game-home", "#new-home-name");
     const awayId = await pickTeam("#new-game-away", "#new-away-name");
-    const b = brighton();
     if (!date || !seasonId || !homeId || !awayId) throw new Error("Date, season, and both teams are required");
     if (homeId === awayId) throw new Error("Home and away must be different");
-    if (!b || (homeId !== b.id && awayId !== b.id)) throw new Error("Brighton must be home or away");
+    if (homeId !== us.id && awayId !== us.id) throw new Error(`${us.name} must be home or away`);
     const game = await API.createGame({
       season_id: seasonId,
       date,
       game_type: type,
       home_team_id: homeId,
       away_team_id: awayId,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.seasonId = seasonId;
     await selectGame(game.id);
@@ -2911,37 +3046,39 @@
   async function importLocalStorageGame() {
     const events = localEvents();
     if (!events.length) throw new Error("No saved game on this device");
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before importing");
     const date = $("#import-date").value;
     const seasonId = $("#import-season").value;
     const oppName = $("#import-opponent").value.trim() || localUiV1().opponent || "Imported opponent";
     const type = $("#import-type").value;
     if (!date || !seasonId) throw new Error("Pick a date and season");
-    const b = brighton();
-    let opp = st.teams.find((t) => t.name.toLowerCase() === oppName.toLowerCase());
-    if (!opp) opp = await API.createTeam(oppName);
+    let opp = resolveGameSideName(oppName);
+    if (!opp || opp.is_ours) opp = await API.createOpponent(us.id, oppName);
     await refreshMeta();
-    opp = st.teams.find((t) => t.name.toLowerCase() === oppName.toLowerCase());
+    opp = resolveGameSideName(oppName);
+    if (!opp) throw new Error("Could not create opponent");
     const game = await API.createGame({
       season_id: seasonId,
       date,
       game_type: type,
-      home_team_id: b.id,
+      home_team_id: us.id,
       away_team_id: opp.id,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.gameId = game.id;
     await loadGameContext();
     for (const ev of events) {
       if (ev.shot == null || ev.shot.x == null || ev.shot.y == null) continue;
       const team = ev.team === "opp" ? "opp" : "us";
-      const teamId = team === "us" ? b.id : opp.id;
+      const teamId = team === "us" ? us.id : opp.id;
       let playerId = null;
       let jersey = ev.shooterNumber ? String(ev.shooterNumber) : null;
       if (jersey) {
         const name = team === "us" ? ev.shooterName || null : null;
         const roster = await API.ensureRosterPlayer(teamId, seasonId, jersey, name);
         playerId = roster.player_id;
-        if (team === "us") st.ourRoster = await API.roster(b.id, seasonId);
+        if (team === "us") st.ourRoster = await API.roster(us.id, seasonId);
         else st.oppRoster = await API.roster(opp.id, seasonId);
       }
       let assistPlayerId = null;
@@ -2979,10 +3116,26 @@
   }
 
   function teamOptions(selectedId, includeNew) {
-    const opts = st.teams
+    const us = currentTeam();
+    const list = [];
+    if (us) list.push(us);
+    opponentTeams().forEach((t) => list.push(t));
+    const opts = list
       .map((t) => `<option value="${t.id}" ${t.id === selectedId ? "selected" : ""}>${escapeHtml(t.name)}</option>`)
       .join("");
-    return `<option value="">Select…</option>${opts}${includeNew ? `<option value="__new__">New team…</option>` : ""}`;
+    return `<option value="">Select…</option>${opts}${includeNew ? `<option value="__new__">New opponent…</option>` : ""}`;
+  }
+
+  function oursTeamOptions(selectedId) {
+    return oursTeams()
+      .map((t) => {
+        const bits = [t.name];
+        if (t.level) bits.push(t.level);
+        if (t.organization && t.organization !== t.name) bits.push(t.organization);
+        const label = bits.length > 1 ? `${t.name}${t.level ? ` · ${t.level}` : ""}` : t.name;
+        return `<option value="${t.id}" ${t.id === selectedId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      })
+      .join("");
   }
 
   function seasonOptions(selectedId, includeNew) {
@@ -3027,12 +3180,16 @@
         </div>`
       : "";
 
+    const oursOpts = oursTeamOptions(st.teamId);
     root().innerHTML = `
       <div class="shots-admin">
         ${trackerNav("games")}
         <h1>Games</h1>
-        <p class="muted">Pick a season, then a game — Track Shots or Scoreboard.</p>
+        <p class="muted">Pick a team and season, then a game — Track Shots or Scoreboard.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+        <label class="shots-field">Team
+          <select id="team-pick">${oursOpts || `<option value="">No teams yet</option>`}</select>
+        </label>
         <label class="shots-field">Season
           <select id="season-pick">${seasonOptions(st.seasonId, false)}</select>
         </label>
@@ -3052,13 +3209,13 @@
             <label class="shots-field">Year <input type="number" id="new-season-year" value="${new Date().getFullYear()}" /></label>
           </div>
           <label class="shots-field">Home
-            <select id="new-game-home">${teamOptions(brighton()?.id, true)}</select>
+            <select id="new-game-home">${teamOptions(currentTeam()?.id, true)}</select>
           </label>
-          <input type="text" id="new-home-name" class="text-gate-input" placeholder="New home team name" hidden />
+          <input type="text" id="new-home-name" class="text-gate-input" placeholder="New home opponent name" hidden />
           <label class="shots-field">Away
             <select id="new-game-away">${teamOptions("", true)}</select>
           </label>
-          <input type="text" id="new-away-name" class="text-gate-input" placeholder="New away team name" hidden />
+          <input type="text" id="new-away-name" class="text-gate-input" placeholder="New away opponent name" hidden />
           <button type="submit" class="btn btn-primary">Start tracking</button>
         </form>
 
@@ -3084,6 +3241,12 @@
         }
       </div>`;
 
+    $("#team-pick")?.addEventListener("change", (e) => {
+      selectTeam(e.target.value).catch((err) => {
+        st.error = err.message || "Could not switch team";
+        draw();
+      });
+    });
     $("#season-pick")?.addEventListener("change", (e) => selectSeason(e.target.value));
     $$("[data-open-game]").forEach((btn) => {
       btn.addEventListener("click", () => openGameChooser(btn.getAttribute("data-open-game")));
@@ -7124,6 +7287,8 @@
   async function saveGameDetailsFromForm() {
     const g = st.game;
     if (!g || !st.gameId) throw new Error("No game open");
+    const us = currentTeam() || ourTeamOf(g);
+    if (!us) throw new Error("No active team");
     const date = $("#edit-game-date")?.value;
     const type = $("#edit-game-type")?.value;
     const seasonId = $("#edit-game-season")?.value;
@@ -7132,7 +7297,7 @@
       if (v === "__new__") {
         const name = $(newId)?.value.trim();
         if (!name) throw new Error("Enter a team name");
-        const team = await API.createTeam(name);
+        const team = await API.createOpponent(us.id, name);
         st.teams.push(team);
         return team.id;
       }
@@ -7140,10 +7305,9 @@
     };
     const homeId = await pickTeam("#edit-game-home", "#edit-home-name");
     const awayId = await pickTeam("#edit-game-away", "#edit-away-name");
-    const b = brighton();
     if (!date || !seasonId || !homeId || !awayId) throw new Error("Date, season, and both teams are required");
     if (homeId === awayId) throw new Error("Home and away must be different");
-    if (!b || (homeId !== b.id && awayId !== b.id)) throw new Error("Brighton must be home or away");
+    if (homeId !== us.id && awayId !== us.id) throw new Error(`${us.name} must be home or away`);
     if (!GAME_TYPES.includes(type)) throw new Error("Pick a valid game type");
     await API.updateGame(st.gameId, {
       season_id: seasonId,
@@ -7151,7 +7315,7 @@
       game_type: type,
       home_team_id: homeId,
       away_team_id: awayId,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.seasonId = seasonId;
     await refreshMeta();
@@ -7765,11 +7929,11 @@
     const mapped = mapShot(row);
     mapped.game = row.game;
     mapped.gameDate = row.game?.date || "";
-    const b = brighton();
+    const usId = row.game?.our_team_id || currentTeam()?.id;
     mapped.opponentName = "";
     if (row.game) {
       mapped.opponentName =
-        row.game.home_team_id === b?.id ? row.game.away_team?.name || "" : row.game.home_team?.name || "";
+        row.game.home_team_id === usId ? row.game.away_team?.name || "" : row.game.home_team?.name || "";
     }
     mapped.seasonLabel = row.game?.season?.label || "";
     mapped.shooterName = row.player?.name || mapped.shooterName;
@@ -7971,7 +8135,7 @@
   function renderHistory() {
     bindEditModal();
     const f = st.history;
-    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const oppTeams = opponentTeams();
     const rows = f.rows;
     root().innerHTML = `
       <div class="shots-admin shots-history">
@@ -8181,7 +8345,7 @@
   }
 
   function isOfficialGameType(type) {
-    return type === "region" || type === "playoffs";
+    return type === "region" || type === "league" || type === "playoffs";
   }
 
   function prepCandidateGames() {
@@ -9342,7 +9506,7 @@
     if ((st.prep.opponentId || st.prep.lockedGameId) && key !== st.prep.loadKey && !st.prep.loading) {
       loadPrepData();
     }
-    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const oppTeams = opponentTeams();
     const selectedIds = prepSelectedIds();
     const visible = prepVisibleRows();
     const aggregates = prepAggregates(visible);
@@ -10356,9 +10520,10 @@
       st.gameId = gameId;
       st.game = game;
       st.seasonId = game.season_id;
-      const b = brighton();
+      if (game.our_team_id) st.teamId = game.our_team_id;
+      const us = ourTeamOf(game) || currentTeam();
       const opp = opponentOf(game);
-      st.ourRoster = b ? await API.roster(b.id, game.season_id) : [];
+      st.ourRoster = us ? await API.roster(us.id, game.season_id) : [];
       st.oppRoster = opp ? await API.roster(opp.id, game.season_id) : [];
       applyLineupFromGame(game);
       const rows = await API.shotsForGame(gameId);
@@ -10427,6 +10592,8 @@
       }
       draw();
     },
+    selectTeam,
+    syncNavTeamPicker,
     async renderLiveScoreboard() {
       st.view = "live-scoreboard";
       await bootLiveScoreboard();

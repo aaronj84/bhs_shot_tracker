@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20261023g" />
+  <link rel="stylesheet" href="styles.css?v=20261024a" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -48,6 +48,10 @@
   <div class="nav-drawer" id="nav-drawer" hidden>
     <div class="nav-drawer-backdrop" data-close-drawer></div>
     <nav class="nav-drawer-panel" aria-label="App">
+      <label class="nav-drawer-team shots-field">
+        Team
+        <select id="nav-team-pick" aria-label="Active team"></select>
+      </label>
       <a class="nav-drawer-primary" href="#shots" data-nav="shots" data-close-drawer>Shot Tracking</a>
       <div class="nav-drawer-sub">
         <a href="#shots-games" data-nav="shots-games" data-close-drawer>Games</a>
@@ -278,10 +282,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
-  <script src="shots-api.js?v=20261017a"></script>
-  <script src="shots.js?v=20261022i"></script>
+  <script src="shots-api.js?v=20261024a"></script>
+  <script src="shots.js?v=20261024a"></script>
   <script src="schedule.js?v=20261012a"></script>
   <script src="club-visitation.js?v=20261023h"></script>
-  <script src="app.js?v=20261016a"></script>
+  <script src="app.js?v=20261024a"></script>
 </body>
 </html>

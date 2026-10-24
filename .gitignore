@@ -40,4 +40,4 @@ _site/
 
 # macOS
 .DS_Store
-maxprep/rank_watch/launchd.err.log
+launchd.err.log

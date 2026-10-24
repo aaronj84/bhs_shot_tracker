@@ -8,7 +8,7 @@ const FORBIDDEN =
   /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|call|execute|do|set\s+|reset|notify|listen|unlisten|vacuum|analyze|reindex|cluster|comment|security|owner|policy|function|procedure|trigger|extension|schema|database|role|user|password)\b/i;
 
 const PUBLIC_RELATIONS =
-  /\bpublic\.(teams|seasons|players|games|rosters|shots|v_brighton_shots|v_brighton_shots_official|v_brighton_games)\b/gi;
+  /\bpublic\.(teams|seasons|players|games|rosters|shots|v_our_shots|v_our_shots_official|v_our_games|v_brighton_shots|v_brighton_shots_official|v_brighton_games)\b/gi;
 
 /** Raw stat tables models should avoid when curated views exist. */
 const RAW_STAT_TABLES = /\b(from|join)\s+(public\.)?(shots|games)\b/i;
@@ -36,10 +36,10 @@ export function validateSql(sql: string): string {
   return cleaned;
 }
 
-/** Optional guardrail: true when SQL bypasses v_brighton_* for raw shots/games. */
+/** Optional guardrail: true when SQL bypasses v_our_* / v_brighton_* for raw shots/games. */
 export function usesRawStatTables(sql: string): boolean {
   const s = String(sql || "");
-  if (/\bv_brighton_(shots|shots_official|games)\b/i.test(s)) return false;
+  if (/\bv_(our|brighton)_(shots|shots_official|games)\b/i.test(s)) return false;
   return RAW_STAT_TABLES.test(s);
 }
 

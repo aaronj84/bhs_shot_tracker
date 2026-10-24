@@ -23,19 +23,19 @@ begin
     raise exception '2026 Fall season missing — run schema/migrations first';
   end if;
 
-  if not exists (select 1 from public.teams where name = 'Alta' and not is_brighton) then
+  if not exists (select 1 from public.teams where name = 'Alta' and not is_ours) then
     raise exception 'Alta team missing — run migrate_2026_varsity_schedule.sql first';
   end if;
-  if not exists (select 1 from public.teams where name = 'Olympus' and not is_brighton) then
+  if not exists (select 1 from public.teams where name = 'Olympus' and not is_ours) then
     raise exception 'Olympus team missing — run migrate_2026_varsity_schedule.sql first';
   end if;
-  if not exists (select 1 from public.teams where name = 'Skyline' and not is_brighton) then
+  if not exists (select 1 from public.teams where name = 'Skyline' and not is_ours) then
     raise exception 'Skyline team missing — run migrate_2026_varsity_schedule.sql first';
   end if;
-  if not exists (select 1 from public.teams where name = 'Woods Cross' and not is_brighton) then
+  if not exists (select 1 from public.teams where name = 'Woods Cross' and not is_ours) then
     raise exception 'Woods Cross team missing — run migrate_2026_varsity_schedule.sql first';
   end if;
-  if not exists (select 1 from public.teams where name = 'Viewmont' and not is_brighton) then
+  if not exists (select 1 from public.teams where name = 'Viewmont' and not is_ours) then
     raise exception 'Viewmont team missing — run migrate_2026_varsity_schedule.sql first';
   end if;
 
@@ -175,7 +175,7 @@ begin
   loop
     select id into tid
     from public.teams
-    where name = rec.team_name and not is_brighton
+    where name = rec.team_name and not is_ours
     limit 1;
 
     select r.player_id into pid

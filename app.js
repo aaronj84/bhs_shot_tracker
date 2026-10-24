@@ -49,13 +49,27 @@
     if (theme) theme.setAttribute("content", view === "shots-scoreboard" || view === "live-scoreboard" ? "#0b1f33" : "#f4f7fb");
 
     const cfg = window.SHOTS_CONFIG || {};
+    const active = window.__SHOTS_ACTIVE_BRAND || {};
     const brandName = $("#brand-name");
     const brandSub = $("#brand-sub");
-    if (brandName) brandName.textContent = cfg.brandName || "Brighton Bengals";
+    if (brandName) brandName.textContent = active.brandName || cfg.brandName || "Brighton Bengals";
     if (brandSub) {
-      const sub = cfg.brandSub != null ? String(cfg.brandSub) : "Shot Tracker";
+      const sub =
+        active.brandSub != null
+          ? String(active.brandSub)
+          : cfg.brandSub != null
+            ? String(cfg.brandSub)
+            : "Shot Tracker";
       brandSub.textContent = sub;
       brandSub.hidden = !sub;
+    }
+    if (active.primaryColor) {
+      document.documentElement.style.setProperty("--brand", active.primaryColor);
+      document.documentElement.style.setProperty("--ours", active.primaryColor);
+    }
+    if (active.logoPath) {
+      const logo = $("a.brand img");
+      if (logo) logo.setAttribute("src", active.logoPath);
     }
 
     $$("[data-nav]").forEach((el) => {
