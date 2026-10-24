@@ -1480,7 +1480,11 @@
       brandSub.textContent = brand.brandSub || "";
       brandSub.hidden = !brand.brandSub;
     }
-    if (logo && brand.logoPath) logo.setAttribute("src", brand.logoPath);
+    const isDev =
+      String((window.SHOTS_CONFIG || {}).env || "").toLowerCase() === "dev" ||
+      String((window.SHOTS_CONFIG || {}).supabaseUrl || "").includes("fmiymqnfezkqagpbrmoi");
+    // Never replace the DEV badge with a team logo while on the DEV project.
+    if (logo && brand.logoPath && !isDev) logo.setAttribute("src", brand.logoPath);
     if (brand.primaryColor) {
       document.documentElement.style.setProperty("--brand", brand.primaryColor);
       document.documentElement.style.setProperty("--ours", brand.primaryColor);

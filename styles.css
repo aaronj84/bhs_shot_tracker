@@ -69,6 +69,29 @@ body {
   line-height: 1.45;
 }
 
+/* Unmistakable DEV chrome — never confuse with live PROD. */
+body.dev-env {
+  --bg: #fff1c2;
+  --bg-elevated: #fff8e1;
+  --bg-panel: #fff8e1;
+  --bg-soft: #ffe08a;
+  --border: #e0b84a;
+  --border-strong: #c9921a;
+  background:
+    radial-gradient(ellipse 75% 45% at 50% -10%, rgba(245, 158, 11, 0.35), transparent 58%),
+    linear-gradient(180deg, #ffe8a3 0%, var(--bg) 42%);
+}
+
+body.dev-env .app-header {
+  background: rgba(255, 224, 130, 0.96);
+  border-bottom-color: #e0b84a;
+}
+
+body.dev-env a.brand img {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px #c2410c;
+}
+
 img,
 svg {
   max-width: 100%;

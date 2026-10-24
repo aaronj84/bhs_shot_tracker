@@ -39,6 +39,20 @@ export BACKUP_ENCRYPTION_KEY='…'   # or SUPABASE_DB_PASSWORD_PROD
 tar -tzf backups/bhs-shot-tracker-prod-YYYYMMDD-HHMMSSZ.tar.gz   # or wherever the .tar.gz landed
 ```
 
+## Clone PROD → DEV
+
+Replace DEV data with a fresh PROD dump (then apply any migrations PROD is missing):
+
+```bash
+# Docker must be running; brew install libpq if you lack psql
+export SUPABASE_DB_PASSWORD_PROD='…'
+export SUPABASE_DB_PASSWORD_DEV='…'
+./scripts/restore-prod-to-dev.sh
+# or: ./scripts/restore-prod-to-dev.sh --from backups/bhs-shot-tracker-prod-….tar.gz --yes
+```
+
+Local app chrome turns orange with a **DEV** logo whenever `shots-config.js` points at the DEV project (`env: "dev"` or the DEV project ref in the URL).
+
 ## Restore
 
 Prefer restoring into a **new** Supabase project or empty database, not live PROD, until you have verified the dump.
