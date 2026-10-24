@@ -77,28 +77,31 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     await sb.auth.signOut();
   });
 
-  it("loads Brighton team seed", async () => {
-    const { data, error } = await sb.from("teams").select("*").eq("is_brighton", true).single();
+  it("loads owned team seed", async () => {
+    const { data, error } = await sb.from("teams").select("*").eq("is_ours", true).limit(1).single();
     expect(error).toBeNull();
     expect(data?.name).toBeTruthy();
+    expect(data?.is_ours).toBe(true);
     brightonId = data.id;
   });
 
   it("creates a season, opponent, game", async () => {
     const { data: season, error: sErr } = await sb
       .from("seasons")
-      .insert({ year: 2099, label: seasonLabel })
+      .insert({ team_id: brightonId, year: 2099, label: seasonLabel })
       .select()
       .single();
     expect(sErr).toBeNull();
+    expect(season.team_id).toBe(brightonId);
     seasonId = season.id;
 
     const { data: opp, error: oErr } = await sb
       .from("teams")
-      .insert({ name: `CI Opp ${runId}`, is_brighton: false })
+      .insert({ name: `CI Opp ${runId}`, is_ours: false, owner_team_id: brightonId })
       .select()
       .single();
     expect(oErr).toBeNull();
+    expect(opp.owner_team_id).toBe(brightonId);
     opponentId = opp.id;
 
     const { data: game, error: gErr } = await sb
@@ -346,6 +349,54 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
     expect(data.name).toBe("control");
     expect(data.target).toBe("sync");
     expect(data.session_id).toBe(`ci-${runId}`);
+  });
+
+  it("scopes seasons and opponents to an owned team", async () => {
+    const otherLabel = `CI Other ${runId}`;
+    const { data: otherTeam, error: tErr } = await sb
+      .from("teams")
+      .insert({
+        name: `CI Club ${runId}`,
+        is_ours: true,
+        organization: "CI Club FC",
+        org_type: "club",
+        level: "U17",
+      })
+      .select()
+      .single();
+    expect(tErr).toBeNull();
+
+    const { data: otherSeason, error: sErr } = await sb
+      .from("seasons")
+      .insert({ team_id: otherTeam.id, year: 2099, label: otherLabel })
+      .select()
+      .single();
+    expect(sErr).toBeNull();
+
+    const { data: scoped, error: qErr } = await sb
+      .from("seasons")
+      .select("id, team_id")
+      .eq("team_id", brightonId)
+      .eq("id", seasonId);
+    expect(qErr).toBeNull();
+    expect(scoped?.length).toBe(1);
+
+    const { data: leaked } = await sb
+      .from("seasons")
+      .select("id")
+      .eq("team_id", brightonId)
+      .eq("label", otherLabel);
+    expect(leaked?.length ?? 0).toBe(0);
+
+    const { error: badOpp } = await sb.from("teams").insert({
+      name: `CI Opp orphan ${runId}`,
+      is_ours: false,
+      owner_team_id: null,
+    });
+    expect(badOpp).toBeTruthy();
+
+    await sb.from("seasons").delete().eq("id", otherSeason.id);
+    await sb.from("teams").delete().eq("id", otherTeam.id);
   });
 });
 

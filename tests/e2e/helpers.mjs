@@ -220,13 +220,19 @@ export async function createFriendlyAndOpenTracker(page) {
   await page.goto("/#shots-games");
   await expect(page.locator("#new-game-form")).toBeVisible({ timeout: 15000 });
 
+  const homeVal = await page.locator("#new-game-home").inputValue();
   const away = page.locator("#new-game-away");
   await expect(away).toBeVisible();
   const values = await away.locator("option").evaluateAll((opts) =>
     opts.map((o) => ({ value: o.value, text: (o.textContent || "").trim() }))
   );
+  // Prefer an existing opponent; never reuse the active (home/ours) team id.
   const existing = values.find(
-    (o) => o.value && o.value !== "__new__" && !/brighton/i.test(o.text) && o.text !== "Select…"
+    (o) =>
+      o.value &&
+      o.value !== "__new__" &&
+      o.value !== homeVal &&
+      o.text !== "Select…"
   );
   if (existing) {
     await away.selectOption(existing.value);

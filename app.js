@@ -34,6 +34,34 @@
     return view === "club-agenda" || view === "club-itinerary" || view === "club-data";
   }
 
+  const DEV_REF = "fmiymqnfezkqagpbrmoi";
+
+  function isDevEnv(cfg) {
+    const c = cfg || window.SHOTS_CONFIG || {};
+    const env = String(c.env || "").toLowerCase();
+    if (env === "dev" || env === "development") return true;
+    if (env === "prod" || env === "production") return false;
+    return String(c.supabaseUrl || "").includes(DEV_REF);
+  }
+
+  /** Orange chrome + block DEV logo when pointing at the DEV Supabase project. */
+  function applyEnvChrome() {
+    const cfg = window.SHOTS_CONFIG || {};
+    const isDev = isDevEnv(cfg);
+    document.body.classList.toggle("dev-env", isDev);
+    const logo = $("a.brand img");
+    if (logo) {
+      if (isDev) {
+        logo.setAttribute("src", "assets/logo-dev.svg");
+        logo.setAttribute("alt", "DEV");
+      } else if ((logo.getAttribute("src") || "").includes("logo-dev")) {
+        logo.setAttribute("src", "assets/logo.svg");
+        logo.removeAttribute("alt");
+      }
+    }
+    return isDev;
+  }
+
   function updateChrome(view) {
     document.body.classList.add("shots-mode", "tracker-view");
     document.body.classList.toggle("shots-record-view", view === "shots");
@@ -45,17 +73,76 @@
       "shots-admin-view",
       view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
     );
+    const isDev = applyEnvChrome();
     const theme = document.querySelector('meta[name="theme-color"]');
-    if (theme) theme.setAttribute("content", view === "shots-scoreboard" || view === "live-scoreboard" ? "#0b1f33" : "#f4f7fb");
+    if (theme) {
+      const scoreboard = view === "shots-scoreboard" || view === "live-scoreboard";
+      theme.setAttribute("content", scoreboard ? "#0b1f33" : isDev ? "#f59e0b" : "#f4f7fb");
+    }
 
     const cfg = window.SHOTS_CONFIG || {};
+    const active = window.__SHOTS_ACTIVE_BRAND || {};
     const brandName = $("#brand-name");
     const brandSub = $("#brand-sub");
-    if (brandName) brandName.textContent = cfg.brandName || "Brighton Bengals";
+    if (brandName) brandName.textContent = active.brandName || cfg.brandName || "Brighton Bengals";
     if (brandSub) {
-      const sub = cfg.brandSub != null ? String(cfg.brandSub) : "Shot Tracker";
+      let sub =
+        active.brandSub != null
+          ? String(active.brandSub)
+          : cfg.brandSub != null
+            ? String(cfg.brandSub)
+            : "Shot Tracker";
+      if (isDev && sub && !/\bdev\b/i.test(sub)) sub = `DEV · ${sub}`;
+      else if (isDev && !sub) sub = "DEV";
       brandSub.textContent = sub;
       brandSub.hidden = !sub;
+    }
+    // Team colors always apply (DEV page tint stays via body.dev-env).
+    if (active.primaryColor) {
+      document.documentElement.style.setProperty("--brand", active.primaryColor);
+      document.documentElement.style.setProperty("--ours", active.primaryColor);
+      document.documentElement.style.setProperty(
+        "--brand-strong",
+        `color-mix(in srgb, ${active.primaryColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--focus", active.primaryColor);
+    }
+    if (active.accentColor) {
+      document.documentElement.style.setProperty("--accent", active.accentColor);
+      document.documentElement.style.setProperty(
+        "--accent-dim",
+        `color-mix(in srgb, ${active.accentColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--hint", active.accentColor);
+    }
+    // Header logo: DEV badge on DEV; otherwise team crest.
+    const logo = $("a.brand img");
+    if (logo) {
+      if (isDev) {
+        logo.setAttribute("src", "assets/logo-dev.svg");
+        logo.setAttribute("alt", "DEV");
+      } else if (active.logoPath) {
+        logo.setAttribute("src", active.logoPath);
+        logo.setAttribute("alt", active.brandName || "");
+      }
+    }
+    const headerTeam = $("#header-team");
+    const headerLogo = $("#header-team-logo");
+    const headerName = $("#header-team-name");
+    if (headerTeam && headerLogo && headerName) {
+      // Only show once ShotTracker has applied a real team (not config fallback).
+      if (active.teamName) {
+        headerLogo.setAttribute("src", active.logoPath || "assets/logo.svg");
+        headerLogo.setAttribute("alt", "");
+        headerName.textContent = active.teamName;
+        headerTeam.hidden = false;
+        headerTeam.setAttribute(
+          "aria-label",
+          `Active team: ${active.teamName}. Open menu to switch.`
+        );
+      } else {
+        headerTeam.hidden = true;
+      }
     }
 
     $$("[data-nav]").forEach((el) => {
@@ -106,15 +193,28 @@
     window.scrollTo(0, 0);
   }
 
+  function openDrawer() {
+    const drawer = $("#nav-drawer");
+    const btn = $("#menu-btn");
+    if (!drawer) return;
+    drawer.hidden = false;
+    requestAnimationFrame(() => drawer.classList.add("is-open"));
+    btn?.setAttribute("aria-expanded", "true");
+  }
+
   $("#menu-btn")?.addEventListener("click", () => {
     const drawer = $("#nav-drawer");
     const btn = $("#menu-btn");
     if (!drawer) return;
     const open = !drawer.classList.contains("is-open");
-    drawer.hidden = false;
-    requestAnimationFrame(() => drawer.classList.toggle("is-open", open));
-    if (!open) drawer.hidden = true;
+    if (open) openDrawer();
+    else closeDrawer();
     btn?.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  $("#header-team")?.addEventListener("click", () => {
+    openDrawer();
+    const pick = $("#nav-team-pick");
+    if (pick) requestAnimationFrame(() => pick.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   });
   $("#nav-drawer")?.addEventListener("click", (e) => {
     if (e.target.closest("[data-close-drawer], [data-nav]")) closeDrawer();
@@ -164,5 +264,6 @@
     location.replace("#shots");
   }
   lockViewportScale();
+  applyEnvChrome();
   render();
 })();

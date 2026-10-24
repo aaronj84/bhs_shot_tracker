@@ -30,6 +30,7 @@ shots-config.js
 
 # Logical DB dumps (roster names — never commit)
 /backups/
+/supabase/backups/
 
 # Node / Playwright
 node_modules/
@@ -40,3 +41,4 @@ _site/
 
 # macOS
 .DS_Store
+launchd.err.log

@@ -39,9 +39,9 @@ declare
   jersey text;
   ajersey text;
 begin
-  select id into marauders from public.teams where is_brighton limit 1;
-  select id into season from public.seasons where label = 'DEV Sandbox' limit 1;
-  select id into opp from public.teams where name = 'Bogwater Badgers' limit 1;
+  select id into marauders from public.teams where is_ours limit 1;
+  select id into season from public.seasons where label = 'DEV Sandbox' and team_id = marauders limit 1;
+  select id into opp from public.teams where name = 'Bogwater Badgers' and owner_team_id = marauders limit 1;
   if marauders is null or season is null or opp is null then
     raise exception 'Run supabase/seed_dev_sandbox.sql on DEV first';
   end if;
