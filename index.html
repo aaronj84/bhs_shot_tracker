@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20261024b" />
+  <link rel="stylesheet" href="styles.css?v=20261024d" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -20,6 +20,11 @@
         <span class="brand-sub" id="brand-sub">Shot Tracker</span>
       </span>
     </a>
+
+    <button type="button" class="header-team" id="header-team" aria-label="Active team" hidden>
+      <img id="header-team-logo" src="assets/logo.svg" width="36" height="36" alt="" />
+      <span class="header-team-name" id="header-team-name"></span>
+    </button>
 
     <nav class="nav-desktop nav-shots" aria-label="Shot Tracker">
       <a class="nav-link nav-link-primary" href="#shots" data-nav="shots">Shot Tracking</a>
@@ -48,22 +53,24 @@
   <div class="nav-drawer" id="nav-drawer" hidden>
     <div class="nav-drawer-backdrop" data-close-drawer></div>
     <nav class="nav-drawer-panel" aria-label="App">
-      <label class="nav-drawer-team shots-field">
-        Team
-        <select id="nav-team-pick" aria-label="Active team"></select>
-      </label>
-      <a class="nav-drawer-primary" href="#shots" data-nav="shots" data-close-drawer>Shot Tracking</a>
-      <div class="nav-drawer-sub">
-        <a href="#shots-games" data-nav="shots-games" data-close-drawer>Games</a>
-        <a href="#shots-history" data-nav="shots-history" data-close-drawer>History</a>
-        <a href="#shots-prep" data-nav="shots-prep" data-close-drawer>Prep</a>
-        <a href="#shots-map" data-nav="shots-map" data-close-drawer>Map</a>
+      <div class="nav-drawer-scroll">
+        <a class="nav-drawer-primary" href="#shots" data-nav="shots" data-close-drawer>Shot Tracking</a>
+        <div class="nav-drawer-sub">
+          <a href="#shots-games" data-nav="shots-games" data-close-drawer>Games</a>
+          <a href="#shots-history" data-nav="shots-history" data-close-drawer>History</a>
+          <a href="#shots-prep" data-nav="shots-prep" data-close-drawer>Prep</a>
+          <a href="#shots-map" data-nav="shots-map" data-close-drawer>Map</a>
+        </div>
+        <p class="nav-drawer-heading" id="nav-planning-label">Planning</p>
+        <div class="nav-drawer-sub" role="group" aria-labelledby="nav-planning-label">
+          <a href="#shots-bracket" data-nav="shots-bracket" data-close-drawer>Playoffs</a>
+          <a href="#schedule" data-nav="schedule" data-close-drawer>Schedule</a>
+          <a href="#club" data-nav="club" data-close-drawer>Club visits</a>
+        </div>
       </div>
-      <p class="nav-drawer-heading" id="nav-planning-label">Planning</p>
-      <div class="nav-drawer-sub" role="group" aria-labelledby="nav-planning-label">
-        <a href="#shots-bracket" data-nav="shots-bracket" data-close-drawer>Playoffs</a>
-        <a href="#schedule" data-nav="schedule" data-close-drawer>Schedule</a>
-        <a href="#club" data-nav="club" data-close-drawer>Club visits</a>
+      <div class="nav-drawer-team" id="nav-team-picker">
+        <p class="nav-drawer-heading" id="nav-team-label">Team</p>
+        <div class="nav-team-list" role="listbox" aria-labelledby="nav-team-label" id="nav-team-pick"></div>
       </div>
     </nav>
   </div>
@@ -105,6 +112,24 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-number-pick>Cancel</button>
         <button type="button" class="btn btn-primary" id="number-pick-confirm">Use number</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="roster-add-modal" hidden role="dialog" aria-modal="true" aria-labelledby="roster-add-title">
+    <div class="modal-backdrop" data-close-roster-add></div>
+    <div class="modal-panel roster-add-panel">
+      <h2 id="roster-add-title">Add player</h2>
+      <p class="muted">Guest or late add for this season roster. Jersey required; name optional.</p>
+      <label class="shots-field">Jersey
+        <select id="roster-add-jersey" class="number-pick-select" size="5"></select>
+      </label>
+      <label class="shots-field">Name
+        <input type="text" id="roster-add-name" class="text-gate-input" autocomplete="off" placeholder="First Last (optional)" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-roster-add>Cancel</button>
+        <button type="button" class="btn btn-primary" id="roster-add-confirm">Add to roster</button>
       </div>
     </div>
   </div>
@@ -283,9 +308,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
   <script src="shots-api.js?v=20261024b"></script>
-  <script src="shots.js?v=20261024c"></script>
+  <script src="shots.js?v=20261024d"></script>
   <script src="schedule.js?v=20261012a"></script>
   <script src="club-visitation.js?v=20261023h"></script>
-  <script src="app.js?v=20261024b"></script>
+  <script src="app.js?v=20261024d"></script>
 </body>
 </html>

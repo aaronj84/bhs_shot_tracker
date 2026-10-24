@@ -461,10 +461,10 @@
   function loadLineupBag(gameId) {
     const store = readLineupStore();
     const fromGame = gameId && store[gameId] && typeof store[gameId] === "object" ? store[gameId].us : null;
-    const fromLegacy = store.us && typeof store.us === "object" ? store.us : {};
+    // Per-game only — never reuse another team's last XI via legacy store.us.
     return {
       edit: "us",
-      us: fromGame && typeof fromGame === "object" ? fromGame : fromLegacy,
+      us: fromGame && typeof fromGame === "object" ? fromGame : {},
       opp: {},
     };
   }
@@ -473,7 +473,6 @@
     const store = readLineupStore();
     const us = st.lineup.us || {};
     if (st.gameId) store[st.gameId] = { us };
-    store.us = us;
     localStorage.setItem(LS_LINEUP, JSON.stringify(store));
   }
 
@@ -496,12 +495,23 @@
       if (!row) return;
       const pid = row.player_id || row.id || "";
       const num = row.jersey_number || row.number || "";
+      // Only keep players who are on the active team's roster (drops Brighton/DEV bleed).
       const fromRoster = playerFromRoster("us", pid, num);
-      bag[String(slotId)] = lineupPlayerPayload(
-        fromRoster || { id: pid, number: num, name: row.name || "", short: row.short || row.short_name || "" }
-      );
+      if (!fromRoster) return;
+      bag[String(slotId)] = lineupPlayerPayload(fromRoster);
     });
     return bag;
+  }
+
+  function filterLineupToRoster(bag) {
+    const next = {};
+    Object.entries(bag || {}).forEach(([slotId, row]) => {
+      if (!row) return;
+      const fromRoster = playerFromRoster("us", row.id || row.player_id || "", row.number || row.jersey_number || "");
+      if (!fromRoster) return;
+      next[String(slotId)] = lineupPlayerPayload(fromRoster);
+    });
+    return next;
   }
 
   function applyLineupFromGame(game, opts = {}) {
@@ -516,7 +526,9 @@
       lineupDirty = false;
       return !same;
     }
-    if (!opts.preserveDirty) st.lineup.us = loadLineupBag(st.gameId).us;
+    if (!opts.preserveDirty) {
+      st.lineup.us = filterLineupToRoster(loadLineupBag(st.gameId).us);
+    }
     return false;
   }
 
@@ -620,21 +632,41 @@
     });
   }
 
-  function loadDefaultLineup() {
+  function loadDefaultLineup(teamId) {
     try {
       const parsed = JSON.parse(localStorage.getItem(LS_DEFAULT_LINEUP) || "{}") || {};
-      return parsed.us && typeof parsed.us === "object" ? { us: parsed.us } : { us: {} };
+      const tid = teamId || "";
+      if (tid && parsed.byTeam && parsed.byTeam[tid] && typeof parsed.byTeam[tid] === "object") {
+        const us = parsed.byTeam[tid].us;
+        return us && typeof us === "object" ? { us } : { us: {} };
+      }
+      // Legacy single-team default — only use when no team is selected yet.
+      if (!tid && parsed.us && typeof parsed.us === "object") return { us: parsed.us };
+      return { us: {} };
     } catch {
       return { us: {} };
     }
   }
 
   function saveDefaultLineupBag(bag) {
-    localStorage.setItem(LS_DEFAULT_LINEUP, JSON.stringify({ us: bag || {} }));
+    let parsed = {};
+    try {
+      parsed = JSON.parse(localStorage.getItem(LS_DEFAULT_LINEUP) || "{}") || {};
+    } catch {
+      parsed = {};
+    }
+    if (!parsed.byTeam || typeof parsed.byTeam !== "object") parsed.byTeam = {};
+    const tid = st.teamId || "";
+    if (tid) {
+      parsed.byTeam[tid] = { us: bag || {} };
+    } else {
+      parsed.us = bag || {};
+    }
+    localStorage.setItem(LS_DEFAULT_LINEUP, JSON.stringify(parsed));
   }
 
   const savedUi = loadUi();
-  const savedLineup = loadLineupBag();
+  const savedLineup = loadLineupBag(savedUi.gameId);
   const st = {
     view: "shots",
     booted: false,
@@ -679,7 +711,9 @@
     trackerNoteAuthor: localStorage.getItem(LS_NOTE_AUTHOR) || "",
     trackerShowNoteForm: false,
     lineup: savedLineup,
-    defaultLineup: loadDefaultLineup(),
+    defaultLineup: loadDefaultLineup(
+      savedUi.teamId || sessionStorage.getItem("shots-team-id") || ""
+    ),
     csvPending: null,
     importOpen: false,
     stampOffset: loadStampOffset(),
@@ -1475,22 +1509,59 @@
     const brandName = document.querySelector("#brand-name");
     const brandSub = document.querySelector("#brand-sub");
     const logo = document.querySelector("a.brand img");
-    if (brandName) brandName.textContent = brand.brandName;
-    if (brandSub) {
-      brandSub.textContent = brand.brandSub || "";
-      brandSub.hidden = !brand.brandSub;
-    }
+    const headerTeam = document.querySelector("#header-team");
+    const headerLogo = document.querySelector("#header-team-logo");
+    const headerName = document.querySelector("#header-team-name");
     const isDev =
       String((window.SHOTS_CONFIG || {}).env || "").toLowerCase() === "dev" ||
       String((window.SHOTS_CONFIG || {}).supabaseUrl || "").includes("fmiymqnfezkqagpbrmoi");
-    // Never replace the DEV badge with a team logo while on the DEV project.
-    if (logo && brand.logoPath && !isDev) logo.setAttribute("src", brand.logoPath);
+    if (brandName) brandName.textContent = brand.brandName;
+    if (brandSub) {
+      let sub = brand.brandSub || "";
+      if (isDev && sub && !/\bdev\b/i.test(sub)) sub = `DEV · ${sub}`;
+      else if (isDev && !sub) sub = "DEV";
+      brandSub.textContent = sub;
+      brandSub.hidden = !sub;
+    }
+    // Header: DEV badge on DEV; otherwise the active team's logo.
+    if (logo) {
+      if (isDev) {
+        logo.setAttribute("src", "assets/logo-dev.svg");
+        logo.setAttribute("alt", "DEV");
+      } else if (brand.logoPath) {
+        logo.setAttribute("src", brand.logoPath);
+        logo.setAttribute("alt", brand.brandName || "");
+      }
+    }
+    // Mobile center: active team crest + name (between app logo and hamburger).
+    if (headerTeam && headerLogo && headerName) {
+      const label = brand.teamName || brand.brandName || "";
+      if (label) {
+        headerLogo.setAttribute("src", brand.logoPath || "assets/logo.svg");
+        headerLogo.setAttribute("alt", "");
+        headerName.textContent = label;
+        headerTeam.hidden = false;
+        headerTeam.setAttribute("aria-label", `Active team: ${label}. Open menu to switch.`);
+      } else {
+        headerTeam.hidden = true;
+      }
+    }
     if (brand.primaryColor) {
       document.documentElement.style.setProperty("--brand", brand.primaryColor);
       document.documentElement.style.setProperty("--ours", brand.primaryColor);
+      document.documentElement.style.setProperty(
+        "--brand-strong",
+        `color-mix(in srgb, ${brand.primaryColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--focus", brand.primaryColor);
     }
     if (brand.accentColor) {
       document.documentElement.style.setProperty("--accent", brand.accentColor);
+      document.documentElement.style.setProperty(
+        "--accent-dim",
+        `color-mix(in srgb, ${brand.accentColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--hint", brand.accentColor);
     }
   }
 
@@ -1505,6 +1576,7 @@
           : cfg.brandSub != null
             ? String(cfg.brandSub)
             : "Shot Tracker",
+      teamName: (t && t.name) || (t && t.brand_name) || cfg.brandName || "Brighton Bengals",
       primaryColor: (t && t.primary_color) || null,
       accentColor: (t && t.accent_color) || null,
       logoPath: (t && t.logo_path) || null,
@@ -1515,24 +1587,35 @@
   }
 
   function syncNavTeamPicker() {
-    const sel = document.querySelector("#nav-team-pick");
-    if (!sel) return;
+    const list = document.querySelector("#nav-team-pick");
+    if (!list) return;
     const ours = oursTeams();
-    const prev = sel.value;
-    sel.innerHTML = ours.length
+    list.innerHTML = ours.length
       ? ours
           .map((t) => {
-            const label = t.level ? `${t.name} · ${t.level}` : t.name;
-            return `<option value="${t.id}" ${t.id === st.teamId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+            const active = t.id === st.teamId;
+            const logo = t.logo_path
+              ? `<img src="${escapeHtml(t.logo_path)}" alt="" width="36" height="36" />`
+              : `<img src="assets/logo.svg" alt="" width="36" height="36" />`;
+            const sub = [t.organization, t.level].filter(Boolean).join(" · ");
+            return `<button type="button" class="nav-team-btn${active ? " is-active" : ""}" role="option" aria-selected="${
+              active ? "true" : "false"
+            }" data-team-id="${escapeHtml(t.id)}">
+              ${logo}
+              <span class="nav-team-btn-text">
+                <strong>${escapeHtml(t.name)}</strong>
+                ${sub ? `<span>${escapeHtml(sub)}</span>` : ""}
+              </span>
+            </button>`;
           })
           .join("")
-      : `<option value="">No teams</option>`;
-    if (!ours.some((t) => t.id === st.teamId) && ours[0]) sel.value = ours[0].id;
-    else if (prev && ours.some((t) => t.id === prev)) sel.value = st.teamId || prev;
-    if (!sel.dataset.bound) {
-      sel.dataset.bound = "1";
-      sel.addEventListener("change", () => {
-        const id = sel.value;
+      : `<p class="muted">No teams yet</p>`;
+    if (!list.dataset.bound) {
+      list.dataset.bound = "1";
+      list.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-team-id]");
+        if (!btn) return;
+        const id = btn.getAttribute("data-team-id");
         if (!id || id === st.teamId) return;
         selectTeam(id).catch((err) => {
           st.error = err.message || "Could not switch team";
@@ -2003,10 +2086,15 @@
     return `left:${layout.x}%;top:${layout.y}%`;
   }
 
+  function jerseyDisplay(number) {
+    const n = String(number ?? "").trim();
+    if (!n || n.startsWith("_")) return "";
+    return n;
+  }
+
   function formationMeta(slotCode, player) {
-    if (player && player.number != null && player.number !== "") {
-      return `${escapeHtml(String(player.number))} · ${escapeHtml(slotCode)}`;
-    }
+    const num = player ? jerseyDisplay(player.number) : "";
+    if (num) return `${escapeHtml(num)} · ${escapeHtml(slotCode)}`;
     return escapeHtml(slotCode);
   }
 
@@ -2155,7 +2243,7 @@
   }
 
   function restoreDefaultLineup() {
-    let bag = st.defaultLineup.us || {};
+    let bag = filterLineupToRoster(st.defaultLineup.us || {});
     if (!Object.keys(bag).length) {
       bag = buildDefaultXiFromRoster();
       if (Object.keys(bag).length < 11) {
@@ -2311,8 +2399,8 @@
     if (!p) return "";
     if (p.short || p.short_name) return p.short || p.short_name;
     if (p.name) return firstName(p.name);
-    const num = p.jersey_number || p.number;
-    return num != null && String(num) !== "" ? `#${num}` : "Unknown";
+    const num = jerseyDisplay(p.jersey_number || p.number);
+    return num ? `#${num}` : "Unknown";
   }
 
   /** Opponent roster labels: preferred/short name, else A. Last. */
@@ -2521,6 +2609,13 @@
     st.game = null;
     st.games = [];
     st.shots = [];
+    st.ourRoster = [];
+    st.oppRoster = [];
+    st.lineup = { edit: "us", us: {}, opp: {} };
+    st.defaultLineup = loadDefaultLineup(id);
+    lineupDirty = false;
+    // Persist immediately so a reload mid-switch still lands on this team.
+    saveUi();
     await refreshMeta();
     saveUi();
     draw();
@@ -2558,7 +2653,9 @@
     const opp = opponentOf(st.game);
     st.ourRoster = us ? await API.roster(us.id, st.game.season_id) : [];
     st.oppRoster = opp ? await API.roster(opp.id, st.game.season_id) : [];
+    st.defaultLineup = loadDefaultLineup(st.teamId || us?.id);
     applyLineupFromGame(st.game);
+    st.lineup.us = filterLineupToRoster(st.lineup.us);
     seedDefaultLineupIfEmpty();
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
@@ -6788,37 +6885,37 @@
       const selected = current && String(current.number) === String(p.number);
       const status = fieldStatus(p);
       const fieldTag = status === "elsewhere" ? ` · ${slotCodeForId(slotIdForNumber("us", p.number))}` : "";
+      const num = jerseyDisplay(p.number);
+      const jerseyBit = num ? ` (#${escapeHtml(num)})` : "";
       opts.push(
-        `<option value="${escapeHtml(String(p.id || p.number))}" data-number="${escapeHtml(String(p.number))}" ${selected ? "selected" : ""}>${escapeHtml(playerDisplayName(p))} (#${escapeHtml(String(p.number))})${fieldTag}${suffix}</option>`
+        `<option value="${escapeHtml(String(p.id || p.number))}" data-number="${escapeHtml(String(p.number))}" ${selected ? "selected" : ""}>${escapeHtml(playerDisplayName(p))}${jerseyBit}${fieldTag}${suffix}</option>`
       );
     };
 
-    const varsity = all.filter((p) => p.squad !== "jv");
+    const primary = all.filter((p) => p.squad !== "jv");
     const jv = all.filter((p) => p.squad === "jv");
 
     // Current slot first, then bench players for this position group.
-    const positional = varsity.filter((p) => {
+    const positional = primary.filter((p) => {
       const status = fieldStatus(p);
       return status === "here" || (playerInGroup(p, group) && status === "bench");
     });
-    // Other varsity available off the field.
-    const varsityBench = varsity.filter((p) => fieldStatus(p) === "bench" && !playerInGroup(p, group));
-    // Anyone already on the pitch at another spot (swap targets).
-    const varsityOnField = varsity.filter((p) => fieldStatus(p) === "elsewhere");
+    const bench = primary.filter((p) => fieldStatus(p) === "bench" && !playerInGroup(p, group));
+    const onField = primary.filter((p) => fieldStatus(p) === "elsewhere");
 
     if (positional.length) {
       opts.push(`<optgroup label="${escapeHtml(groupLabel)}">`);
       positional.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
-    if (varsityBench.length) {
-      opts.push(`<optgroup label="Varsity Bench">`);
-      varsityBench.forEach((p) => pushOpt(p));
+    if (bench.length) {
+      opts.push(`<optgroup label="Bench">`);
+      bench.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
-    if (varsityOnField.length) {
-      opts.push(`<optgroup label="Varsity On-Field">`);
-      varsityOnField.forEach((p) => pushOpt(p));
+    if (onField.length) {
+      opts.push(`<optgroup label="On field">`);
+      onField.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
     if (jv.length) {
@@ -6912,6 +7009,7 @@
         <div class="lineup-actions">
           <button type="button" class="btn btn-ghost" id="save-default-lineup" ${usCount ? "" : "disabled"}>Save as default</button>
           <button type="button" class="btn btn-ghost" id="restore-default-lineup">Restore default${defaultCount ? ` (${defaultCount})` : ""}</button>
+          <button type="button" class="btn btn-ghost" id="add-roster-player" ${st.game?.season_id ? "" : "disabled"}>Add player</button>
         </div>
       </section>`;
   }
@@ -6960,12 +7058,73 @@
     }
   }
 
+  function openAddRosterPlayerModal(opts = {}) {
+    const modal = $("#roster-add-modal");
+    const jerseySel = $("#roster-add-jersey");
+    const nameInput = $("#roster-add-name");
+    const confirmBtn = $("#roster-add-confirm");
+    if (!modal || !jerseySel || !nameInput || !confirmBtn) return;
+    const team = opts.team === "opp" ? "opp" : "us";
+    const used = new Set(rosterPlayers(team).map((p) => String(p.number)));
+    jerseySel.innerHTML = jerseyChoices()
+      .map((num) => `<option value="${num}" ${used.has(num) ? "disabled" : ""}>${num}</option>`)
+      .join("");
+    const first = jerseyChoices().find((n) => !used.has(n));
+    if (first) jerseySel.value = first;
+    nameInput.value = "";
+    modal.hidden = false;
+    requestAnimationFrame(() => nameInput.focus());
+
+    const close = () => {
+      modal.hidden = true;
+    };
+    const onConfirm = async () => {
+      const jersey = String(jerseySel.value || "").trim();
+      const name = String(nameInput.value || "").trim();
+      if (!jersey) {
+        showToast("Pick a jersey number");
+        return;
+      }
+      const opt = Array.from(jerseySel.options).find((o) => o.value === jersey);
+      if (opt?.disabled) {
+        showToast("That number is already on the roster");
+        return;
+      }
+      try {
+        const teamId = teamIdFor(team);
+        if (!teamId || !st.game?.season_id) throw new Error("Open a game first");
+        const row = await API.ensureRosterPlayer(teamId, st.game.season_id, jersey, name || null);
+        await refreshRosterFor(team);
+        const player =
+          playerFromRoster(team, row?.player_id || row?.player?.id, jersey) ||
+          playerFromRosterRow(team, row, jersey);
+        if (opts.assignSlotId != null && team === "us" && player) {
+          assignSlot("us", opts.assignSlotId, lineupPlayerPayload(player));
+          markLineupDirty();
+        }
+        close();
+        showToast(name ? `${firstName(name) || name} (#${jersey}) added` : `#${jersey} added`);
+        draw({ keepScroll: true });
+        if (typeof opts.onDone === "function") opts.onDone(player);
+      } catch (err) {
+        showToast(err.message || "Could not add player");
+      }
+    };
+    confirmBtn.onclick = () => {
+      onConfirm().catch((err) => showToast(err.message || "Could not add player"));
+    };
+    $$("[data-close-roster-add]").forEach((el) => {
+      el.onclick = close;
+    });
+  }
+
   function bindLineupEditor() {
     $("#save-default-lineup")?.addEventListener("click", () => {
       saveCurrentAsDefault();
       draw({ keepScroll: true });
     });
     $("#restore-default-lineup")?.addEventListener("click", () => restoreDefaultLineup());
+    $("#add-roster-player")?.addEventListener("click", () => openAddRosterPlayerModal({ team: "us" }));
     $$("[data-lineup-gesture-cancel]").forEach((btn) => {
       btn.addEventListener("click", () => {
         cancelLineupGesture();
