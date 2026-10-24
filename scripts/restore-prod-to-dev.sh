@@ -110,11 +110,46 @@ else
 fi
 
 for f in schema.sql data.sql; do
-  if [[ ! -s "$WORKDIR/$f" ]]; then
+  if [[ ! -s "${WORKDIR}/$f" ]]; then
     echo "Missing $f in archive" >&2
     exit 1
   fi
 done
+
+# Keep DEV's own GoTrue/auth/storage. Only load app tables from the dump.
+# Otherwise COPY auth.refresh_tokens hits duplicate PKs against live DEV sessions.
+echo "Filtering data.sql to public schema only (skip auth/storage/realtime) ..."
+python3 - "${WORKDIR}/data.sql" "${WORKDIR}/data.public.sql" <<'PY'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+# Allowlist: public app data only.
+keep = re.compile(r'^COPY\s+"?(public)"?\.', re.I)
+copy_any = re.compile(r'^COPY\s+', re.I)
+skipping = False
+kept = skipped = 0
+with open(src, "r", encoding="utf-8", errors="replace") as fin, open(
+    dst, "w", encoding="utf-8"
+) as fout:
+    fout.write("SET session_replication_role = replica;\n")
+    for line in fin:
+        if skipping:
+            if line == "\\.\n" or line == "\\.\r\n":
+                skipping = False
+            continue
+        if copy_any.match(line):
+            if keep.match(line):
+                fout.write(line)
+                kept += 1
+            else:
+                skipping = True
+                skipped += 1
+            continue
+        # Drop dump-wide SETs that restate replica role; keep comments/blank/other SQL.
+        if line.startswith("SET session_replication_role"):
+            continue
+        fout.write(line)
+print(f"Kept {kept} public COPY blocks; skipped {skipped} non-public blocks", file=sys.stderr)
+PY
 
 # Session pooler URI (transaction mode is wrong for multi-statement restore).
 # Dashboard → Connect → Session mode (port 5432).
@@ -140,11 +175,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres, an
 DROP SCHEMA IF EXISTS supabase_migrations CASCADE;
 SQL
 
-echo "Restoring schema + data into DEV (skipping roles.sql — hosted projects reject those)…"
+echo "Restoring schema + public data into DEV (skipping roles.sql and auth data)…"
 psql --single-transaction --variable ON_ERROR_STOP=1 \
-  --file "$WORKDIR/schema.sql" \
+  --file "${WORKDIR}/schema.sql" \
   --command 'SET session_replication_role = replica' \
-  --file "$WORKDIR/data.sql" \
+  --file "${WORKDIR}/data.public.sql" \
   --dbname "$DEV_DB_URL"
 
 if [[ -s "$WORKDIR/history_schema.sql" && -s "$WORKDIR/history_data.sql" ]]; then

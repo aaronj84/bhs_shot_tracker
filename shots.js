@@ -2877,15 +2877,43 @@
     return String(g?.date || "").slice(0, 10);
   }
 
+  function competitionNamesForTeam() {
+    const tid = st.teamId || currentTeam()?.id;
+    const names = new Set();
+    (st.allGames || st.games || []).forEach((g) => {
+      if (tid && g.our_team_id && g.our_team_id !== tid) return;
+      const n = String(g.competition_name || "").trim();
+      if (n) names.add(n);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  function competitionDatalistMarkup(listId) {
+    const opts = competitionNamesForTeam()
+      .map((n) => `<option value="${escapeHtml(n)}"></option>`)
+      .join("");
+    return `<datalist id="${escapeHtml(listId)}">${opts}</datalist>`;
+  }
+
+  function gameTypeLabel(g) {
+    const type = g.game_type || "";
+    const comp = String(g.competition_name || "").trim();
+    if (comp && type) return `${type} · ${comp}`;
+    return comp || type || "";
+  }
+
   function gameListRowMarkup(g, { past = false } = {}) {
     const date = gameDateYmd(g);
     const opp = opponentOf(g);
     const vs = opp ? opp.name : "";
+    const typeLabel = gameTypeLabel(g);
     return `
       <li class="shots-game-row${past ? " is-past" : ""}">
         <button type="button" class="shots-game-btn" data-open-game="${g.id}">
           <strong>${escapeHtml(date)}</strong>
-          <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
+          <span>vs ${escapeHtml(vs)}${typeLabel ? ` · ${escapeHtml(typeLabel)}` : ""}${
+            g.status === "final" ? " · Final" : ""
+          }</span>
         </button>
       </li>`;
   }
@@ -3010,6 +3038,7 @@
     if (!us) throw new Error("Pick a team before adding a game");
     const date = $("#new-game-date").value;
     const type = $("#new-game-type").value;
+    const competitionName = ($("#new-game-competition")?.value || "").trim() || null;
     let seasonId = $("#new-game-season").value;
     const newSeasonLabel = $("#new-season-label")?.value.trim();
     if (seasonId === "__new__") {
@@ -3039,6 +3068,7 @@
       season_id: seasonId,
       date,
       game_type: type,
+      competition_name: competitionName,
       home_team_id: homeId,
       away_team_id: awayId,
       our_team_id: us.id,
@@ -3056,6 +3086,7 @@
     const seasonId = $("#import-season").value;
     const oppName = $("#import-opponent").value.trim() || localUiV1().opponent || "Imported opponent";
     const type = $("#import-type").value;
+    const competitionName = ($("#import-competition")?.value || "").trim() || null;
     if (!date || !seasonId) throw new Error("Pick a date and season");
     let opp = resolveGameSideName(oppName);
     if (!opp || opp.is_ours) opp = await API.createOpponent(us.id, oppName);
@@ -3066,6 +3097,7 @@
       season_id: seasonId,
       date,
       game_type: type,
+      competition_name: competitionName,
       home_team_id: us.id,
       away_team_id: opp.id,
       our_team_id: us.id,
@@ -3205,6 +3237,10 @@
           <label class="shots-field">Type
             <select id="new-game-type">${GAME_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
           </label>
+          <label class="shots-field">Competition
+            <input type="text" id="new-game-competition" list="new-game-competition-list" placeholder="Heros Cup, Premier 2, Futsal SportCity Session 1…" autocomplete="off" />
+          </label>
+          ${competitionDatalistMarkup("new-game-competition-list")}
           <label class="shots-field">Season
             <select id="new-game-season">${seasonOptions(st.seasonId, true)}</select>
           </label>
@@ -3239,6 +3275,10 @@
             <label class="shots-field">Type
               <select id="import-type">${GAME_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
             </label>
+            <label class="shots-field">Competition
+              <input type="text" id="import-competition" list="import-competition-list" placeholder="Optional" autocomplete="off" />
+            </label>
+            ${competitionDatalistMarkup("import-competition-list")}
             <button type="submit" class="btn btn-secondary">Import saved game</button>
           </form>`
             : ""
@@ -7167,6 +7207,7 @@
     if (!g) return `<p class="muted">Open a game to edit settings.</p>`;
     const date = String(g.date || "").slice(0, 10);
     const type = g.game_type || "friendly";
+    const competition = String(g.competition_name || "");
     const seasonId = g.season_id || st.seasonId || "";
     const homeId = g.home_team_id || "";
     const awayId = g.away_team_id || "";
@@ -7181,7 +7222,7 @@
         </section>
         <section class="tracker-settings-card">
           <h2>Game details</h2>
-          <p class="muted">Change date, type, home/away, or teams — same fields as Add game.</p>
+          <p class="muted">Change date, type, competition, home/away, or teams — same fields as Add game.</p>
           <form id="edit-game-form" class="shots-form">
             <label class="shots-field">Date <input type="date" id="edit-game-date" required value="${escapeHtml(date)}" /></label>
             <label class="shots-field">Type
@@ -7189,6 +7230,12 @@
                 (t) => `<option value="${t}" ${t === type ? "selected" : ""}>${t}</option>`
               ).join("")}</select>
             </label>
+            <label class="shots-field">Competition
+              <input type="text" id="edit-game-competition" list="edit-game-competition-list" value="${escapeHtml(
+                competition
+              )}" placeholder="Heros Cup, Premier 2…" autocomplete="off" />
+            </label>
+            ${competitionDatalistMarkup("edit-game-competition-list")}
             <label class="shots-field">Season
               <select id="edit-game-season">${seasonOptions(seasonId, false)}</select>
             </label>
@@ -7295,6 +7342,7 @@
     if (!us) throw new Error("No active team");
     const date = $("#edit-game-date")?.value;
     const type = $("#edit-game-type")?.value;
+    const competitionName = ($("#edit-game-competition")?.value || "").trim() || null;
     const seasonId = $("#edit-game-season")?.value;
     const pickTeam = async (selId, newId) => {
       const v = $(selId)?.value;
@@ -7317,6 +7365,7 @@
       season_id: seasonId,
       date,
       game_type: type,
+      competition_name: competitionName,
       home_team_id: homeId,
       away_team_id: awayId,
       our_team_id: us.id,
