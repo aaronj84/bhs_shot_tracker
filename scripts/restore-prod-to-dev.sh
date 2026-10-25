@@ -190,6 +190,17 @@ if [[ -s "$WORKDIR/history_schema.sql" && -s "$WORKDIR/history_data.sql" ]]; the
     --dbname "$DEV_DB_URL"
 fi
 
+# schema.sql setval() can leave auth.refresh_tokens_id_seq behind existing rows
+# (we keep DEV auth data). That breaks anonymous sign-in with refresh_tokens_pkey.
+echo "Repairing auth.refresh_tokens sequence (keep ahead of max id)…"
+psql --variable ON_ERROR_STOP=1 --dbname "$DEV_DB_URL" <<'SQL'
+SELECT setval(
+  'auth.refresh_tokens_id_seq',
+  greatest(coalesce((SELECT max(id) FROM auth.refresh_tokens), 1), 1),
+  true
+);
+SQL
+
 echo "Linking CLI to DEV and applying any migrations PROD does not have yet…"
 supabase link --project-ref "$DEV_REF" -p "$SUPABASE_DB_PASSWORD_DEV"
 npm run db:up

@@ -412,6 +412,16 @@
       throwIfError(error, "Could not query shots");
       let rows = data || [];
 
+      // Hard-scope to one owned program (Brighton, CFC, …). Without this,
+      // "All seasons" / "Last 3 years" returns every team's shots.
+      if (filters.ourTeamId) {
+        const tid = filters.ourTeamId;
+        rows = rows.filter(
+          (s) =>
+            s.game &&
+            (s.game.our_team_id === tid || (s.game.season && s.game.season.team_id === tid))
+        );
+      }
       if (filters.seasonId) {
         rows = rows.filter((s) => s.game && s.game.season_id === filters.seasonId);
       }
@@ -428,7 +438,22 @@
       return rows;
     },
 
-    async namedPlayers() {
+    async namedPlayers(teamId) {
+      if (teamId) {
+        const { data, error } = await getClient()
+          .from("rosters")
+          .select("player:players(*)")
+          .eq("team_id", teamId);
+        throwIfError(error, "Could not load players");
+        const byId = new Map();
+        for (const row of data || []) {
+          const p = row.player;
+          if (p && p.id && p.name) byId.set(p.id, p);
+        }
+        return [...byId.values()].sort((a, b) =>
+          String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" })
+        );
+      }
       const { data, error } = await getClient()
         .from("players")
         .select("*")

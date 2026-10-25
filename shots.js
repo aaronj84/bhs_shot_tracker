@@ -2594,7 +2594,7 @@
     st.allGames = await API.games();
     st.games = st.seasonId ? st.allGames.filter((g) => g.season_id === st.seasonId) : st.allGames.slice();
     try {
-      st.namedPlayers = await API.namedPlayers();
+      st.namedPlayers = await API.namedPlayers(st.teamId || undefined);
     } catch {
       st.namedPlayers = [];
     }
@@ -2611,6 +2611,16 @@
     st.shots = [];
     st.ourRoster = [];
     st.oppRoster = [];
+    st.history = {
+      seasonId: "",
+      playerId: "",
+      opponentId: "",
+      depth: "",
+      lane: "",
+      range: "",
+      rows: null,
+      loading: false,
+    };
     st.lineup = { edit: "us", us: {}, opp: {} };
     st.defaultLineup = loadDefaultLineup(id);
     lineupDirty = false;
@@ -8141,7 +8151,11 @@
     const mapped = mapShot(row);
     mapped.game = row.game;
     mapped.gameDate = row.game?.date || "";
-    const usId = row.game?.our_team_id || currentTeam()?.id;
+    const usId = row.game?.our_team_id || row.game?.season?.team_id || currentTeam()?.id;
+    // Re-classify us/opp from the game's owned team (not whatever game is open).
+    if (usId && mapped.team_id) {
+      mapped.team = mapped.team_id === usId ? "us" : "opp";
+    }
     mapped.opponentName = "";
     if (row.game) {
       mapped.opponentName =
@@ -8155,9 +8169,17 @@
 
   async function runHistoryQuery() {
     const f = st.history;
+    const us = currentTeam();
+    if (!us?.id) {
+      st.error = "Pick a team first";
+      f.rows = [];
+      f.loading = false;
+      draw();
+      return;
+    }
     f.loading = true;
     draw();
-    const filters = {};
+    const filters = { ourTeamId: us.id };
     if (f.playerId) filters.playerId = f.playerId;
     if (f.seasonId === "__last3") filters.seasonYearMin = new Date().getFullYear() - 2;
     else if (f.seasonId) filters.seasonId = f.seasonId;
@@ -8349,11 +8371,12 @@
     const f = st.history;
     const oppTeams = opponentTeams();
     const rows = f.rows;
+    const usLabel = ourTeamName();
     root().innerHTML = `
       <div class="shots-admin shots-history">
         ${trackerNav("history")}
         <h1>Season history</h1>
-        <p class="muted">Filter by player, opponent, and depth. Naming a player updates every shot tied to that player.</p>
+        <p class="muted">${escapeHtml(usLabel)} only — filter by player, opponent, and depth. Naming a player updates every shot tied to that player.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         <form id="history-form" class="shots-form">
           <label class="shots-field">Season
@@ -8415,13 +8438,13 @@
           <section class="tracker-units">
             <h2>Shot locations</h2>
             <p class="muted">Goals / shots by lane and yards from the goal line. Penalty kicks excluded.</p>
-            <h3 class="tracker-half-heading">Brighton</h3>
+            <h3 class="tracker-half-heading">${escapeHtml(usLabel)}</h3>
             ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "us"))}
             <h3 class="tracker-half-heading">Against</h3>
             ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "opp"))}
           </section>
           <section class="tracker-units">
-            <h2>Units &amp; trends (Brighton)</h2>
+            <h2>Units &amp; trends (${escapeHtml(usLabel)})</h2>
             ${unitsMarkup(rows.filter((e) => eventTeam(e) === "us"))}
           </section>
           <div class="tracker-table-wrap">
@@ -8461,12 +8484,13 @@
       runHistoryQuery();
     });
     $("#hist-export")?.addEventListener("click", () => {
+      const slug = slugify(ourTeamName()) || "team";
       exportShotsCsv(
         (rows || []).map((ev) => {
           ev.game = ev.game;
           return Object.assign({}, ev, {});
         }),
-        `bengals-shots-filtered-${new Date().toISOString().slice(0, 10)}.csv`
+        `${slug}-shots-filtered-${new Date().toISOString().slice(0, 10)}.csv`
       );
     });
     if (rows) {
