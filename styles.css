@@ -4357,6 +4357,10 @@ button.scoreboard-period:focus-visible {
   cursor: pointer;
 }
 
+.prep-corner-count {
+  font-family: var(--font-display);
+}
+
 .prep-shot-popup {
   position: absolute;
   left: var(--x);

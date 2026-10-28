@@ -8758,6 +8758,67 @@
     return { us: byTeam("us"), opp: byTeam("opp"), players: players.slice(0, 16) };
   }
 
+  /** Corners taken from the same flag stack on one square. Group those, and any other corners within a few meters. */
+  const CORNER_FLAG_RADIUS = 8;
+
+  function cornerGroupKey(pt) {
+    const flags = [
+      { fx: 0, fy: 0 },
+      { fx: PW, fy: 0 },
+      { fx: 0, fy: PL },
+      { fx: PW, fy: PL },
+    ];
+    let best = 0;
+    let bestD = Infinity;
+    flags.forEach((flag, i) => {
+      const d = Math.hypot(pt.fx - flag.fx, pt.fy - flag.fy);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    if (bestD <= CORNER_FLAG_RADIUS) return `flag:${best}`;
+    return `pt:${Math.round(pt.fx)}:${Math.round(pt.fy)}`;
+  }
+
+  function cornerCountMarkup(group, selectedId) {
+    const selected = group.find((ev) => selectedId && ev.id === selectedId) || null;
+    const rep = selected || group[group.length - 1];
+    const team = eventTeam(rep);
+    let fx = 0;
+    let fy = 0;
+    group.forEach((ev) => {
+      const pt = tacticalPoint(ev.shot, eventTeam(ev));
+      if (!pt) return;
+      fx += pt.fx;
+      fy += pt.fy;
+    });
+    fx /= group.length;
+    fy /= group.length;
+    const ring = team === "opp" ? "#c0392b" : "#0b1f33";
+    const size = selected ? 4.7 : 3.7;
+    const inwardX = fx < PW / 2 ? 1 : -1;
+    const inwardY = fy < PL / 2 ? 1 : -1;
+    // Sit the count beside the square and inside the goal line, so the line doesn't strike through the digits.
+    const labelX = fx + inwardX * (size / 2 + 0.7);
+    const labelY = fy + inwardY * 1.45;
+    const id = escapeHtml(rep.id || "");
+    const count = group.length;
+    return `
+      <g class="prep-corner-mark">
+        <title>${count} corner${count === 1 ? "" : "s"}</title>
+        ${shotShapeMarkup(rep, fx, fy, {
+          size,
+          className: "prep-shot-dot",
+          fill: resultFill("corner"),
+          stroke: selected ? "#f7e27c" : ring,
+          strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
+          attrs: `data-prep-shot="${id}"`,
+        })}
+        <text class="prep-corner-count" data-prep-shot="${id}" x="${labelX}" y="${labelY}" fill="#f4f7fb" stroke="#0b1f33" stroke-width="0.32" paint-order="stroke" stroke-linejoin="round" font-size="2.7" font-weight="750" text-anchor="${inwardX > 0 ? "start" : "end"}" dominant-baseline="central">x${count}</text>
+      </g>`;
+  }
+
   function tacticalPitchMarkup(events, selectedId, opts = {}) {
     const shotsOnly = opts.shotsOnlyMode !== undefined ? !!opts.shotsOnlyMode : !!st.shotsOnlyMode;
     const line = "#f2f6f3";
@@ -8778,6 +8839,27 @@
         `<rect fill="${i % 2 ? "#277047" : "#2d7a4a"}" x="0" y="${i * (PL / 6)}" width="${PW}" height="${PL / 6}" />`
       );
     }
+    const cornerGroups = new Map();
+    const linkMarkup = (ev, team, shot, ring) => {
+      if (shotsOnly) return "";
+      let html = "";
+      if (ev.secondAssist) {
+        const s = tacticalPoint(ev.secondAssist, team);
+        const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+        if (s && aEnd) {
+          html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        }
+      }
+      if (ev.assist) {
+        const a = tacticalPoint(ev.assist, team);
+        if (a) {
+          html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+        }
+      }
+      return html;
+    };
     const markers = events
       .map((ev) => {
         const hide = shotsOnly && !shouldShowInShotsOnlyMode(ev.result);
@@ -8785,30 +8867,18 @@
         const team = eventTeam(ev);
         const shot = tacticalPoint(ev.shot, team);
         if (!shot) return "";
-        const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        if (ev.result === "corner") {
+          const key = cornerGroupKey(shot);
+          if (!cornerGroups.has(key)) cornerGroups.set(key, []);
+          cornerGroups.get(key).push(ev);
+          return linkMarkup(ev, team, shot, ring);
+        }
+        const selected = selectedId && ev.id === selectedId;
         const numFill = markerNumberFill(ev, team);
         const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
         const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
-        let html = "";
-        if (!shotsOnly) {
-          if (ev.secondAssist) {
-            const s = tacticalPoint(ev.secondAssist, team);
-            const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
-            if (s && aEnd) {
-              html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-              html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
-            }
-          }
-          if (ev.assist) {
-            const a = tacticalPoint(ev.assist, team);
-            if (a) {
-              html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-              html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-            }
-          }
-        }
-        html = `<g class="${emphasisClass}">` + html;
+        let html = `<g class="${emphasisClass}">${linkMarkup(ev, team, shot, ring)}`;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: selected ? 4.7 : 3.7,
           className: `prep-shot-dot ${emphasisClass}`,
@@ -8826,6 +8896,7 @@
         return html;
       })
       .join("");
+    const cornerMarks = [...cornerGroups.values()].map((group) => cornerCountMarkup(group, selectedId)).join("");
     return `
       <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. Brighton attack up, opponent attack down.">
         ${stripes.join("")}
@@ -8846,6 +8917,7 @@
         <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Brighton attack</text>
         <text x="${PW / 2}" y="${PL + 3.6}" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Opponent attack</text>
         ${markers}
+        ${cornerMarks}
       </svg>`;
   }
 
