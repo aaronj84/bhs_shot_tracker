@@ -144,12 +144,14 @@
       return data || [];
     },
 
-    async seasons() {
-      const { data, error } = await getClient()
+    async seasons(teamId) {
+      let q = getClient()
         .from("seasons")
         .select("*")
         .order("year", { ascending: false })
         .order("label", { ascending: false });
+      if (teamId) q = q.eq("team_id", teamId);
+      const { data, error } = await q;
       throwIfError(error, "Could not load seasons");
       return data || [];
     },
@@ -168,20 +170,59 @@
       return data;
     },
 
-    async createTeam(name) {
+    /** Create an opponent scoped to an owned (is_ours) team. */
+    async createOpponent(ownerTeamId, name) {
+      if (!ownerTeamId) throw new Error("ownerTeamId is required to create an opponent");
       const { data, error } = await getClient()
         .from("teams")
-        .insert({ name: String(name).trim(), is_brighton: false })
+        .insert({
+          name: String(name).trim(),
+          is_ours: false,
+          owner_team_id: ownerTeamId,
+        })
         .select()
         .single();
+      throwIfError(error, "Could not create opponent");
+      return data;
+    },
+
+    /** Create a trackable owned team (school/club program). */
+    async createOursTeam(row) {
+      const payload = {
+        name: String(row.name || "").trim(),
+        is_ours: true,
+        organization: row.organization != null ? String(row.organization).trim() || null : null,
+        org_type: row.org_type || null,
+        level: row.level != null ? String(row.level).trim() || null : null,
+        brand_name: row.brand_name != null ? String(row.brand_name).trim() || null : null,
+        brand_sub: row.brand_sub != null ? String(row.brand_sub).trim() || null : null,
+        primary_color: row.primary_color || null,
+        accent_color: row.accent_color || null,
+        logo_path: row.logo_path || null,
+      };
+      if (!payload.name) throw new Error("Team name is required");
+      const { data, error } = await getClient().from("teams").insert(payload).select().single();
       throwIfError(error, "Could not create team");
       return data;
     },
 
-    async createSeason(year, label) {
+    /**
+     * Back-compat helper: create an opponent for ownerTeamId.
+     * Prefer createOpponent / createOursTeam for new call sites.
+     */
+    async createTeam(name, ownerTeamId) {
+      return this.createOpponent(ownerTeamId, name);
+    },
+
+    async createSeason(teamId, year, label) {
+      if (!teamId) throw new Error("teamId is required to create a season");
       const { data, error } = await getClient()
         .from("seasons")
-        .insert({ year: Number(year), label: String(label).trim() })
+        .insert({
+          team_id: teamId,
+          year: Number(year),
+          label: String(label).trim(),
+        })
         .select()
         .single();
       throwIfError(error, "Could not create season");
@@ -371,6 +412,16 @@
       throwIfError(error, "Could not query shots");
       let rows = data || [];
 
+      // Hard-scope to one owned program (Brighton, CFC, …). Without this,
+      // "All seasons" / "Last 3 years" returns every team's shots.
+      if (filters.ourTeamId) {
+        const tid = filters.ourTeamId;
+        rows = rows.filter(
+          (s) =>
+            s.game &&
+            (s.game.our_team_id === tid || (s.game.season && s.game.season.team_id === tid))
+        );
+      }
       if (filters.seasonId) {
         rows = rows.filter((s) => s.game && s.game.season_id === filters.seasonId);
       }
@@ -387,7 +438,22 @@
       return rows;
     },
 
-    async namedPlayers() {
+    async namedPlayers(teamId) {
+      if (teamId) {
+        const { data, error } = await getClient()
+          .from("rosters")
+          .select("player:players(*)")
+          .eq("team_id", teamId);
+        throwIfError(error, "Could not load players");
+        const byId = new Map();
+        for (const row of data || []) {
+          const p = row.player;
+          if (p && p.id && p.name) byId.set(p.id, p);
+        }
+        return [...byId.values()].sort((a, b) =>
+          String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" })
+        );
+      }
       const { data, error } = await getClient()
         .from("players")
         .select("*")

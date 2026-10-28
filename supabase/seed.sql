@@ -22,25 +22,30 @@ declare
 begin
   update public.teams
   set name = 'Medville Marauders'
-  where is_brighton
+  where is_ours
     and name is distinct from 'Medville Marauders';
 
-  select id into marauders from public.teams where is_brighton limit 1;
+  select id into marauders from public.teams where is_ours limit 1;
   if marauders is null then
-    raise exception 'Home team (is_brighton) missing — run migrations first';
+    raise exception 'Home team (is_ours) missing — run migrations first';
   end if;
 
-  insert into public.seasons (year, label)
-  values (2099, 'DEV Sandbox')
-  on conflict (label) do nothing;
-  select id into season from public.seasons where label = 'DEV Sandbox';
+  insert into public.seasons (team_id, year, label)
+  values (marauders, 2099, 'DEV Sandbox')
+  on conflict (team_id, label) do nothing;
+  select id into season from public.seasons where label = 'DEV Sandbox' and team_id = marauders;
 
-  insert into public.teams (name, is_brighton)
-  values
-    ('Rivertown Rivals', false),
-    ('Cedar Comets', false),
-    ('Bogwater Badgers', false)
-  on conflict (name) do nothing;
+  insert into public.teams (name, is_ours, owner_team_id)
+  select v.name, false, marauders
+  from (values
+    ('Rivertown Rivals'),
+    ('Cedar Comets'),
+    ('Bogwater Badgers')
+  ) as v(name)
+  where not exists (
+    select 1 from public.teams t
+    where t.owner_team_id = marauders and t.name = v.name
+  );
 
   if exists (
     select 1 from public.games

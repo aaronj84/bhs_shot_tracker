@@ -69,6 +69,29 @@ body {
   line-height: 1.45;
 }
 
+/* Unmistakable DEV chrome — never confuse with live PROD. */
+body.dev-env {
+  --bg: #fff1c2;
+  --bg-elevated: #fff8e1;
+  --bg-panel: #fff8e1;
+  --bg-soft: #ffe08a;
+  --border: #e0b84a;
+  --border-strong: #c9921a;
+  background:
+    radial-gradient(ellipse 75% 45% at 50% -10%, rgba(245, 158, 11, 0.35), transparent 58%),
+    linear-gradient(180deg, #ffe8a3 0%, var(--bg) 42%);
+}
+
+body.dev-env .app-header {
+  background: rgba(255, 224, 130, 0.96);
+  border-bottom-color: #e0b84a;
+}
+
+body.dev-env a.brand img {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px #c2410c;
+}
+
 img,
 svg {
   max-width: 100%;
@@ -229,6 +252,50 @@ a {
 }
 
 
+.header-team {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.header-team[hidden] {
+  display: none !important;
+}
+
+.header-team img {
+  width: auto;
+  height: 36px;
+  max-width: 52px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.header-team-name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -293,17 +360,97 @@ a {
   height: 100%;
   background: var(--bg-elevated);
   border-left: 1px solid var(--border);
-  padding: max(1rem, env(safe-area-inset-top, 0px)) 1.1rem calc(1rem + var(--safe-bottom));
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 0 calc(0.35rem + var(--safe-bottom));
   transform: translateX(100%);
   transition: transform 0.22s ease;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  overflow-y: auto;
+  gap: 0;
+  overflow: hidden;
 }
 
 .nav-drawer.is-open .nav-drawer-panel {
   transform: translateX(0);
+}
+
+.nav-drawer-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nav-drawer-team {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: auto;
+  padding: 0.75rem 1.1rem 0.35rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.nav-drawer-team .nav-drawer-heading {
+  margin: 0;
+}
+
+.nav-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.nav-team-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  font-weight: 650;
+}
+
+.nav-team-btn.is-active {
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, var(--bg));
+}
+
+.nav-team-btn img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #0b1f33;
+  flex: 0 0 auto;
+}
+
+.nav-team-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.nav-team-btn-text strong {
+  font-size: 0.95rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.nav-team-btn-text span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
 }
 
 .nav-drawer-panel a {
@@ -507,6 +654,10 @@ body.tracker-view .brand-sub {
 
   .brand {
     gap: 0;
+  }
+
+  .header-team:not([hidden]) {
+    display: flex;
   }
 
   .nav-desktop {
@@ -2179,7 +2330,8 @@ button.formation-card.is-empty {
   padding: 0.25rem 0.65rem;
 }
 
-.number-pick-panel {
+.number-pick-panel,
+.roster-add-panel {
   width: min(100%, 22rem);
 }
 
@@ -2194,6 +2346,16 @@ button.formation-card.is-empty {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg);
+}
+
+.roster-add-panel .number-pick-select {
+  min-height: 8.5rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+.roster-add-panel .shots-field {
+  display: block;
+  margin-bottom: 0.65rem;
 }
 
 .number-pick-select option:disabled {
@@ -4193,6 +4355,10 @@ button.scoreboard-period:focus-visible {
 .prep-shot-dot,
 .prep-pitch-svg text[data-prep-shot] {
   cursor: pointer;
+}
+
+.prep-corner-count {
+  font-family: var(--font-display);
 }
 
 .prep-shot-popup {

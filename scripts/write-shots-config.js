@@ -9,9 +9,13 @@
  *   SHOTS_PIN (default KEPPA)
  *   SHOTS_BRAND_NAME (default Brighton Bengals)
  *   SHOTS_BRAND_SUB (default Shot Tracker)
+ *   SHOTS_ENV (dev|prod) — inferred from URL when unset
  */
 const fs = require("fs");
 const path = require("path");
+
+const DEV_REF = "fmiymqnfezkqagpbrmoi";
+const PROD_REF = "sczdnalqmymhdornhkbn";
 
 const url = process.env.SHOTS_SUPABASE_URL || "";
 const anon = process.env.SHOTS_SUPABASE_ANON_KEY || "";
@@ -19,10 +23,21 @@ const pin = process.env.SHOTS_PIN || "KEPPA";
 const brandName = process.env.SHOTS_BRAND_NAME || "Brighton Bengals";
 const brandSub = process.env.SHOTS_BRAND_SUB != null ? process.env.SHOTS_BRAND_SUB : "Shot Tracker";
 
+function inferEnv(supabaseUrl) {
+  const forced = String(process.env.SHOTS_ENV || "").toLowerCase();
+  if (forced === "dev" || forced === "development") return "dev";
+  if (forced === "prod" || forced === "production") return "prod";
+  if (supabaseUrl.includes(DEV_REF)) return "dev";
+  if (supabaseUrl.includes(PROD_REF)) return "prod";
+  return "unknown";
+}
+
 if (!url || !anon) {
   console.error("SHOTS_SUPABASE_URL and SHOTS_SUPABASE_ANON_KEY are required");
   process.exit(1);
 }
+
+const env = inferEnv(url);
 
 const out = path.join(__dirname, "..", "shots-config.js");
 const body = `/**
@@ -31,6 +46,7 @@ const body = `/**
 window.SHOTS_CONFIG = {
   pitch: { width: 68, length: 105 },
   storageKey: "brighton-varsity-shot-tracker",
+  env: ${JSON.stringify(env)},
   brandName: ${JSON.stringify(brandName)},
   brandSub: ${JSON.stringify(brandSub)},
   supabaseUrl: ${JSON.stringify(url)},
@@ -40,4 +56,4 @@ window.SHOTS_CONFIG = {
 `;
 
 fs.writeFileSync(out, body, "utf8");
-console.log("Wrote", out);
+console.log("Wrote", out, `(env=${env})`);
