@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { pin } from "./helpers.mjs";
+import { pin, signIn } from "./helpers.mjs";
 
 test.describe("Club Player Visitation Planner", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -15,9 +15,8 @@ test.describe("Club Player Visitation Planner", () => {
   });
 
   test("drawer includes Club visits destination", async ({ page }) => {
-    await page.goto("/#shots");
-    // Planning is an opt-in team module (Brighton on by default). Wait for team
-    // brand/modules to publish before expecting Club visits in the drawer.
+    // Brand/modules only publish after a tracker PIN session loads teams.
+    await signIn(page);
     await expect
       .poll(async () => page.evaluate(() => window.TeamModules?.planningEnabled?.()), { timeout: 20000 })
       .toBe(true);
@@ -29,7 +28,7 @@ test.describe("Club Player Visitation Planner", () => {
   });
 
   test("Planning nav stays hidden when the active team lacks the module", async ({ page }) => {
-    await page.goto("/#shots");
+    await signIn(page);
     // Wait for the real team brand/modules to load, then simulate a team without Planning.
     await expect
       .poll(async () => page.evaluate(() => window.__SHOTS_ACTIVE_BRAND?.teamName || ""), { timeout: 20000 })
