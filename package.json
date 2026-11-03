@@ -4,6 +4,7 @@
   "description": "Brighton varsity shot tracker — tests and tooling",
   "scripts": {
     "test": "npm run test:api && npm run test:e2e",
+    "test:ci": "node scripts/ci-local.mjs",
     "test:api": "vitest run --config vitest.config.mjs",
     "test:e2e": "playwright test",
     "write-config": "node scripts/write-shots-config.js",

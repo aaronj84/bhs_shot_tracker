@@ -74,14 +74,15 @@
       view === "shots-games" || view === "shots-history" || view === "shots-prep" || view === "shots-bracket"
     );
     const isDev = applyEnvChrome();
+    const cfg = window.SHOTS_CONFIG || {};
+    const active = window.__SHOTS_ACTIVE_BRAND || {};
     const theme = document.querySelector('meta[name="theme-color"]');
     if (theme) {
       const scoreboard = view === "shots-scoreboard" || view === "live-scoreboard";
-      theme.setAttribute("content", scoreboard ? "#0b1f33" : isDev ? "#f59e0b" : "#f4f7fb");
+      const scoreboardColor = active.primaryColor || "#0b1f33";
+      theme.setAttribute("content", scoreboard ? scoreboardColor : isDev ? "#f59e0b" : "#f4f7fb");
     }
 
-    const cfg = window.SHOTS_CONFIG || {};
-    const active = window.__SHOTS_ACTIVE_BRAND || {};
     const brandName = $("#brand-name");
     const brandSub = $("#brand-sub");
     if (brandName) brandName.textContent = active.brandName || cfg.brandName || "Brighton Bengals";
@@ -121,8 +122,8 @@
       if (isDev) {
         logo.setAttribute("src", "assets/logo-dev.svg");
         logo.setAttribute("alt", "DEV");
-      } else if (active.logoPath) {
-        logo.setAttribute("src", active.logoPath);
+      } else {
+        logo.setAttribute("src", active.logoPath || "assets/logo.svg");
         logo.setAttribute("alt", active.brandName || "");
       }
     }

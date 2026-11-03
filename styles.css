@@ -26,6 +26,15 @@
   --pitch-line: rgba(255, 255, 255, 0.92);
   --pitch-shade: #24633c;
   --focus: #1a4d7c;
+  --scoreboard-bg:
+    repeating-linear-gradient(-55deg, transparent 0 18px, rgba(255, 255, 255, 0.045) 18px 19px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1.2px),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--brand) 78%, white) 0%,
+      var(--brand) 38%,
+      color-mix(in srgb, var(--brand) 36%, black) 100%
+    );
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 6px 22px rgba(11, 31, 51, 0.08);
@@ -3487,7 +3496,8 @@ tr.is-unsaved td {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 0.15rem 0.45rem;
   align-items: center;
-  background: #0b1f33;
+  background: var(--scoreboard-bg);
+  background-size: auto, 30px 30px, auto;
   color: #f4f7fb;
   border-radius: var(--radius-sm);
   padding: 0.65rem 0.7rem 0.7rem;
@@ -3688,6 +3698,14 @@ tr.is-unsaved td {
   display: block;
 }
 
+.scoreboard-mini-svg .mini-board {
+  fill: color-mix(in srgb, var(--brand) 42%, black);
+}
+
+.scoreboard-mini-svg .mini-us {
+  fill: var(--accent);
+}
+
 .clock-input {
   width: 5.5rem;
   min-height: 36px;
@@ -3725,7 +3743,8 @@ tr.is-unsaved td {
 }
 
 body.scoreboard-view {
-  background: #0b1f33;
+  background: var(--scoreboard-bg);
+  background-size: auto, 30px 30px, auto;
 }
 
 body.scoreboard-view .app-header,
@@ -3744,7 +3763,8 @@ body.scoreboard-view .app-main {
   position: relative;
   min-height: 100dvh;
   padding: 0;
-  background: #0b1f33;
+  background: var(--scoreboard-bg);
+  background-size: auto, 30px 30px, auto;
   color: #f4f7fb;
 }
 
@@ -3777,7 +3797,8 @@ body.scoreboard-view .app-main {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  background: #0b1f33;
+  background: var(--scoreboard-bg);
+  background-size: auto, 30px 30px, auto;
   overflow: hidden;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
@@ -3815,7 +3836,7 @@ body.scoreboard-view .half-toggle-btn {
 
 body.scoreboard-view .half-toggle-btn.is-on {
   background: var(--accent);
-  color: #0b1f33;
+  color: color-mix(in srgb, var(--brand) 55%, black);
   border-color: var(--accent);
 }
 
@@ -3896,7 +3917,7 @@ body.scoreboard-view .half-toggle-btn.is-on {
   width: 100%;
   height: 4px;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(241, 90, 36, 0.55);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
   border-radius: inherit;
   font-size: 0;
   line-height: 0;

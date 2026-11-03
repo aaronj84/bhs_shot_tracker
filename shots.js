@@ -1249,8 +1249,8 @@
   function miniScoreboardIconMarkup(score, face) {
     return `
       <svg class="scoreboard-mini-svg" viewBox="0 0 52 32" aria-hidden="true">
-        <rect x="0.75" y="0.75" width="50.5" height="30.5" rx="5" fill="#0b1f33" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
-        <text x="8" y="21" fill="#f15a24" font-size="13" font-weight="800" font-family="system-ui,sans-serif">${score.us}</text>
+        <rect class="mini-board" x="0.75" y="0.75" width="50.5" height="30.5" rx="5" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+        <text class="mini-us" x="8" y="21" font-size="13" font-weight="800" font-family="system-ui,sans-serif">${score.us}</text>
         <text x="26" y="14" fill="#f4f7fb" font-size="6.5" font-weight="700" text-anchor="middle" font-family="system-ui,sans-serif">${escapeHtml(face)}</text>
         <text x="44" y="21" fill="#f4f7fb" font-size="13" font-weight="800" text-anchor="end" font-family="system-ui,sans-serif">${score.opp}</text>
       </svg>`;
@@ -1534,8 +1534,8 @@
       if (isDev) {
         logo.setAttribute("src", "assets/logo-dev.svg");
         logo.setAttribute("alt", "DEV");
-      } else if (brand.logoPath) {
-        logo.setAttribute("src", brand.logoPath);
+      } else {
+        logo.setAttribute("src", brand.logoPath || "assets/logo.svg");
         logo.setAttribute("alt", brand.brandName || "");
       }
     }
@@ -1560,6 +1560,10 @@
         `color-mix(in srgb, ${brand.primaryColor} 82%, black)`
       );
       document.documentElement.style.setProperty("--focus", brand.primaryColor);
+      if (document.body.classList.contains("scoreboard-view")) {
+        const theme = document.querySelector('meta[name="theme-color"]');
+        if (theme) theme.setAttribute("content", brand.primaryColor);
+      }
     }
     if (brand.accentColor) {
       document.documentElement.style.setProperty("--accent", brand.accentColor);
@@ -2668,6 +2672,7 @@
     }
     st.seasonId = st.game.season_id;
     if (st.game.our_team_id) st.teamId = st.game.our_team_id;
+    applyTeamBrand();
     const us = ourTeamOf(st.game) || currentTeam();
     const opp = opponentOf(st.game);
     st.ourRoster = us ? await API.roster(us.id, st.game.season_id) : [];
