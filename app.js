@@ -34,6 +34,19 @@
     return view === "club-agenda" || view === "club-itinerary" || view === "club-data";
   }
 
+  function isPlanning(view) {
+    return window.TeamModules
+      ? window.TeamModules.isPlanningView(view)
+      : view === "shots-bracket" || isSchedule(view) || isClub(view);
+  }
+
+  /** null = modules unknown yet; false = active team lacks planning */
+  function planningAllowed() {
+    if (!window.TeamModules) return true;
+    const on = window.TeamModules.planningEnabled();
+    return on !== false;
+  }
+
   const DEV_REF = "fmiymqnfezkqagpbrmoi";
 
   function isDevEnv(cfg) {
@@ -160,6 +173,12 @@
       if (current) el.setAttribute("aria-current", "page");
       else el.removeAttribute("aria-current");
     });
+
+    if (window.TeamModules) {
+      const on = window.TeamModules.planningEnabled();
+      // Only show Planning when the active team has explicitly enabled it.
+      window.TeamModules.syncNav(on === true);
+    }
   }
 
   function closeDrawer() {
@@ -173,6 +192,11 @@
 
   function render() {
     const view = parseHash();
+    // Planning is an opt-in team module. Once modules are known and off, leave those routes.
+    if (isPlanning(view) && !planningAllowed()) {
+      if ((location.hash || "") !== "#shots") location.replace("#shots");
+      return;
+    }
     updateChrome(view);
     const root = $("#app-root");
     // Public live scoreboard bypasses PIN check
@@ -266,5 +290,6 @@
   }
   lockViewportScale();
   applyEnvChrome();
+  if (window.TeamModules) window.TeamModules.bootNav();
   render();
 })();

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { pin } from "./helpers.mjs";
+import { pin, signIn } from "./helpers.mjs";
 
 test.describe("Club Player Visitation Planner", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -15,12 +15,32 @@ test.describe("Club Player Visitation Planner", () => {
   });
 
   test("drawer includes Club visits destination", async ({ page }) => {
-    await page.goto("/#shots");
+    // Brand/modules only publish after a tracker PIN session loads teams.
+    await signIn(page);
+    await expect
+      .poll(async () => page.evaluate(() => window.TeamModules?.planningEnabled?.()), { timeout: 20000 })
+      .toBe(true);
     await page.locator("#menu-btn").click();
-    await expect(page.locator("#nav-drawer a[data-nav='club']")).toBeVisible();
+    await expect(page.locator("#nav-drawer [data-module='planning'] a[data-nav='club']")).toBeVisible();
     await page.locator("#nav-drawer a[data-nav='club']").click();
     await expect(page).toHaveURL(/#club/);
     await expect(page.locator(".club-shell")).toBeVisible();
+  });
+
+  test("Planning nav stays hidden when the active team lacks the module", async ({ page }) => {
+    await signIn(page);
+    // Wait for the real team brand/modules to load, then simulate a team without Planning.
+    await expect
+      .poll(async () => page.evaluate(() => window.__SHOTS_ACTIVE_BRAND?.teamName || ""), { timeout: 20000 })
+      .not.toBe("");
+    await page.evaluate(() => {
+      if (window.TeamModules) window.TeamModules.publish([]);
+    });
+    await page.locator("#menu-btn").click();
+    // Heading + sub-group both carry data-module="planning" — assert each uniquely.
+    await expect(page.locator("#nav-planning-label")).toBeHidden();
+    await expect(page.locator("#nav-drawer .nav-drawer-sub[data-module='planning']")).toBeHidden();
+    await expect(page.locator("#nav-drawer a[data-nav='club']")).toBeHidden();
   });
 
   test("itinerary Add to calendar prefers iOS share sheet", async ({ page }) => {

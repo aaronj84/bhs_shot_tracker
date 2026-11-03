@@ -37,6 +37,8 @@ npm run test:e2e    # Playwright smokes (core paths; home/visitor alternate by C
 
 Club Player Visitation Planner (`#club`): see [`docs/club-visitation.md`](docs/club-visitation.md). Migration `club_visitation`, Edge Functions `club-visitation` + `club-sync`. Optional Supabase secret `OPENROUTESERVICE_API_KEY` for routed drive times (Photon geocodes without a key).
 
+**Planning module** (Playoffs, Schedule coach view, Club visits): opt-in per owned team via `teams.modules` jsonb. Empty by default; Brighton is seeded with `["planning"]`. Other programs (CFC, …) do not see Planning in the nav until that key is added. Client helper: `team-modules.js`.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents read this section.
