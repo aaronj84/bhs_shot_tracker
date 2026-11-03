@@ -34,7 +34,7 @@
         <a class="nav-link" href="#shots-prep" data-nav="shots-prep">Prep</a>
         <a class="nav-link" href="#shots-map" data-nav="shots-map">Map</a>
       </span>
-      <span class="nav-desktop-group">
+      <span class="nav-desktop-group" data-module="planning" hidden>
         <a class="nav-link" href="#shots-bracket" data-nav="shots-bracket">Playoffs</a>
         <a class="nav-link" href="#schedule" data-nav="schedule">Schedule</a>
         <a class="nav-link" href="#club" data-nav="club">Club visits</a>
@@ -61,8 +61,8 @@
           <a href="#shots-prep" data-nav="shots-prep" data-close-drawer>Prep</a>
           <a href="#shots-map" data-nav="shots-map" data-close-drawer>Map</a>
         </div>
-        <p class="nav-drawer-heading" id="nav-planning-label">Planning</p>
-        <div class="nav-drawer-sub" role="group" aria-labelledby="nav-planning-label">
+        <p class="nav-drawer-heading" id="nav-planning-label" data-module="planning" hidden>Planning</p>
+        <div class="nav-drawer-sub" role="group" aria-labelledby="nav-planning-label" data-module="planning" hidden>
           <a href="#shots-bracket" data-nav="shots-bracket" data-close-drawer>Playoffs</a>
           <a href="#schedule" data-nav="schedule" data-close-drawer>Schedule</a>
           <a href="#club" data-nav="club" data-close-drawer>Club visits</a>
@@ -308,10 +308,11 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
-  <script src="shots-api.js?v=20261102a"></script>
-  <script src="shots.js?v=20261103c"></script>
+  <script src="team-modules.js?v=20261103a"></script>
+  <script src="shots-api.js?v=20261103d"></script>
+  <script src="shots.js?v=20261103d"></script>
   <script src="schedule.js?v=20261012a"></script>
   <script src="club-visitation.js?v=20261023h"></script>
-  <script src="app.js?v=20261103c"></script>
+  <script src="app.js?v=20261103d"></script>
 </body>
 </html>

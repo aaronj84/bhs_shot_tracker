@@ -19,13 +19,16 @@ declare
   rec record;
   game_rec record;
 begin
+  -- modules defaults to [] — Planning (Playoffs / Schedule / Club visits) is off
+  -- unless explicitly enabled for this team.
   insert into public.teams (
     name, is_ours, organization, org_type, level,
-    brand_name, brand_sub, primary_color, accent_color, logo_path
+    brand_name, brand_sub, primary_color, accent_color, logo_path, modules
   )
   select
     'CFC G10 BD', true, 'Cottonwood FC', 'club', 'U17',
-    'CFC G10 BD', 'Cottonwood FC · U17', '#9b1b2e', '#c9a227', 'assets/logo-cfc.png'
+    'CFC G10 BD', 'Cottonwood FC · U17', '#9b1b2e', '#c9a227', 'assets/logo-cfc.png',
+    '[]'::jsonb
   where not exists (
     select 1 from public.teams where is_ours and name = 'CFC G10 BD'
   );
@@ -44,7 +47,8 @@ begin
     brand_sub = 'Cottonwood FC · U17',
     primary_color = '#9b1b2e',
     accent_color = '#c9a227',
-    logo_path = 'assets/logo-cfc.png'
+    logo_path = 'assets/logo-cfc.png',
+    modules = coalesce(modules, '[]'::jsonb)
   where id = us;
 
   insert into public.seasons (year, label, team_id)

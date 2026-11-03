@@ -199,6 +199,8 @@
         primary_color: row.primary_color || null,
         accent_color: row.accent_color || null,
         logo_path: row.logo_path || null,
+        // Opt-in modules (e.g. ["planning"]). Empty unless the caller enables them.
+        modules: Array.isArray(row.modules) ? row.modules : [],
       };
       if (!payload.name) throw new Error("Team name is required");
       const { data, error } = await getClient().from("teams").insert(payload).select().single();

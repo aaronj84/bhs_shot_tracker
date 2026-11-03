@@ -1593,6 +1593,16 @@
     };
     window.__SHOTS_ACTIVE_BRAND = brand;
     paintBrandChrome(brand);
+    if (window.TeamModules) {
+      window.TeamModules.publish(window.TeamModules.fromTeam(t));
+      // Leaving Planning when the new team does not have the module.
+      if (
+        !window.TeamModules.has(t, window.TeamModules.PLANNING) &&
+        window.TeamModules.isPlanningHash(location.hash || "")
+      ) {
+        location.hash = "#shots";
+      }
+    }
     syncNavTeamPicker();
   }
 

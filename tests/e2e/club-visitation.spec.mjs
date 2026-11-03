@@ -16,11 +16,30 @@ test.describe("Club Player Visitation Planner", () => {
 
   test("drawer includes Club visits destination", async ({ page }) => {
     await page.goto("/#shots");
+    // Planning is an opt-in team module (Brighton on by default). Wait for team
+    // brand/modules to publish before expecting Club visits in the drawer.
+    await expect
+      .poll(async () => page.evaluate(() => window.TeamModules?.planningEnabled?.()), { timeout: 20000 })
+      .toBe(true);
     await page.locator("#menu-btn").click();
-    await expect(page.locator("#nav-drawer a[data-nav='club']")).toBeVisible();
+    await expect(page.locator("#nav-drawer [data-module='planning'] a[data-nav='club']")).toBeVisible();
     await page.locator("#nav-drawer a[data-nav='club']").click();
     await expect(page).toHaveURL(/#club/);
     await expect(page.locator(".club-shell")).toBeVisible();
+  });
+
+  test("Planning nav stays hidden when the active team lacks the module", async ({ page }) => {
+    await page.goto("/#shots");
+    // Wait for the real team brand/modules to load, then simulate a team without Planning.
+    await expect
+      .poll(async () => page.evaluate(() => window.__SHOTS_ACTIVE_BRAND?.teamName || ""), { timeout: 20000 })
+      .not.toBe("");
+    await page.evaluate(() => {
+      if (window.TeamModules) window.TeamModules.publish([]);
+    });
+    await page.locator("#menu-btn").click();
+    await expect(page.locator("#nav-drawer [data-module='planning']")).toBeHidden();
+    await expect(page.locator("#nav-drawer a[data-nav='club']")).toBeHidden();
   });
 
   test("itinerary Add to calendar prefers iOS share sheet", async ({ page }) => {

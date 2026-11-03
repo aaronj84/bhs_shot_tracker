@@ -57,11 +57,13 @@ npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
 | `#shots-prep` | Opponent Prep (Gemini chat + notes) |
 | `#shots-prep?tab=explore` | Explore (LLM Q&A; `#shots-explore` still redirects here) |
 | `#shots-map` | Full-field shot map |
-| `#club` / `#club-agenda` | Club Player Visitation Planner (agenda) |
+| `#shots-bracket` | Playoffs / rankings (Planning module) |
+| `#schedule` | Postseason meeting scheduler — coach (Planning module) |
+| `#club` / `#club-agenda` | Club Player Visitation Planner (agenda; Planning module) |
 | `#club-itinerary` | Named itinerary builder + Gemini |
 | `#club-data` | Club teams, sources, facilities, sync |
 
-Club planner setup: [docs/club-visitation.md](docs/club-visitation.md).
+**Planning** (Playoffs, Schedule, Club visits) is an opt-in team module (`teams.modules` includes `"planning"`). Brighton has it by default; other owned teams do not until enabled. Club planner setup: [docs/club-visitation.md](docs/club-visitation.md).
 
 ## Project structure
 
@@ -73,6 +75,7 @@ Club planner setup: [docs/club-visitation.md](docs/club-visitation.md).
   shots.js                # Tracker UI
   schedule.js             # Postseason meeting scheduler
   club-visitation.js      # Club Player Visitation Planner
+  team-modules.js         # Opt-in per-team modules (planning, …)
   shots-api.js            # Supabase access
   shots-config.js         # Local / generated (gitignored)
   shots-config.example.js
