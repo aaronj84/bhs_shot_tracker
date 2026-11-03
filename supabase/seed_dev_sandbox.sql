@@ -49,24 +49,24 @@ declare
   p_rival9 uuid;
   p_comet10 uuid;
 begin
-  -- Home side: keep is_brighton=true (app/RLS expect one "us" team), rename for clarity
+  -- Home side: keep is_ours=true (app expects owned teams), rename for clarity
   update public.teams
   set name = 'Medville Marauders'
-  where is_brighton
+  where is_ours
     and name is distinct from 'Medville Marauders';
 
-  select id into marauders from public.teams where is_brighton limit 1;
+  select id into marauders from public.teams where is_ours limit 1;
   if marauders is null then
-    raise exception 'Home team (is_brighton) missing — run migrations first';
+    raise exception 'Home team (is_ours) missing — run migrations first';
   end if;
 
-  select id into season from public.seasons where label = 'DEV Sandbox' limit 1;
+  select id into season from public.seasons where label = 'DEV Sandbox' and team_id = marauders limit 1;
   if season is not null then
     skip_games := true;
     raise notice 'DEV Sandbox already present — skip games/shots; refreshing cartoon rosters';
   else
-    insert into public.seasons (year, label)
-    values (2099, 'DEV Sandbox')
+    insert into public.seasons (team_id, year, label)
+    values (marauders, 2099, 'DEV Sandbox')
     returning id into season;
   end if;
 
@@ -144,17 +144,22 @@ begin
 
   if not skip_games then
 
-  -- Cartoon opponents
-  insert into public.teams (name, is_brighton)
-  values
-    ('Rivertown Rivals', false),
-    ('Cedar Comets', false),
-    ('Bogwater Badgers', false)
-  on conflict (name) do nothing;
+  -- Cartoon opponents (scoped to the owned Marauders team)
+  insert into public.teams (name, is_ours, owner_team_id)
+  select v.name, false, marauders
+  from (values
+    ('Rivertown Rivals'),
+    ('Cedar Comets'),
+    ('Bogwater Badgers')
+  ) as v(name)
+  where not exists (
+    select 1 from public.teams t
+    where t.owner_team_id = marauders and t.name = v.name
+  );
 
-  select id into opp_rivals from public.teams where name = 'Rivertown Rivals';
-  select id into opp_comets from public.teams where name = 'Cedar Comets';
-  select id into opp_badgers from public.teams where name = 'Bogwater Badgers';
+  select id into opp_rivals from public.teams where name = 'Rivertown Rivals' and owner_team_id = marauders;
+  select id into opp_comets from public.teams where name = 'Cedar Comets' and owner_team_id = marauders;
+  select id into opp_badgers from public.teams where name = 'Bogwater Badgers' and owner_team_id = marauders;
 
   insert into public.players (name, short_name) values
     ('Rival Robot #9', 'R9'),
@@ -256,10 +261,14 @@ begin
   end if;
 
   -- Re-runnable: Bogwater names + positions so opponent tagging isn't just numbers.
-  insert into public.teams (name, is_brighton)
-  values ('Bogwater Badgers', false)
-  on conflict (name) do nothing;
-  select id into opp_badgers from public.teams where name = 'Bogwater Badgers' limit 1;
+  insert into public.teams (name, is_ours, owner_team_id)
+  select 'Bogwater Badgers', false, marauders
+  where not exists (
+    select 1 from public.teams t
+    where t.owner_team_id = marauders and t.name = 'Bogwater Badgers'
+  );
+  select id into opp_badgers from public.teams
+  where name = 'Bogwater Badgers' and owner_team_id = marauders limit 1;
   if opp_badgers is null or season is null then
     raise exception 'Bogwater team or DEV Sandbox season missing';
   end if;

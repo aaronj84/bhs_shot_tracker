@@ -5,6 +5,8 @@
 
 Day-to-day: point local `shots-config.js` at **DEV**. Promote schema with migrations; promote the site with a PR `dev` → `main` (see [git-workflow.md](git-workflow.md)).
 
+When `shots-config.js` points at DEV (`env: "dev"` or the DEV project ref), the shell uses an orange/yellow page background and a block **DEV** logo so you never confuse it with live PROD. Refresh PROD data onto DEV with [`scripts/restore-prod-to-dev.sh`](../scripts/restore-prod-to-dev.sh) (see [backup.md](backup.md)).
+
 ---
 
 ## 1. Create the DEV project

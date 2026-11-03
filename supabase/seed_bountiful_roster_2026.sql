@@ -18,7 +18,7 @@ declare
   pid uuid;
   rec record;
 begin
-  select id into bountiful from public.teams where name = 'Bountiful' and not is_brighton limit 1;
+  select id into bountiful from public.teams where name = 'Bountiful' and not is_ours limit 1;
   select id into season from public.seasons where label = '2026 Fall' limit 1;
 
   if bountiful is null then

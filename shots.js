@@ -136,7 +136,16 @@
     { slot: 10, code: "CF", number: "13" }, // Kailee
     { slot: 11, code: "RW", number: "32" }, // Ari
   ];
-  const GAME_TYPES = ["preseason", "region", "playoffs", "friendly", "other"];
+  const GAME_TYPES = [
+    "preseason",
+    "region",
+    "league",
+    "playoffs",
+    "tournament",
+    "futsal",
+    "friendly",
+    "other",
+  ];
   // MaxPreps renders fixed 220px round columns with no mobile layout, so the frame is
   // sized to the whole bracket and the page scrolls it sideways. `x` is each round's left edge.
   const PLAYOFF_BRACKET = {
@@ -431,10 +440,12 @@
         logTeam: st.logTeam,
         logResult: st.logResult,
         trackerPanel: st.trackerPanel,
+        teamId: st.teamId,
         seasonId: st.seasonId,
         gameId: st.gameId,
       })
     );
+    if (st.teamId) sessionStorage.setItem("shots-team-id", st.teamId);
     if (st.seasonId) sessionStorage.setItem("shots-season-id", st.seasonId);
     if (st.gameId) sessionStorage.setItem("shots-game-id", st.gameId);
   }
@@ -450,10 +461,10 @@
   function loadLineupBag(gameId) {
     const store = readLineupStore();
     const fromGame = gameId && store[gameId] && typeof store[gameId] === "object" ? store[gameId].us : null;
-    const fromLegacy = store.us && typeof store.us === "object" ? store.us : {};
+    // Per-game only — never reuse another team's last XI via legacy store.us.
     return {
       edit: "us",
-      us: fromGame && typeof fromGame === "object" ? fromGame : fromLegacy,
+      us: fromGame && typeof fromGame === "object" ? fromGame : {},
       opp: {},
     };
   }
@@ -462,7 +473,6 @@
     const store = readLineupStore();
     const us = st.lineup.us || {};
     if (st.gameId) store[st.gameId] = { us };
-    store.us = us;
     localStorage.setItem(LS_LINEUP, JSON.stringify(store));
   }
 
@@ -485,12 +495,23 @@
       if (!row) return;
       const pid = row.player_id || row.id || "";
       const num = row.jersey_number || row.number || "";
+      // Only keep players who are on the active team's roster (drops Brighton/DEV bleed).
       const fromRoster = playerFromRoster("us", pid, num);
-      bag[String(slotId)] = lineupPlayerPayload(
-        fromRoster || { id: pid, number: num, name: row.name || "", short: row.short || row.short_name || "" }
-      );
+      if (!fromRoster) return;
+      bag[String(slotId)] = lineupPlayerPayload(fromRoster);
     });
     return bag;
+  }
+
+  function filterLineupToRoster(bag) {
+    const next = {};
+    Object.entries(bag || {}).forEach(([slotId, row]) => {
+      if (!row) return;
+      const fromRoster = playerFromRoster("us", row.id || row.player_id || "", row.number || row.jersey_number || "");
+      if (!fromRoster) return;
+      next[String(slotId)] = lineupPlayerPayload(fromRoster);
+    });
+    return next;
   }
 
   function applyLineupFromGame(game, opts = {}) {
@@ -505,11 +526,14 @@
       lineupDirty = false;
       return !same;
     }
-    if (!opts.preserveDirty) st.lineup.us = loadLineupBag(st.gameId).us;
+    if (!opts.preserveDirty) {
+      st.lineup.us = filterLineupToRoster(loadLineupBag(st.gameId).us);
+    }
     return false;
   }
 
   let lineupDirty = false;
+  const rosterDraftGroups = new Set();
   let lineupPushTimer = null;
   let lineupLiveBound = false;
   let lineupPullTimer = null;
@@ -609,21 +633,41 @@
     });
   }
 
-  function loadDefaultLineup() {
+  function loadDefaultLineup(teamId) {
     try {
       const parsed = JSON.parse(localStorage.getItem(LS_DEFAULT_LINEUP) || "{}") || {};
-      return parsed.us && typeof parsed.us === "object" ? { us: parsed.us } : { us: {} };
+      const tid = teamId || "";
+      if (tid && parsed.byTeam && parsed.byTeam[tid] && typeof parsed.byTeam[tid] === "object") {
+        const us = parsed.byTeam[tid].us;
+        return us && typeof us === "object" ? { us } : { us: {} };
+      }
+      // Legacy single-team default — only use when no team is selected yet.
+      if (!tid && parsed.us && typeof parsed.us === "object") return { us: parsed.us };
+      return { us: {} };
     } catch {
       return { us: {} };
     }
   }
 
   function saveDefaultLineupBag(bag) {
-    localStorage.setItem(LS_DEFAULT_LINEUP, JSON.stringify({ us: bag || {} }));
+    let parsed = {};
+    try {
+      parsed = JSON.parse(localStorage.getItem(LS_DEFAULT_LINEUP) || "{}") || {};
+    } catch {
+      parsed = {};
+    }
+    if (!parsed.byTeam || typeof parsed.byTeam !== "object") parsed.byTeam = {};
+    const tid = st.teamId || "";
+    if (tid) {
+      parsed.byTeam[tid] = { us: bag || {} };
+    } else {
+      parsed.us = bag || {};
+    }
+    localStorage.setItem(LS_DEFAULT_LINEUP, JSON.stringify(parsed));
   }
 
   const savedUi = loadUi();
-  const savedLineup = loadLineupBag();
+  const savedLineup = loadLineupBag(savedUi.gameId);
   const st = {
     view: "shots",
     booted: false,
@@ -637,10 +681,12 @@
     games: [],
     allGames: [],
     game: null,
+    teamId: savedUi.teamId || sessionStorage.getItem("shots-team-id") || "",
     seasonId: savedUi.seasonId || sessionStorage.getItem("shots-season-id") || "",
     gameId: savedUi.gameId || sessionStorage.getItem("shots-game-id") || "",
     ourRoster: [],
     oppRoster: [],
+    seasonRoster: [],
     shots: [],
     namedPlayers: [],
     syncing: false,
@@ -667,7 +713,9 @@
     trackerNoteAuthor: localStorage.getItem(LS_NOTE_AUTHOR) || "",
     trackerShowNoteForm: false,
     lineup: savedLineup,
-    defaultLineup: loadDefaultLineup(),
+    defaultLineup: loadDefaultLineup(
+      savedUi.teamId || sessionStorage.getItem("shots-team-id") || ""
+    ),
     csvPending: null,
     importOpen: false,
     stampOffset: loadStampOffset(),
@@ -1411,8 +1459,27 @@
     else paintClockFaces();
   }
 
+  function oursTeams() {
+    return (st.teams || []).filter((t) => t.is_ours);
+  }
+
+  function currentTeam() {
+    if (st.teamId) {
+      const hit = st.teams.find((t) => t.id === st.teamId && t.is_ours);
+      if (hit) return hit;
+    }
+    return oursTeams()[0] || null;
+  }
+
+  /** @deprecated use currentTeam() */
   function brighton() {
-    return st.teams.find((t) => t.is_brighton) || null;
+    return currentTeam();
+  }
+
+  function opponentTeams(ownerId) {
+    const oid = ownerId || st.teamId || currentTeam()?.id;
+    if (!oid) return [];
+    return (st.teams || []).filter((t) => !t.is_ours && t.owner_team_id === oid);
   }
 
   function teamById(id) {
@@ -1421,8 +1488,8 @@
 
   function ourTeamOf(game) {
     const g = game || st.game;
-    if (!g) return brighton();
-    return g.our_team || teamById(g.our_team_id) || brighton();
+    if (!g) return currentTeam();
+    return g.our_team || teamById(g.our_team_id) || currentTeam();
   }
 
   function ourTeamName(game) {
@@ -1434,10 +1501,133 @@
     const usId = game.our_team_id || ourTeamOf(game)?.id;
     if (usId && game.home_team_id === usId) return game.away_team || teamById(game.away_team_id);
     if (usId && game.away_team_id === usId) return game.home_team || teamById(game.home_team_id);
-    const b = brighton();
-    if (b && game.home_team_id === b.id) return game.away_team || teamById(game.away_team_id);
-    if (b && game.away_team_id === b.id) return game.home_team || teamById(game.home_team_id);
+    const us = currentTeam();
+    if (us && game.home_team_id === us.id) return game.away_team || teamById(game.away_team_id);
+    if (us && game.away_team_id === us.id) return game.home_team || teamById(game.home_team_id);
     return game.away_team || teamById(game.away_team_id);
+  }
+
+  function paintBrandChrome(brand) {
+    const brandName = document.querySelector("#brand-name");
+    const brandSub = document.querySelector("#brand-sub");
+    const logo = document.querySelector("a.brand img");
+    const headerTeam = document.querySelector("#header-team");
+    const headerLogo = document.querySelector("#header-team-logo");
+    const headerName = document.querySelector("#header-team-name");
+    const isDev =
+      String((window.SHOTS_CONFIG || {}).env || "").toLowerCase() === "dev" ||
+      String((window.SHOTS_CONFIG || {}).supabaseUrl || "").includes("fmiymqnfezkqagpbrmoi");
+    if (brandName) brandName.textContent = brand.brandName;
+    if (brandSub) {
+      let sub = brand.brandSub || "";
+      if (isDev && sub && !/\bdev\b/i.test(sub)) sub = `DEV · ${sub}`;
+      else if (isDev && !sub) sub = "DEV";
+      brandSub.textContent = sub;
+      brandSub.hidden = !sub;
+    }
+    if (brand.brandName) {
+      document.title = isDev ? `DEV · ${brand.brandName} Shot Tracker` : `${brand.brandName} Shot Tracker`;
+    }
+    // Header: DEV badge on DEV; otherwise the active team's logo.
+    if (logo) {
+      if (isDev) {
+        logo.setAttribute("src", "assets/logo-dev.svg");
+        logo.setAttribute("alt", "DEV");
+      } else if (brand.logoPath) {
+        logo.setAttribute("src", brand.logoPath);
+        logo.setAttribute("alt", brand.brandName || "");
+      }
+    }
+    // Mobile center: active team crest + name (between app logo and hamburger).
+    if (headerTeam && headerLogo && headerName) {
+      const label = brand.teamName || brand.brandName || "";
+      if (label) {
+        headerLogo.setAttribute("src", brand.logoPath || "assets/logo.svg");
+        headerLogo.setAttribute("alt", "");
+        headerName.textContent = label;
+        headerTeam.hidden = false;
+        headerTeam.setAttribute("aria-label", `Active team: ${label}. Open menu to switch.`);
+      } else {
+        headerTeam.hidden = true;
+      }
+    }
+    if (brand.primaryColor) {
+      document.documentElement.style.setProperty("--brand", brand.primaryColor);
+      document.documentElement.style.setProperty("--ours", brand.primaryColor);
+      document.documentElement.style.setProperty(
+        "--brand-strong",
+        `color-mix(in srgb, ${brand.primaryColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--focus", brand.primaryColor);
+    }
+    if (brand.accentColor) {
+      document.documentElement.style.setProperty("--accent", brand.accentColor);
+      document.documentElement.style.setProperty(
+        "--accent-dim",
+        `color-mix(in srgb, ${brand.accentColor} 82%, black)`
+      );
+      document.documentElement.style.setProperty("--hint", brand.accentColor);
+    }
+  }
+
+  function applyTeamBrand() {
+    const t = currentTeam();
+    const cfg = window.SHOTS_CONFIG || {};
+    const brand = {
+      brandName: (t && t.brand_name) || cfg.brandName || "Brighton Bengals",
+      brandSub:
+        t && t.brand_sub != null && String(t.brand_sub) !== ""
+          ? String(t.brand_sub)
+          : cfg.brandSub != null
+            ? String(cfg.brandSub)
+            : "Shot Tracker",
+      teamName: (t && t.name) || (t && t.brand_name) || cfg.brandName || "Brighton Bengals",
+      primaryColor: (t && t.primary_color) || null,
+      accentColor: (t && t.accent_color) || null,
+      logoPath: (t && t.logo_path) || null,
+    };
+    window.__SHOTS_ACTIVE_BRAND = brand;
+    paintBrandChrome(brand);
+    syncNavTeamPicker();
+  }
+
+  function syncNavTeamPicker() {
+    const list = document.querySelector("#nav-team-pick");
+    if (!list) return;
+    const ours = oursTeams();
+    list.innerHTML = ours.length
+      ? ours
+          .map((t) => {
+            const active = t.id === st.teamId;
+            const logo = t.logo_path
+              ? `<img src="${escapeHtml(t.logo_path)}" alt="" width="36" height="36" />`
+              : `<img src="assets/logo.svg" alt="" width="36" height="36" />`;
+            const sub = [t.organization, t.level].filter(Boolean).join(" · ");
+            return `<button type="button" class="nav-team-btn${active ? " is-active" : ""}" role="option" aria-selected="${
+              active ? "true" : "false"
+            }" data-team-id="${escapeHtml(t.id)}">
+              ${logo}
+              <span class="nav-team-btn-text">
+                <strong>${escapeHtml(t.name)}</strong>
+                ${sub ? `<span>${escapeHtml(sub)}</span>` : ""}
+              </span>
+            </button>`;
+          })
+          .join("")
+      : `<p class="muted">No teams yet</p>`;
+    if (!list.dataset.bound) {
+      list.dataset.bound = "1";
+      list.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-team-id]");
+        if (!btn) return;
+        const id = btn.getAttribute("data-team-id");
+        if (!id || id === st.teamId) return;
+        selectTeam(id).catch((err) => {
+          st.error = err.message || "Could not switch team";
+          draw();
+        });
+      });
+    }
   }
 
   function slugify(name) {
@@ -1481,7 +1671,7 @@
     if (byId) return byId;
     const hits = teams.filter((t) => slugify(t.name) === ref);
     if (hits.length === 1) return hits[0];
-    return hits.find((t) => !t.is_brighton) || hits[0] || null;
+    return hits.find((t) => !t.is_ours) || hits[0] || null;
   }
 
   function shareSeasonRef(season) {
@@ -1827,20 +2017,20 @@
   }
 
   function teamIdFor(team) {
-    const b = brighton();
-    if (team === "us") return b ? b.id : st.game?.our_team_id;
+    const us = ourTeamOf(st.game) || currentTeam();
+    if (team === "us") return us ? us.id : st.game?.our_team_id;
     const opp = opponentOf(st.game);
     return opp ? opp.id : null;
   }
 
   function teamIdForEvent(team, ev) {
     const key = team === "opp" ? "opp" : "us";
-    const b = brighton();
-    if (key === "us") return b ? b.id : ev?.game?.our_team_id || st.game?.our_team_id || null;
+    const us = ourTeamOf(ev?.game || st.game) || currentTeam();
+    if (key === "us") return us ? us.id : ev?.game?.our_team_id || st.game?.our_team_id || null;
     const game = ev?.game || st.game;
-    if (game && b) {
-      if (game.home_team_id === b.id) return game.away_team_id;
-      if (game.away_team_id === b.id) return game.home_team_id;
+    if (game && us) {
+      if (game.home_team_id === us.id) return game.away_team_id;
+      if (game.away_team_id === us.id) return game.home_team_id;
     }
     return teamIdFor("opp");
   }
@@ -1901,10 +2091,15 @@
     return `left:${layout.x}%;top:${layout.y}%`;
   }
 
+  function jerseyDisplay(number) {
+    const n = String(number ?? "").trim();
+    if (!n || n.startsWith("_")) return "";
+    return n;
+  }
+
   function formationMeta(slotCode, player) {
-    if (player && player.number != null && player.number !== "") {
-      return `${escapeHtml(String(player.number))} · ${escapeHtml(slotCode)}`;
-    }
+    const num = player ? jerseyDisplay(player.number) : "";
+    if (num) return `${escapeHtml(num)} · ${escapeHtml(slotCode)}`;
     return escapeHtml(slotCode);
   }
 
@@ -2053,7 +2248,7 @@
   }
 
   function restoreDefaultLineup() {
-    let bag = st.defaultLineup.us || {};
+    let bag = filterLineupToRoster(st.defaultLineup.us || {});
     if (!Object.keys(bag).length) {
       bag = buildDefaultXiFromRoster();
       if (Object.keys(bag).length < 11) {
@@ -2209,8 +2404,8 @@
     if (!p) return "";
     if (p.short || p.short_name) return p.short || p.short_name;
     if (p.name) return firstName(p.name);
-    const num = p.jersey_number || p.number;
-    return num != null && String(num) !== "" ? `#${num}` : "Unknown";
+    const num = jerseyDisplay(p.jersey_number || p.number);
+    return num ? `#${num}` : "Unknown";
   }
 
   /** Opponent roster labels: preferred/short name, else A. Last. */
@@ -2344,8 +2539,8 @@
 
   function mapShot(row) {
     if (row._view) return row;
-    const b = brighton();
-    const team = b && row.team_id === b.id ? "us" : "opp";
+    const usId = st.game?.our_team_id || currentTeam()?.id;
+    const team = usId && row.team_id === usId ? "us" : "opp";
     const roster = team === "us" ? st.ourRoster : st.oppRoster;
     return {
       id: row.id,
@@ -2391,15 +2586,57 @@
       return;
     }
     st.teams = await API.teams();
-    st.seasons = await API.seasons();
-    if (!st.seasonId && st.seasons[0]) st.seasonId = st.seasons[0].id;
+    const ours = oursTeams();
+    if (!st.teamId || !ours.some((t) => t.id === st.teamId)) {
+      st.teamId = ours[0]?.id || "";
+    }
+    st.seasons = st.teamId ? await API.seasons(st.teamId) : [];
+    if (st.seasonId && !st.seasons.some((s) => s.id === st.seasonId)) {
+      st.seasonId = st.seasons[0]?.id || "";
+    } else if (!st.seasonId && st.seasons[0]) {
+      st.seasonId = st.seasons[0].id;
+    }
     st.allGames = await API.games();
     st.games = st.seasonId ? st.allGames.filter((g) => g.season_id === st.seasonId) : st.allGames.slice();
     try {
-      st.namedPlayers = await API.namedPlayers();
+      st.namedPlayers = await API.namedPlayers(st.teamId || undefined);
     } catch {
       st.namedPlayers = [];
     }
+    await loadSeasonRoster();
+    applyTeamBrand();
+  }
+
+  async function selectTeam(id) {
+    if (!id || id === st.teamId) return;
+    st.teamId = id;
+    st.seasonId = "";
+    st.gameId = "";
+    st.game = null;
+    st.games = [];
+    st.shots = [];
+    st.ourRoster = [];
+    st.oppRoster = [];
+    st.seasonRoster = [];
+    rosterDraftGroups.clear();
+    st.history = {
+      seasonId: "",
+      playerId: "",
+      opponentId: "",
+      depth: "",
+      lane: "",
+      range: "",
+      rows: null,
+      loading: false,
+    };
+    st.lineup = { edit: "us", us: {}, opp: {} };
+    st.defaultLineup = loadDefaultLineup(id);
+    lineupDirty = false;
+    // Persist immediately so a reload mid-switch still lands on this team.
+    saveUi();
+    await refreshMeta();
+    saveUi();
+    draw();
   }
 
   async function loadGameContext() {
@@ -2429,11 +2666,14 @@
       );
     }
     st.seasonId = st.game.season_id;
-    const b = brighton();
+    if (st.game.our_team_id) st.teamId = st.game.our_team_id;
+    const us = ourTeamOf(st.game) || currentTeam();
     const opp = opponentOf(st.game);
-    st.ourRoster = b ? await API.roster(b.id, st.game.season_id) : [];
+    st.ourRoster = us ? await API.roster(us.id, st.game.season_id) : [];
     st.oppRoster = opp ? await API.roster(opp.id, st.game.season_id) : [];
+    st.defaultLineup = loadDefaultLineup(st.teamId || us?.id);
     applyLineupFromGame(st.game);
+    st.lineup.us = filterLineupToRoster(st.lineup.us);
     seedDefaultLineupIfEmpty();
     const rows = await API.shotsForGame(st.gameId);
     st.shots = rows.map(mapShot);
@@ -2676,10 +2916,18 @@
 
   async function selectSeason(id) {
     st.seasonId = id;
+    rosterDraftGroups.clear();
     if (st.allGames && st.allGames.length) {
       st.games = id ? st.allGames.filter((g) => g.season_id === id) : st.allGames.slice();
     } else {
       st.games = id ? await API.games(id) : await API.games();
+    }
+    try {
+      await loadSeasonRoster();
+      st.error = "";
+    } catch (err) {
+      st.seasonRoster = [];
+      st.error = err.message || "Could not load roster";
     }
     saveUi();
     draw();
@@ -2752,15 +3000,43 @@
     return String(g?.date || "").slice(0, 10);
   }
 
+  function competitionNamesForTeam() {
+    const tid = st.teamId || currentTeam()?.id;
+    const names = new Set();
+    (st.allGames || st.games || []).forEach((g) => {
+      if (tid && g.our_team_id && g.our_team_id !== tid) return;
+      const n = String(g.competition_name || "").trim();
+      if (n) names.add(n);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  function competitionDatalistMarkup(listId) {
+    const opts = competitionNamesForTeam()
+      .map((n) => `<option value="${escapeHtml(n)}"></option>`)
+      .join("");
+    return `<datalist id="${escapeHtml(listId)}">${opts}</datalist>`;
+  }
+
+  function gameTypeLabel(g) {
+    const type = g.game_type || "";
+    const comp = String(g.competition_name || "").trim();
+    if (comp && type) return `${type} · ${comp}`;
+    return comp || type || "";
+  }
+
   function gameListRowMarkup(g, { past = false } = {}) {
     const date = gameDateYmd(g);
     const opp = opponentOf(g);
     const vs = opp ? opp.name : "";
+    const typeLabel = gameTypeLabel(g);
     return `
       <li class="shots-game-row${past ? " is-past" : ""}">
         <button type="button" class="shots-game-btn" data-open-game="${g.id}">
           <strong>${escapeHtml(date)}</strong>
-          <span>vs ${escapeHtml(vs)} · ${escapeHtml(g.game_type)}${g.status === "final" ? " · Final" : ""}</span>
+          <span>vs ${escapeHtml(vs)}${typeLabel ? ` · ${escapeHtml(typeLabel)}` : ""}${
+            g.status === "final" ? " · Final" : ""
+          }</span>
         </button>
       </li>`;
   }
@@ -2814,8 +3090,16 @@
     return rows;
   }
 
+  function knownGameTeamNames() {
+    const us = currentTeam();
+    const names = new Set();
+    if (us) names.add(us.name.toLowerCase());
+    opponentTeams().forEach((t) => names.add(t.name.toLowerCase()));
+    return names;
+  }
+
   function newTeamNames(rows) {
-    const known = new Set(st.teams.map((t) => t.name.toLowerCase()));
+    const known = knownGameTeamNames();
     const names = [];
     rows.forEach((r) => {
       [r.home_team, r.away_team].forEach((n) => {
@@ -2827,28 +3111,33 @@
     return names;
   }
 
+  function resolveGameSideName(name) {
+    const us = currentTeam();
+    if (us && us.name.toLowerCase() === String(name || "").toLowerCase()) return us;
+    return opponentTeams().find((t) => t.name.toLowerCase() === String(name || "").toLowerCase()) || null;
+  }
+
   async function importScheduleRows(rows, createNames) {
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before importing a schedule.");
     for (const name of createNames) {
-      await API.createTeam(name);
+      await API.createOpponent(us.id, name);
     }
     await refreshMeta();
-    const b = brighton();
-    if (!b) throw new Error("Brighton team is missing. Re-run schema.sql.");
-    const byName = (n) => st.teams.find((t) => t.name.toLowerCase() === n.toLowerCase());
     const bySeason = (label) => st.seasons.find((s) => s.label.toLowerCase() === label.toLowerCase());
     let created = 0;
     for (const row of rows) {
       let season = bySeason(row.season_label);
       if (!season) {
         const year = Number(String(row.season_label).slice(0, 4)) || new Date().getFullYear();
-        season = await API.createSeason(year, row.season_label);
+        season = await API.createSeason(us.id, year, row.season_label);
         st.seasons.push(season);
       }
-      const home = byName(row.home_team);
-      const away = byName(row.away_team);
+      const home = resolveGameSideName(row.home_team);
+      const away = resolveGameSideName(row.away_team);
       if (!home || !away) throw new Error(`Unknown team in ${row.date} ${row.home_team} vs ${row.away_team}`);
-      if (home.id !== b.id && away.id !== b.id) {
-        throw new Error(`${row.home_team} vs ${row.away_team} does not include Brighton`);
+      if (home.id !== us.id && away.id !== us.id) {
+        throw new Error(`${row.home_team} vs ${row.away_team} does not include ${us.name}`);
       }
       await API.createGame({
         season_id: season.id,
@@ -2856,7 +3145,7 @@
         game_type: row.game_type,
         home_team_id: home.id,
         away_team_id: away.id,
-        our_team_id: b.id,
+        our_team_id: us.id,
       });
       created += 1;
     }
@@ -2868,14 +3157,17 @@
   }
 
   async function createGameFromForm() {
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before adding a game");
     const date = $("#new-game-date").value;
     const type = $("#new-game-type").value;
+    const competitionName = ($("#new-game-competition")?.value || "").trim() || null;
     let seasonId = $("#new-game-season").value;
     const newSeasonLabel = $("#new-season-label")?.value.trim();
     if (seasonId === "__new__") {
       if (!newSeasonLabel) throw new Error("Enter a season label");
       const year = Number($("#new-season-year")?.value) || new Date().getFullYear();
-      const season = await API.createSeason(year, newSeasonLabel);
+      const season = await API.createSeason(us.id, year, newSeasonLabel);
       seasonId = season.id;
       st.seasons.unshift(season);
     }
@@ -2884,7 +3176,7 @@
       if (v === "__new__") {
         const name = $(newId).value.trim();
         if (!name) throw new Error("Enter a team name");
-        const team = await API.createTeam(name);
+        const team = await API.createOpponent(us.id, name);
         st.teams.push(team);
         return team.id;
       }
@@ -2892,17 +3184,17 @@
     };
     const homeId = await pickTeam("#new-game-home", "#new-home-name");
     const awayId = await pickTeam("#new-game-away", "#new-away-name");
-    const b = brighton();
     if (!date || !seasonId || !homeId || !awayId) throw new Error("Date, season, and both teams are required");
     if (homeId === awayId) throw new Error("Home and away must be different");
-    if (!b || (homeId !== b.id && awayId !== b.id)) throw new Error("Brighton must be home or away");
+    if (homeId !== us.id && awayId !== us.id) throw new Error(`${us.name} must be home or away`);
     const game = await API.createGame({
       season_id: seasonId,
       date,
       game_type: type,
+      competition_name: competitionName,
       home_team_id: homeId,
       away_team_id: awayId,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.seasonId = seasonId;
     await selectGame(game.id);
@@ -2911,37 +3203,41 @@
   async function importLocalStorageGame() {
     const events = localEvents();
     if (!events.length) throw new Error("No saved game on this device");
+    const us = currentTeam();
+    if (!us) throw new Error("Pick a team before importing");
     const date = $("#import-date").value;
     const seasonId = $("#import-season").value;
     const oppName = $("#import-opponent").value.trim() || localUiV1().opponent || "Imported opponent";
     const type = $("#import-type").value;
+    const competitionName = ($("#import-competition")?.value || "").trim() || null;
     if (!date || !seasonId) throw new Error("Pick a date and season");
-    const b = brighton();
-    let opp = st.teams.find((t) => t.name.toLowerCase() === oppName.toLowerCase());
-    if (!opp) opp = await API.createTeam(oppName);
+    let opp = resolveGameSideName(oppName);
+    if (!opp || opp.is_ours) opp = await API.createOpponent(us.id, oppName);
     await refreshMeta();
-    opp = st.teams.find((t) => t.name.toLowerCase() === oppName.toLowerCase());
+    opp = resolveGameSideName(oppName);
+    if (!opp) throw new Error("Could not create opponent");
     const game = await API.createGame({
       season_id: seasonId,
       date,
       game_type: type,
-      home_team_id: b.id,
+      competition_name: competitionName,
+      home_team_id: us.id,
       away_team_id: opp.id,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.gameId = game.id;
     await loadGameContext();
     for (const ev of events) {
       if (ev.shot == null || ev.shot.x == null || ev.shot.y == null) continue;
       const team = ev.team === "opp" ? "opp" : "us";
-      const teamId = team === "us" ? b.id : opp.id;
+      const teamId = team === "us" ? us.id : opp.id;
       let playerId = null;
       let jersey = ev.shooterNumber ? String(ev.shooterNumber) : null;
       if (jersey) {
         const name = team === "us" ? ev.shooterName || null : null;
         const roster = await API.ensureRosterPlayer(teamId, seasonId, jersey, name);
         playerId = roster.player_id;
-        if (team === "us") st.ourRoster = await API.roster(b.id, seasonId);
+        if (team === "us") st.ourRoster = await API.roster(us.id, seasonId);
         else st.oppRoster = await API.roster(opp.id, seasonId);
       }
       let assistPlayerId = null;
@@ -2979,10 +3275,26 @@
   }
 
   function teamOptions(selectedId, includeNew) {
-    const opts = st.teams
+    const us = currentTeam();
+    const list = [];
+    if (us) list.push(us);
+    opponentTeams().forEach((t) => list.push(t));
+    const opts = list
       .map((t) => `<option value="${t.id}" ${t.id === selectedId ? "selected" : ""}>${escapeHtml(t.name)}</option>`)
       .join("");
-    return `<option value="">Select…</option>${opts}${includeNew ? `<option value="__new__">New team…</option>` : ""}`;
+    return `<option value="">Select…</option>${opts}${includeNew ? `<option value="__new__">New opponent…</option>` : ""}`;
+  }
+
+  function oursTeamOptions(selectedId) {
+    return oursTeams()
+      .map((t) => {
+        const bits = [t.name];
+        if (t.level) bits.push(t.level);
+        if (t.organization && t.organization !== t.name) bits.push(t.organization);
+        const label = bits.length > 1 ? `${t.name}${t.level ? ` · ${t.level}` : ""}` : t.name;
+        return `<option value="${t.id}" ${t.id === selectedId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      })
+      .join("");
   }
 
   function seasonOptions(selectedId, includeNew) {
@@ -2990,6 +3302,352 @@
       .map((s) => `<option value="${s.id}" ${s.id === selectedId ? "selected" : ""}>${escapeHtml(s.label)}</option>`)
       .join("");
     return `${opts}${includeNew ? `<option value="__new__">New season…</option>` : ""}`;
+  }
+
+  function rosterBlank(value) {
+    const text = String(value ?? "").trim();
+    return text || null;
+  }
+
+  function rosterJerseySort(a, b) {
+    const aj = String(a.jersey_number || "");
+    const bj = String(b.jersey_number || "");
+    const an = /^\d+$/.test(aj) ? Number(aj) : NaN;
+    const bn = /^\d+$/.test(bj) ? Number(bj) : NaN;
+    const aNum = !Number.isNaN(an);
+    const bNum = !Number.isNaN(bn);
+    if (aNum && bNum && an !== bn) return an - bn;
+    if (aNum !== bNum) return aNum ? -1 : 1;
+    return aj.localeCompare(bj) || String(a.player?.name || "").localeCompare(String(b.player?.name || ""));
+  }
+
+  function storedPositionGroups(row) {
+    const allowed = new Set(POSITION_GROUPS.map((g) => g.id));
+    const raw = row?.player?.position_groups;
+    return (Array.isArray(raw) ? raw : []).filter((id) => allowed.has(id));
+  }
+
+  function orderedPositionGroups(ids) {
+    const set = new Set(ids || []);
+    return POSITION_GROUPS.map((g) => g.id).filter((id) => set.has(id));
+  }
+
+  function rosterGroupChips(selected, dataAttr) {
+    const set = new Set(selected || []);
+    return POSITION_GROUPS.map((g) => {
+      const on = set.has(g.id);
+      return `<button type="button" class="roster-group${on ? " is-on" : ""}" ${dataAttr}="${g.id}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(g.id)}</button>`;
+    }).join("");
+  }
+
+  function rosterErrorMessage(err, fallback) {
+    const msg = String(err && err.message ? err.message : "");
+    if (/duplicate key|jersey_number_key|already exists/i.test(msg)) return "That number is already on the roster";
+    return msg || fallback;
+  }
+
+  function mirrorSeasonRosterToGame() {
+    const us = currentTeam();
+    if (!us || !st.game || st.game.season_id !== st.seasonId) return;
+    if (st.game.our_team_id && st.game.our_team_id !== us.id) return;
+    st.ourRoster = st.seasonRoster;
+  }
+
+  function patchLineupBag(bag, playerId, patch) {
+    if (!bag || !playerId) return false;
+    let changed = false;
+    Object.keys(bag).forEach((slotId) => {
+      const player = bag[slotId];
+      if (!player || player.id !== playerId) return;
+      if (patch.remove) {
+        delete bag[slotId];
+        changed = true;
+        return;
+      }
+      if (patch.number != null && String(player.number) !== String(patch.number)) {
+        player.number = String(patch.number);
+        changed = true;
+      }
+      if (patch.name != null && player.name !== (patch.name || "")) {
+        player.name = patch.name || "";
+        changed = true;
+      }
+      if (patch.short != null && player.short !== (patch.short || "")) {
+        player.short = patch.short || "";
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function patchOpenLineupPlayer(playerId, patch) {
+    if (!playerId) return;
+    if (patchLineupBag(st.lineup?.us, playerId, patch)) {
+      saveLineupBag();
+      if (patch.remove || patch.number != null) markLineupDirty();
+    }
+    if (patchLineupBag(st.defaultLineup?.us, playerId, patch)) {
+      saveDefaultLineupBag(st.defaultLineup.us);
+    }
+  }
+
+  async function loadSeasonRoster() {
+    const team = currentTeam();
+    if (!team || !st.seasonId || (typeof API.isPlaceholderConfig === "function" && API.isPlaceholderConfig())) {
+      st.seasonRoster = [];
+      return;
+    }
+    st.seasonRoster = await API.roster(team.id, st.seasonId);
+    mirrorSeasonRosterToGame();
+  }
+
+  function rosterEditorMarkup() {
+    const team = currentTeam();
+    const season = st.seasons.find((s) => s.id === st.seasonId);
+    if (!team) return "";
+    if (!season) {
+      return `
+        <section class="roster-editor" id="roster-editor">
+          <h2>Roster</h2>
+          <p class="muted">Pick a season to edit this team's roster.</p>
+        </section>`;
+    }
+    const rows = (st.seasonRoster || []).slice().sort(rosterJerseySort);
+    const cards = rows
+      .map((row) => {
+        const player = row.player || {};
+        const groups = storedPositionGroups(row);
+        const label = player.short_name || player.name || `Number ${row.jersey_number}`;
+        return `
+          <li class="roster-card" data-roster-id="${escapeHtml(row.id)}">
+            <div class="roster-card-top">
+              <label class="shots-field">Number
+                <input type="text" inputmode="numeric" maxlength="4" autocomplete="off" data-roster-field="jersey" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(row.jersey_number || "")}" aria-label="Number for ${escapeHtml(label)}" />
+              </label>
+              <label class="shots-field">Preferred name
+                <input type="text" maxlength="40" autocomplete="off" data-roster-field="short" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(player.short_name || "")}" placeholder="Addy" aria-label="Preferred name for ${escapeHtml(label)}" />
+              </label>
+            </div>
+            <label class="shots-field">Full name
+              <input type="text" maxlength="80" autocomplete="name" data-roster-field="name" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(player.name || "")}" placeholder="First Last" aria-label="Full name for ${escapeHtml(label)}" />
+            </label>
+            <div class="roster-groups" role="group" aria-label="Position groups for ${escapeHtml(label)}">
+              ${rosterGroupChips(groups, "data-roster-group")}
+            </div>
+            <button type="button" class="btn btn-ghost roster-remove" data-roster-remove="${escapeHtml(row.id)}">Remove</button>
+          </li>`;
+      })
+      .join("");
+    return `
+      <section class="roster-editor" id="roster-editor">
+        <h2>Roster</h2>
+        <p class="muted">${escapeHtml(team.name)} · ${escapeHtml(season.label)}. Number and names save for this season. Position groups stay with the player. Edits save when you leave a field or tap a group.</p>
+        <form id="roster-add-form" class="roster-add">
+          <div class="roster-card-top">
+            <label class="shots-field">Number
+              <input type="text" id="roster-new-number" inputmode="numeric" maxlength="4" autocomplete="off" required placeholder="11" />
+            </label>
+            <label class="shots-field">Preferred name
+              <input type="text" id="roster-new-short" maxlength="40" autocomplete="off" placeholder="Addy" />
+            </label>
+          </div>
+          <label class="shots-field">Full name
+            <input type="text" id="roster-new-name" maxlength="80" autocomplete="off" placeholder="First Last" />
+          </label>
+          <div class="roster-groups" role="group" aria-label="Position groups for new player">
+            ${rosterGroupChips(rosterDraftGroups, "data-roster-draft-group")}
+          </div>
+          <button type="submit" class="btn btn-primary">Add player</button>
+        </form>
+        ${
+          cards
+            ? `<ul class="roster-editor-list">${cards}</ul>`
+            : `<p class="muted">No players on this season yet.</p>`
+        }
+      </section>`;
+  }
+
+  function replaceSeasonRosterRow(next) {
+    st.seasonRoster = (st.seasonRoster || []).map((row) => (row.id === next.id ? next : row));
+    mirrorSeasonRosterToGame();
+  }
+
+  async function commitRosterField(input) {
+    const id = input.getAttribute("data-roster-id");
+    const field = input.getAttribute("data-roster-field");
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    if (!row || !field) return;
+    if (input.dataset.saving === "1") return;
+    try {
+      if (field === "jersey") {
+        const jersey = String(input.value || "").trim();
+        if (!jersey) {
+          input.value = row.jersey_number || "";
+          showToast("Jersey number is required");
+          return;
+        }
+        if (jersey === String(row.jersey_number || "")) return;
+        if ((st.seasonRoster || []).some((item) => item.id !== row.id && String(item.jersey_number) === jersey)) {
+          input.value = row.jersey_number || "";
+          showToast("That number is already on the roster");
+          return;
+        }
+        input.dataset.saving = "1";
+        const updated = await API.updateRoster(row.id, { jersey_number: jersey });
+        replaceSeasonRosterRow(updated);
+        patchOpenLineupPlayer(updated.player_id, { number: jersey });
+        input.value = updated.jersey_number || jersey;
+        return;
+      }
+      const playerId = row.player_id || row.player?.id;
+      if (!playerId) return;
+      const current = field === "short" ? row.player?.short_name || "" : row.player?.name || "";
+      const next = rosterBlank(input.value);
+      if ((next || "") === String(current || "").trim()) return;
+      input.dataset.saving = "1";
+      const patch = field === "short" ? { short_name: next } : { name: next };
+      const player = await API.updatePlayer(playerId, patch);
+      replaceSeasonRosterRow({ ...row, player: { ...(row.player || {}), ...player } });
+      patchOpenLineupPlayer(playerId, {
+        name: player.name || "",
+        short: player.short_name || "",
+      });
+    } catch (err) {
+      if (field === "jersey") input.value = row.jersey_number || "";
+      showToast(rosterErrorMessage(err, "Could not save roster"));
+    } finally {
+      delete input.dataset.saving;
+    }
+  }
+
+  async function toggleRosterGroup(button) {
+    const card = button.closest("[data-roster-id]");
+    const id = card?.getAttribute("data-roster-id");
+    const groupId = button.getAttribute("data-roster-group");
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    const playerId = row?.player_id || row?.player?.id;
+    if (!row || !playerId || !groupId || button.dataset.saving === "1") return;
+    const next = orderedPositionGroups(
+      toggleId(storedPositionGroups(row), groupId)
+    );
+    button.dataset.saving = "1";
+    const wasOn = button.classList.contains("is-on");
+    button.classList.toggle("is-on", next.includes(groupId));
+    button.setAttribute("aria-pressed", next.includes(groupId) ? "true" : "false");
+    try {
+      const player = await API.updatePlayer(playerId, { position_groups: next });
+      replaceSeasonRosterRow({ ...row, player: { ...(row.player || {}), ...player } });
+    } catch (err) {
+      button.classList.toggle("is-on", wasOn);
+      button.setAttribute("aria-pressed", wasOn ? "true" : "false");
+      showToast(rosterErrorMessage(err, "Could not save position groups"));
+    } finally {
+      delete button.dataset.saving;
+    }
+  }
+
+  function toggleId(list, id) {
+    const set = new Set(list || []);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    return set;
+  }
+
+  async function removeRosterPlayer(id, button) {
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    if (!row) return;
+    if (button.getAttribute("data-armed") !== "1") {
+      $$("[data-roster-remove][data-armed]").forEach((el) => {
+        el.removeAttribute("data-armed");
+        el.textContent = "Remove";
+      });
+      button.setAttribute("data-armed", "1");
+      button.textContent = "Remove?";
+      return;
+    }
+    button.disabled = true;
+    try {
+      await API.deleteRoster(row.id);
+      st.seasonRoster = (st.seasonRoster || []).filter((item) => item.id !== row.id);
+      mirrorSeasonRosterToGame();
+      patchOpenLineupPlayer(row.player_id || row.player?.id, { remove: true });
+      draw({ keepScroll: true });
+    } catch (err) {
+      button.disabled = false;
+      showToast(rosterErrorMessage(err, "Could not remove player"));
+    }
+  }
+
+  async function addRosterPlayer(form) {
+    const team = currentTeam();
+    if (!team || !st.seasonId) {
+      showToast("Pick a team and season first");
+      return;
+    }
+    const numberInput = $("#roster-new-number");
+    const jersey = String(numberInput?.value || "").trim();
+    const name = rosterBlank($("#roster-new-name")?.value);
+    const shortName = rosterBlank($("#roster-new-short")?.value);
+    if (!jersey) {
+      showToast("Jersey number is required");
+      return;
+    }
+    if ((st.seasonRoster || []).some((item) => String(item.jersey_number) === jersey)) {
+      showToast("That number is already on the roster");
+      return;
+    }
+    const submit = form.querySelector("[type=submit]");
+    if (submit) submit.disabled = true;
+    try {
+      const created = await API.ensureRosterPlayer(team.id, st.seasonId, jersey, name, {
+        short_name: shortName,
+        position_groups: orderedPositionGroups(rosterDraftGroups),
+      });
+      if ((st.seasonRoster || []).some((item) => item.id === created.id)) {
+        showToast("That number is already on the roster");
+        return;
+      }
+      st.seasonRoster = (st.seasonRoster || []).concat(created);
+      mirrorSeasonRosterToGame();
+      rosterDraftGroups.clear();
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast(rosterErrorMessage(err, "Could not add player"));
+      if (submit) submit.disabled = false;
+    }
+  }
+
+  function bindRosterEditor() {
+    const editor = $("#roster-editor");
+    if (!editor) return;
+    editor.addEventListener("focusout", (e) => {
+      const input = e.target.closest("[data-roster-field]");
+      if (!input || !editor.contains(input)) return;
+      commitRosterField(input);
+    });
+    editor.addEventListener("click", (e) => {
+      const draft = e.target.closest("[data-roster-draft-group]");
+      if (draft) {
+        const id = draft.getAttribute("data-roster-draft-group");
+        if (rosterDraftGroups.has(id)) rosterDraftGroups.delete(id);
+        else rosterDraftGroups.add(id);
+        const on = rosterDraftGroups.has(id);
+        draft.classList.toggle("is-on", on);
+        draft.setAttribute("aria-pressed", on ? "true" : "false");
+        return;
+      }
+      const group = e.target.closest("[data-roster-group]");
+      if (group) {
+        toggleRosterGroup(group);
+        return;
+      }
+      const remove = e.target.closest("[data-roster-remove]");
+      if (remove) removeRosterPlayer(remove.getAttribute("data-roster-remove"), remove);
+    });
+    $("#roster-add-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      addRosterPlayer(e.currentTarget);
+    });
   }
 
   function renderGames() {
@@ -3027,16 +3685,22 @@
         </div>`
       : "";
 
+    const oursOpts = oursTeamOptions(st.teamId);
     root().innerHTML = `
       <div class="shots-admin">
         ${trackerNav("games")}
         <h1>Games</h1>
-        <p class="muted">Pick a season, then a game — Track Shots or Scoreboard.</p>
+        <p class="muted">Pick a team and season, then a game — Track Shots or Scoreboard.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
+        <label class="shots-field">Team
+          <select id="team-pick">${oursOpts || `<option value="">No teams yet</option>`}</select>
+        </label>
         <label class="shots-field">Season
           <select id="season-pick">${seasonOptions(st.seasonId, false)}</select>
         </label>
         ${gamesBlock}
+
+        ${rosterEditorMarkup()}
 
         <h2>Add game</h2>
         <form id="new-game-form" class="shots-form">
@@ -3044,6 +3708,10 @@
           <label class="shots-field">Type
             <select id="new-game-type">${GAME_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
           </label>
+          <label class="shots-field">Competition
+            <input type="text" id="new-game-competition" list="new-game-competition-list" placeholder="Heros Cup, Premier 2, Futsal SportCity Session 1…" autocomplete="off" />
+          </label>
+          ${competitionDatalistMarkup("new-game-competition-list")}
           <label class="shots-field">Season
             <select id="new-game-season">${seasonOptions(st.seasonId, true)}</select>
           </label>
@@ -3052,13 +3720,13 @@
             <label class="shots-field">Year <input type="number" id="new-season-year" value="${new Date().getFullYear()}" /></label>
           </div>
           <label class="shots-field">Home
-            <select id="new-game-home">${teamOptions(brighton()?.id, true)}</select>
+            <select id="new-game-home">${teamOptions(currentTeam()?.id, true)}</select>
           </label>
-          <input type="text" id="new-home-name" class="text-gate-input" placeholder="New home team name" hidden />
+          <input type="text" id="new-home-name" class="text-gate-input" placeholder="New home opponent name" hidden />
           <label class="shots-field">Away
             <select id="new-game-away">${teamOptions("", true)}</select>
           </label>
-          <input type="text" id="new-away-name" class="text-gate-input" placeholder="New away team name" hidden />
+          <input type="text" id="new-away-name" class="text-gate-input" placeholder="New away opponent name" hidden />
           <button type="submit" class="btn btn-primary">Start tracking</button>
         </form>
 
@@ -3078,12 +3746,22 @@
             <label class="shots-field">Type
               <select id="import-type">${GAME_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
             </label>
+            <label class="shots-field">Competition
+              <input type="text" id="import-competition" list="import-competition-list" placeholder="Optional" autocomplete="off" />
+            </label>
+            ${competitionDatalistMarkup("import-competition-list")}
             <button type="submit" class="btn btn-secondary">Import saved game</button>
           </form>`
             : ""
         }
       </div>`;
 
+    $("#team-pick")?.addEventListener("change", (e) => {
+      selectTeam(e.target.value).catch((err) => {
+        st.error = err.message || "Could not switch team";
+        draw();
+      });
+    });
     $("#season-pick")?.addEventListener("change", (e) => selectSeason(e.target.value));
     $$("[data-open-game]").forEach((btn) => {
       btn.addEventListener("click", () => openGameChooser(btn.getAttribute("data-open-game")));
@@ -3140,6 +3818,7 @@
       st.csvPending = null;
       draw();
     });
+    bindRosterEditor();
     $("#import-local-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
@@ -3341,7 +4020,7 @@
       return;
     }
     downloadCsv(
-      filename || `bengals-shots-${new Date().toISOString().slice(0, 10)}.csv`,
+      filename || `${slugify(ourTeamName()) || "team"}-shots-${new Date().toISOString().slice(0, 10)}.csv`,
       CSV_HEADERS,
       events.map((ev) => shotCsvRow(ev))
     );
@@ -3598,7 +4277,7 @@
       : `translate(${HALF_L}, 0) rotate(90)`;
     const viewBox = swapped ? "-3.5 -1 64.8 70" : "-9.4 -1 64.8 70";
     return `
-      <svg class="pitch-svg tracker-pitch-svg ${team === "opp" ? "is-opp-pitch" : "is-us-pitch"}" data-pitch-team="${team}" viewBox="${viewBox}" role="application" aria-label="${team === "opp" ? "Opponent" : "Brighton"} attacking half. Goal ${swapped ? "on the left" : "on the right"}.">
+      <svg class="pitch-svg tracker-pitch-svg ${team === "opp" ? "is-opp-pitch" : "is-us-pitch"}" data-pitch-team="${team}" viewBox="${viewBox}" role="application" aria-label="${team === "opp" ? "Opponent" : escapeHtml(ourTeamName())} attacking half. Goal ${swapped ? "on the left" : "on the right"}.">
         <g transform="${inner}">
           ${stripes.join("")}
           <g class="tracker-grid">${grid}</g>
@@ -5829,12 +6508,12 @@
   function playsFilterMarkup() {
     const teamBtns = [
       ["all", "All teams"],
-      ["us", "Brighton"],
+      ["us", ourTeamName()],
       ["opp", "Opponent"],
     ]
       .map(
         ([id, label]) =>
-          `<button type="button" class="plays-filter-btn ${st.logTeam === id ? "is-on" : ""}" data-log-team="${id}">${label}</button>`
+          `<button type="button" class="plays-filter-btn ${st.logTeam === id ? "is-on" : ""}" data-log-team="${id}">${escapeHtml(label)}</button>`
       )
       .join("");
     const resultBtns = Object.entries(LOG_RESULT_FILTERS)
@@ -6581,37 +7260,37 @@
       const selected = current && String(current.number) === String(p.number);
       const status = fieldStatus(p);
       const fieldTag = status === "elsewhere" ? ` · ${slotCodeForId(slotIdForNumber("us", p.number))}` : "";
+      const num = jerseyDisplay(p.number);
+      const jerseyBit = num ? ` (#${escapeHtml(num)})` : "";
       opts.push(
-        `<option value="${escapeHtml(String(p.id || p.number))}" data-number="${escapeHtml(String(p.number))}" ${selected ? "selected" : ""}>${escapeHtml(playerDisplayName(p))} (#${escapeHtml(String(p.number))})${fieldTag}${suffix}</option>`
+        `<option value="${escapeHtml(String(p.id || p.number))}" data-number="${escapeHtml(String(p.number))}" ${selected ? "selected" : ""}>${escapeHtml(playerDisplayName(p))}${jerseyBit}${fieldTag}${suffix}</option>`
       );
     };
 
-    const varsity = all.filter((p) => p.squad !== "jv");
+    const primary = all.filter((p) => p.squad !== "jv");
     const jv = all.filter((p) => p.squad === "jv");
 
     // Current slot first, then bench players for this position group.
-    const positional = varsity.filter((p) => {
+    const positional = primary.filter((p) => {
       const status = fieldStatus(p);
       return status === "here" || (playerInGroup(p, group) && status === "bench");
     });
-    // Other varsity available off the field.
-    const varsityBench = varsity.filter((p) => fieldStatus(p) === "bench" && !playerInGroup(p, group));
-    // Anyone already on the pitch at another spot (swap targets).
-    const varsityOnField = varsity.filter((p) => fieldStatus(p) === "elsewhere");
+    const bench = primary.filter((p) => fieldStatus(p) === "bench" && !playerInGroup(p, group));
+    const onField = primary.filter((p) => fieldStatus(p) === "elsewhere");
 
     if (positional.length) {
       opts.push(`<optgroup label="${escapeHtml(groupLabel)}">`);
       positional.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
-    if (varsityBench.length) {
-      opts.push(`<optgroup label="Varsity Bench">`);
-      varsityBench.forEach((p) => pushOpt(p));
+    if (bench.length) {
+      opts.push(`<optgroup label="Bench">`);
+      bench.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
-    if (varsityOnField.length) {
-      opts.push(`<optgroup label="Varsity On-Field">`);
-      varsityOnField.forEach((p) => pushOpt(p));
+    if (onField.length) {
+      opts.push(`<optgroup label="On field">`);
+      onField.forEach((p) => pushOpt(p));
       opts.push(`</optgroup>`);
     }
     if (jv.length) {
@@ -6705,6 +7384,7 @@
         <div class="lineup-actions">
           <button type="button" class="btn btn-ghost" id="save-default-lineup" ${usCount ? "" : "disabled"}>Save as default</button>
           <button type="button" class="btn btn-ghost" id="restore-default-lineup">Restore default${defaultCount ? ` (${defaultCount})` : ""}</button>
+          <button type="button" class="btn btn-ghost" id="add-roster-player" ${st.game?.season_id ? "" : "disabled"}>Add player</button>
         </div>
       </section>`;
   }
@@ -6753,12 +7433,73 @@
     }
   }
 
+  function openAddRosterPlayerModal(opts = {}) {
+    const modal = $("#roster-add-modal");
+    const jerseySel = $("#roster-add-jersey");
+    const nameInput = $("#roster-add-name");
+    const confirmBtn = $("#roster-add-confirm");
+    if (!modal || !jerseySel || !nameInput || !confirmBtn) return;
+    const team = opts.team === "opp" ? "opp" : "us";
+    const used = new Set(rosterPlayers(team).map((p) => String(p.number)));
+    jerseySel.innerHTML = jerseyChoices()
+      .map((num) => `<option value="${num}" ${used.has(num) ? "disabled" : ""}>${num}</option>`)
+      .join("");
+    const first = jerseyChoices().find((n) => !used.has(n));
+    if (first) jerseySel.value = first;
+    nameInput.value = "";
+    modal.hidden = false;
+    requestAnimationFrame(() => nameInput.focus());
+
+    const close = () => {
+      modal.hidden = true;
+    };
+    const onConfirm = async () => {
+      const jersey = String(jerseySel.value || "").trim();
+      const name = String(nameInput.value || "").trim();
+      if (!jersey) {
+        showToast("Pick a jersey number");
+        return;
+      }
+      const opt = Array.from(jerseySel.options).find((o) => o.value === jersey);
+      if (opt?.disabled) {
+        showToast("That number is already on the roster");
+        return;
+      }
+      try {
+        const teamId = teamIdFor(team);
+        if (!teamId || !st.game?.season_id) throw new Error("Open a game first");
+        const row = await API.ensureRosterPlayer(teamId, st.game.season_id, jersey, name || null);
+        await refreshRosterFor(team);
+        const player =
+          playerFromRoster(team, row?.player_id || row?.player?.id, jersey) ||
+          playerFromRosterRow(team, row, jersey);
+        if (opts.assignSlotId != null && team === "us" && player) {
+          assignSlot("us", opts.assignSlotId, lineupPlayerPayload(player));
+          markLineupDirty();
+        }
+        close();
+        showToast(name ? `${firstName(name) || name} (#${jersey}) added` : `#${jersey} added`);
+        draw({ keepScroll: true });
+        if (typeof opts.onDone === "function") opts.onDone(player);
+      } catch (err) {
+        showToast(err.message || "Could not add player");
+      }
+    };
+    confirmBtn.onclick = () => {
+      onConfirm().catch((err) => showToast(err.message || "Could not add player"));
+    };
+    $$("[data-close-roster-add]").forEach((el) => {
+      el.onclick = close;
+    });
+  }
+
   function bindLineupEditor() {
     $("#save-default-lineup")?.addEventListener("click", () => {
       saveCurrentAsDefault();
       draw({ keepScroll: true });
     });
     $("#restore-default-lineup")?.addEventListener("click", () => restoreDefaultLineup());
+    $("#add-roster-player")?.addEventListener("click", () => openAddRosterPlayerModal({ team: "us" }));
     $$("[data-lineup-gesture-cancel]").forEach((btn) => {
       btn.addEventListener("click", () => {
         cancelLineupGesture();
@@ -6991,7 +7732,7 @@
         </div>
         <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"}${
           trackerMapFilterCount() ? ` of ${events.length}` : ""
-        } · Brighton attack up${selected ? "" : " · tap a shot"}</p>
+        } · ${escapeHtml(ourTeamName())} attack up${selected ? "" : " · tap a shot"}</p>
       </section>`;
   }
 
@@ -7000,6 +7741,7 @@
     if (!g) return `<p class="muted">Open a game to edit settings.</p>`;
     const date = String(g.date || "").slice(0, 10);
     const type = g.game_type || "friendly";
+    const competition = String(g.competition_name || "");
     const seasonId = g.season_id || st.seasonId || "";
     const homeId = g.home_team_id || "";
     const awayId = g.away_team_id || "";
@@ -7014,7 +7756,7 @@
         </section>
         <section class="tracker-settings-card">
           <h2>Game details</h2>
-          <p class="muted">Change date, type, home/away, or teams — same fields as Add game.</p>
+          <p class="muted">Change date, type, competition, home/away, or teams — same fields as Add game.</p>
           <form id="edit-game-form" class="shots-form">
             <label class="shots-field">Date <input type="date" id="edit-game-date" required value="${escapeHtml(date)}" /></label>
             <label class="shots-field">Type
@@ -7022,6 +7764,12 @@
                 (t) => `<option value="${t}" ${t === type ? "selected" : ""}>${t}</option>`
               ).join("")}</select>
             </label>
+            <label class="shots-field">Competition
+              <input type="text" id="edit-game-competition" list="edit-game-competition-list" value="${escapeHtml(
+                competition
+              )}" placeholder="Heros Cup, Premier 2…" autocomplete="off" />
+            </label>
+            ${competitionDatalistMarkup("edit-game-competition-list")}
             <label class="shots-field">Season
               <select id="edit-game-season">${seasonOptions(seasonId, false)}</select>
             </label>
@@ -7124,15 +7872,18 @@
   async function saveGameDetailsFromForm() {
     const g = st.game;
     if (!g || !st.gameId) throw new Error("No game open");
+    const us = currentTeam() || ourTeamOf(g);
+    if (!us) throw new Error("No active team");
     const date = $("#edit-game-date")?.value;
     const type = $("#edit-game-type")?.value;
+    const competitionName = ($("#edit-game-competition")?.value || "").trim() || null;
     const seasonId = $("#edit-game-season")?.value;
     const pickTeam = async (selId, newId) => {
       const v = $(selId)?.value;
       if (v === "__new__") {
         const name = $(newId)?.value.trim();
         if (!name) throw new Error("Enter a team name");
-        const team = await API.createTeam(name);
+        const team = await API.createOpponent(us.id, name);
         st.teams.push(team);
         return team.id;
       }
@@ -7140,18 +7891,18 @@
     };
     const homeId = await pickTeam("#edit-game-home", "#edit-home-name");
     const awayId = await pickTeam("#edit-game-away", "#edit-away-name");
-    const b = brighton();
     if (!date || !seasonId || !homeId || !awayId) throw new Error("Date, season, and both teams are required");
     if (homeId === awayId) throw new Error("Home and away must be different");
-    if (!b || (homeId !== b.id && awayId !== b.id)) throw new Error("Brighton must be home or away");
+    if (homeId !== us.id && awayId !== us.id) throw new Error(`${us.name} must be home or away`);
     if (!GAME_TYPES.includes(type)) throw new Error("Pick a valid game type");
     await API.updateGame(st.gameId, {
       season_id: seasonId,
       date,
       game_type: type,
+      competition_name: competitionName,
       home_team_id: homeId,
       away_team_id: awayId,
-      our_team_id: b.id,
+      our_team_id: us.id,
     });
     st.seasonId = seasonId;
     await refreshMeta();
@@ -7234,7 +7985,10 @@
     $("#tracker-map-panel #prep-shot-popup")?.addEventListener("click", (e) => e.stopPropagation());
 
     $("#tracker-export-csv")?.addEventListener("click", () => {
-      exportShotsCsv(st.shots || [], `bengals-shots-${String(st.game?.date || "").slice(0, 10) || "game"}.csv`);
+      exportShotsCsv(
+        st.shots || [],
+        `${slugify(ourTeamName()) || "team"}-shots-${String(st.game?.date || "").slice(0, 10) || "game"}.csv`
+      );
     });
     const bindNewToggle = (sel, extra) => {
       $(sel)?.addEventListener("change", () => {
@@ -7328,7 +8082,8 @@
     // Recording half-pitches always show full plays; shots-only lives on the Shot Map tab.
     const pitchOpts = { showGrid: st.showGrid, period, shotsOnlyMode: false };
     const goalSide = usSwapped ? "left" : "right";
-    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
+    const usName = ourTeamName();
+    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · ${usName} goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
       const teamPitch = teamLabel(recordingTeam());
       if (st.pending?.linkType) {
@@ -7347,12 +8102,12 @@
     const usCaption = awaitingShot
       ? usActive
         ? st.pending?.linkType
-          ? `Brighton · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
+          ? `${usName} · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
           : st.pending?.cornerFollowUp === "pass" && !st.pending?.restartShot?.fromCorner
-            ? "Brighton · next pass or shot"
-            : "Brighton · tap the shot"
-        : "Brighton"
-      : "Brighton · double-tap to record";
+            ? `${usName} · next pass or shot`
+            : `${usName} · tap the shot`
+        : usName
+      : `${usName} · double-tap to record`;
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const oppCaption = awaitingShot
       ? !usActive
@@ -7658,7 +8413,7 @@
           const pngUrl = URL.createObjectURL(png);
           const a = document.createElement("a");
           a.href = pngUrl;
-          a.download = `bengals-shot-map-${new Date().toISOString().slice(0, 10)}.png`;
+          a.download = `${slugify(ourTeamName()) || "team"}-shot-map-${new Date().toISOString().slice(0, 10)}.png`;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -7679,6 +8434,7 @@
     const usEvents = events.filter((e) => eventTeam(e) === "us");
     const oppEvents = events.filter((e) => eventTeam(e) === "opp");
     const vs = opponentOf(st.game)?.name || "Opponent";
+    const usName = ourTeamName();
     const dateLabel = st.game?.date || "";
     const halfOpts = { allPeriods: true, swapped: false, showGrid: false };
     root().innerHTML = `
@@ -7692,7 +8448,7 @@
         </div>
         <div class="shot-map-print" id="shot-map-print-root">
           <header class="shot-map-header">
-            <h1>Brighton Bengals</h1>
+            <h1>${escapeHtml(usName)}</h1>
             <p>
               <span class="shot-map-vs-print">${vs ? `vs ${escapeHtml(vs)}` : ""}</span>
               <span class="muted"> · ${escapeHtml(String(dateLabel))}</span>
@@ -7700,7 +8456,7 @@
           </header>
           <div class="shot-map-dual">
             <div class="shot-map-team-block">
-              <h2>Brighton</h2>
+              <h2>${escapeHtml(usName)}</h2>
               <div class="shot-map-team-pitch">${halfPitchMarkup(events, Object.assign({ team: "us" }, halfOpts))}</div>
               <div class="tracker-summary">${summaryPills(trackerSummary(usEvents))}</div>
             </div>
@@ -7714,19 +8470,19 @@
           <div class="shot-map-combined">
             <h2>Full field (both teams)</h2>
             <div class="shot-map-pitch">${fullFieldMarkup(events)}</div>
-            <p class="shot-map-caption">1st half / ET 1: Brighton attack right, opponent left. 2nd half / ET 2 reverse. Red ring = opponent.</p>
+            <p class="shot-map-caption">1st half / ET 1: ${escapeHtml(usName)} attack right, opponent left. 2nd half / ET 2 reverse. Red ring = opponent.</p>
           </div>
           <div class="shot-map-stats">
             <div>
               <h2>1st Half</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(firstHalf.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(firstHalf.filter((e) => eventTeam(e) === "opp")))}</div>
             </div>
             <div>
               <h2>2nd Half</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(secondHalf.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(secondHalf.filter((e) => eventTeam(e) === "opp")))}</div>
@@ -7735,14 +8491,14 @@
               hasEt
                 ? `<div>
               <h2>ET 1</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etOne.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etOne.filter((e) => eventTeam(e) === "opp")))}</div>
             </div>
             <div>
               <h2>ET 2</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etTwo.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etTwo.filter((e) => eventTeam(e) === "opp")))}</div>
@@ -7765,11 +8521,15 @@
     const mapped = mapShot(row);
     mapped.game = row.game;
     mapped.gameDate = row.game?.date || "";
-    const b = brighton();
+    const usId = row.game?.our_team_id || row.game?.season?.team_id || currentTeam()?.id;
+    // Re-classify us/opp from the game's owned team (not whatever game is open).
+    if (usId && mapped.team_id) {
+      mapped.team = mapped.team_id === usId ? "us" : "opp";
+    }
     mapped.opponentName = "";
     if (row.game) {
       mapped.opponentName =
-        row.game.home_team_id === b?.id ? row.game.away_team?.name || "" : row.game.home_team?.name || "";
+        row.game.home_team_id === usId ? row.game.away_team?.name || "" : row.game.home_team?.name || "";
     }
     mapped.seasonLabel = row.game?.season?.label || "";
     mapped.shooterName = row.player?.name || mapped.shooterName;
@@ -7779,9 +8539,17 @@
 
   async function runHistoryQuery() {
     const f = st.history;
+    const us = currentTeam();
+    if (!us?.id) {
+      st.error = "Pick a team first";
+      f.rows = [];
+      f.loading = false;
+      draw();
+      return;
+    }
     f.loading = true;
     draw();
-    const filters = {};
+    const filters = { ourTeamId: us.id };
     if (f.playerId) filters.playerId = f.playerId;
     if (f.seasonId === "__last3") filters.seasonYearMin = new Date().getFullYear() - 2;
     else if (f.seasonId) filters.seasonId = f.seasonId;
@@ -7971,13 +8739,14 @@
   function renderHistory() {
     bindEditModal();
     const f = st.history;
-    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const oppTeams = opponentTeams();
     const rows = f.rows;
+    const usLabel = ourTeamName();
     root().innerHTML = `
       <div class="shots-admin shots-history">
         ${trackerNav("history")}
         <h1>Season history</h1>
-        <p class="muted">Filter by player, opponent, and depth. Naming a player updates every shot tied to that player.</p>
+        <p class="muted">${escapeHtml(usLabel)} only — filter by player, opponent, and depth. Naming a player updates every shot tied to that player.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         <form id="history-form" class="shots-form">
           <label class="shots-field">Season
@@ -8039,13 +8808,13 @@
           <section class="tracker-units">
             <h2>Shot locations</h2>
             <p class="muted">Goals / shots by lane and yards from the goal line. Penalty kicks excluded.</p>
-            <h3 class="tracker-half-heading">Brighton</h3>
+            <h3 class="tracker-half-heading">${escapeHtml(usLabel)}</h3>
             ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "us"))}
             <h3 class="tracker-half-heading">Against</h3>
             ${laneRangeMatrixMarkup(rows.filter((e) => eventTeam(e) === "opp"))}
           </section>
           <section class="tracker-units">
-            <h2>Units &amp; trends (Brighton)</h2>
+            <h2>Units &amp; trends (${escapeHtml(usLabel)})</h2>
             ${unitsMarkup(rows.filter((e) => eventTeam(e) === "us"))}
           </section>
           <div class="tracker-table-wrap">
@@ -8085,12 +8854,13 @@
       runHistoryQuery();
     });
     $("#hist-export")?.addEventListener("click", () => {
+      const slug = slugify(ourTeamName()) || "team";
       exportShotsCsv(
         (rows || []).map((ev) => {
           ev.game = ev.game;
           return Object.assign({}, ev, {});
         }),
-        `bengals-shots-filtered-${new Date().toISOString().slice(0, 10)}.csv`
+        `${slug}-shots-filtered-${new Date().toISOString().slice(0, 10)}.csv`
       );
     });
     if (rows) {
@@ -8114,19 +8884,25 @@
     }
   }
 
-  const EXPLORE_STARTERS = [
-    "Show me the trend of assists from midfielders this season",
-    "Which forwards have been most successful creating shots on frame or goals from gap passes?",
-    "Last time we played Viewmont, which of their players took the most shots and from what parts of the field?",
-    "Where do Brighton goals tend to come from on the pitch?",
-  ];
+  function exploreStarters() {
+    const us = ourTeamName();
+    return [
+      "Show me the trend of assists from midfielders this season",
+      "Which forwards have been most successful creating shots on frame or goals from gap passes?",
+      "Last time we played Viewmont, which of their players took the most shots and from what parts of the field?",
+      `Where do ${us} goals tend to come from on the pitch?`,
+    ];
+  }
 
-  const SCENARIO_STARTERS = [
-    "What if we beat Lone Peak 2-1?",
-    "What if instead of beating Orem early we had played Lone Peak and lost 1-2?",
-    "Where is Brighton seeded in the Freeman model right now?",
-    "What if Alta beat Bountiful 1-0?",
-  ];
+  function scenarioStarters() {
+    const us = ourTeamName();
+    return [
+      "What if we beat Lone Peak 2-1?",
+      "What if instead of beating Orem early we had played Lone Peak and lost 1-2?",
+      `Where is ${us} seeded in the Freeman model right now?`,
+      "What if Alta beat Bountiful 1-0?",
+    ];
+  }
 
   function prepHashParams() {
     const raw = (location.hash || "").replace(/^#/, "");
@@ -8181,7 +8957,7 @@
   }
 
   function isOfficialGameType(type) {
-    return type === "region" || type === "playoffs";
+    return type === "region" || type === "league" || type === "playoffs";
   }
 
   function prepCandidateGames() {
@@ -8358,6 +9134,67 @@
     return { us: byTeam("us"), opp: byTeam("opp"), players: players.slice(0, 16) };
   }
 
+  /** Corners taken from the same flag stack on one square. Group those, and any other corners within a few meters. */
+  const CORNER_FLAG_RADIUS = 8;
+
+  function cornerGroupKey(pt) {
+    const flags = [
+      { fx: 0, fy: 0 },
+      { fx: PW, fy: 0 },
+      { fx: 0, fy: PL },
+      { fx: PW, fy: PL },
+    ];
+    let best = 0;
+    let bestD = Infinity;
+    flags.forEach((flag, i) => {
+      const d = Math.hypot(pt.fx - flag.fx, pt.fy - flag.fy);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    if (bestD <= CORNER_FLAG_RADIUS) return `flag:${best}`;
+    return `pt:${Math.round(pt.fx)}:${Math.round(pt.fy)}`;
+  }
+
+  function cornerCountMarkup(group, selectedId) {
+    const selected = group.find((ev) => selectedId && ev.id === selectedId) || null;
+    const rep = selected || group[group.length - 1];
+    const team = eventTeam(rep);
+    let fx = 0;
+    let fy = 0;
+    group.forEach((ev) => {
+      const pt = tacticalPoint(ev.shot, eventTeam(ev));
+      if (!pt) return;
+      fx += pt.fx;
+      fy += pt.fy;
+    });
+    fx /= group.length;
+    fy /= group.length;
+    const ring = team === "opp" ? "#c0392b" : "#0b1f33";
+    const size = selected ? 4.7 : 3.7;
+    const inwardX = fx < PW / 2 ? 1 : -1;
+    const inwardY = fy < PL / 2 ? 1 : -1;
+    // Sit the count beside the square and inside the goal line, so the line doesn't strike through the digits.
+    const labelX = fx + inwardX * (size / 2 + 0.7);
+    const labelY = fy + inwardY * 1.45;
+    const id = escapeHtml(rep.id || "");
+    const count = group.length;
+    return `
+      <g class="prep-corner-mark">
+        <title>${count} corner${count === 1 ? "" : "s"}</title>
+        ${shotShapeMarkup(rep, fx, fy, {
+          size,
+          className: "prep-shot-dot",
+          fill: resultFill("corner"),
+          stroke: selected ? "#f7e27c" : ring,
+          strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
+          attrs: `data-prep-shot="${id}"`,
+        })}
+        <text class="prep-corner-count" data-prep-shot="${id}" x="${labelX}" y="${labelY}" fill="#f4f7fb" stroke="#0b1f33" stroke-width="0.32" paint-order="stroke" stroke-linejoin="round" font-size="2.7" font-weight="750" text-anchor="${inwardX > 0 ? "start" : "end"}" dominant-baseline="central">x${count}</text>
+      </g>`;
+  }
+
   function tacticalPitchMarkup(events, selectedId, opts = {}) {
     const shotsOnly = opts.shotsOnlyMode !== undefined ? !!opts.shotsOnlyMode : !!st.shotsOnlyMode;
     const line = "#f2f6f3";
@@ -8378,6 +9215,27 @@
         `<rect fill="${i % 2 ? "#277047" : "#2d7a4a"}" x="0" y="${i * (PL / 6)}" width="${PW}" height="${PL / 6}" />`
       );
     }
+    const cornerGroups = new Map();
+    const linkMarkup = (ev, team, shot, ring) => {
+      if (shotsOnly) return "";
+      let html = "";
+      if (ev.secondAssist) {
+        const s = tacticalPoint(ev.secondAssist, team);
+        const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
+        if (s && aEnd) {
+          html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
+          html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
+        }
+      }
+      if (ev.assist) {
+        const a = tacticalPoint(ev.assist, team);
+        if (a) {
+          html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
+          html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
+        }
+      }
+      return html;
+    };
     const markers = events
       .map((ev) => {
         const hide = shotsOnly && !shouldShowInShotsOnlyMode(ev.result);
@@ -8385,30 +9243,18 @@
         const team = eventTeam(ev);
         const shot = tacticalPoint(ev.shot, team);
         if (!shot) return "";
-        const selected = selectedId && ev.id === selectedId;
         const ring = team === "opp" ? "#c0392b" : ev.result === "missed" || ev.result === "pk-missed" ? "#ffffff" : "#0b1f33";
+        if (ev.result === "corner") {
+          const key = cornerGroupKey(shot);
+          if (!cornerGroups.has(key)) cornerGroups.set(key, []);
+          cornerGroups.get(key).push(ev);
+          return linkMarkup(ev, team, shot, ring);
+        }
+        const selected = selectedId && ev.id === selectedId;
         const numFill = markerNumberFill(ev, team);
         const emphasis = shotsOnly ? getShotsOnlyEmphasis(ev.result) : "";
         const emphasisClass = emphasis ? `shots-emphasis-${emphasis}` : "";
-        let html = "";
-        if (!shotsOnly) {
-          if (ev.secondAssist) {
-            const s = tacticalPoint(ev.secondAssist, team);
-            const aEnd = ev.assist ? tacticalPoint(ev.assist, team) : shot;
-            if (s && aEnd) {
-              html += `<line x1="${s.fx}" y1="${s.fy}" x2="${aEnd.fx}" y2="${aEnd.fy}" stroke="rgba(197,163,232,0.9)" stroke-width="0.28" stroke-dasharray="0.7 0.7" fill="none" />`;
-              html += svgSquare(s.fx, s.fy, 1.5, `fill="#c5a3e8" stroke="${ring}" stroke-width="0.2"`);
-            }
-          }
-          if (ev.assist) {
-            const a = tacticalPoint(ev.assist, team);
-            if (a) {
-              html += `<line x1="${a.fx}" y1="${a.fy}" x2="${shot.fx}" y2="${shot.fy}" stroke="rgba(255,255,255,0.85)" stroke-width="0.28" stroke-dasharray="1.1 0.7" fill="none" />`;
-              html += svgSquare(a.fx, a.fy, 1.7, `fill="#7ec8e3" stroke="${ring}" stroke-width="0.2"`);
-            }
-          }
-        }
-        html = `<g class="${emphasisClass}">` + html;
+        let html = `<g class="${emphasisClass}">${linkMarkup(ev, team, shot, ring)}`;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: selected ? 4.7 : 3.7,
           className: `prep-shot-dot ${emphasisClass}`,
@@ -8426,8 +9272,10 @@
         return html;
       })
       .join("");
+    const cornerMarks = [...cornerGroups.values()].map((group) => cornerCountMarkup(group, selectedId)).join("");
+    const usAttack = ourTeamName();
     return `
-      <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. Brighton attack up, opponent attack down.">
+      <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. ${escapeHtml(usAttack)} attack up, opponent attack down.">
         ${stripes.join("")}
         <rect x="0" y="0" width="${PW}" height="${PL}" fill="none" stroke="${line}" stroke-width="0.45" />
         <line x1="0" y1="${HALF_L}" x2="${PW}" y2="${HALF_L}" stroke="${line}" stroke-width="0.4" />
@@ -8443,9 +9291,10 @@
         <circle cx="${PW / 2}" cy="${PL - spotInset}" r="0.45" fill="${line}" />
         <path d="M ${PW / 2 - dx} ${penH} A ${arcR} ${arcR} 0 0 0 ${PW / 2 + dx} ${penH}" fill="none" stroke="${line}" stroke-width="0.35" />
         <path d="M ${PW / 2 - dx} ${PL - penH} A ${arcR} ${arcR} 0 0 1 ${PW / 2 + dx} ${PL - penH}" fill="none" stroke="${line}" stroke-width="0.35" />
-        <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Brighton attack</text>
+        <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">${escapeHtml(usAttack)} attack</text>
         <text x="${PW / 2}" y="${PL + 3.6}" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Opponent attack</text>
         ${markers}
+        ${cornerMarks}
       </svg>`;
   }
 
@@ -9279,15 +10128,17 @@
         ${trackerNav()}
         <h1>Prep</h1>
         ${prepTabsMarkup("scenarios")}
-        <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for Brighton or any team in the season data.</p>
+        <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for ${escapeHtml(ourTeamName())} or any team in the season data.</p>
         ${freshness}
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${sc.error && !sc.messages.length ? `<p class="shots-error">${escapeHtml(sc.error)}</p>` : ""}
         <div class="explore-starters" role="group" aria-label="Suggested scenarios">
-          ${SCENARIO_STARTERS.map(
-            (q) =>
-              `<button type="button" class="explore-starter" data-scenario-starter ${blocked ? "disabled" : ""}>${escapeHtml(q)}</button>`,
-          ).join("")}
+          ${scenarioStarters()
+            .map(
+              (q) =>
+                `<button type="button" class="explore-starter" data-scenario-starter ${blocked ? "disabled" : ""}>${escapeHtml(q)}</button>`,
+            )
+            .join("")}
         </div>
         <div class="explore-transcript" id="scenario-transcript">
           ${
@@ -9342,7 +10193,7 @@
     if ((st.prep.opponentId || st.prep.lockedGameId) && key !== st.prep.loadKey && !st.prep.loading) {
       loadPrepData();
     }
-    const oppTeams = st.teams.filter((t) => !t.is_brighton);
+    const oppTeams = opponentTeams();
     const selectedIds = prepSelectedIds();
     const visible = prepVisibleRows();
     const aggregates = prepAggregates(visible);
@@ -9405,7 +10256,7 @@
                 ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
               </div>
             </div>
-            <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · Brighton attack up${
+            <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · ${escapeHtml(ourTeamName())} attack up${
               selectedShot ? "" : " · tap a shot"
             }</p>
           </section>
@@ -9731,10 +10582,12 @@
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${ex.error ? `<p class="shots-error">${escapeHtml(ex.error)}</p>` : ""}
         <div class="explore-starters" role="group" aria-label="Suggested questions">
-          ${EXPLORE_STARTERS.map(
-            (q) =>
-              `<button type="button" class="explore-starter" data-explore-starter>${escapeHtml(q)}</button>`
-          ).join("")}
+          ${exploreStarters()
+            .map(
+              (q) =>
+                `<button type="button" class="explore-starter" data-explore-starter>${escapeHtml(q)}</button>`
+            )
+            .join("")}
         </div>
         <div class="explore-transcript" id="explore-transcript">
           ${
@@ -9745,7 +10598,7 @@
         </div>
         <form id="explore-form" class="explore-form">
           <label class="sr-only" for="explore-input">Question</label>
-          <textarea id="explore-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. Which Brighton players assisted the most goals?" ${ex.loading ? "disabled" : ""}>${escapeHtml(ex.draft)}</textarea>
+          <textarea id="explore-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. Which ${escapeHtml(ourTeamName())} players assisted the most goals?" ${ex.loading ? "disabled" : ""}>${escapeHtml(ex.draft)}</textarea>
           <div class="explore-form-actions">
             <button type="submit" class="btn btn-primary" ${ex.loading ? "disabled" : ""}>Ask</button>
             <button type="button" class="btn btn-ghost" id="explore-clear" ${ex.loading || !ex.messages.length ? "disabled" : ""}>Clear</button>
@@ -10267,6 +11120,7 @@
     if (view !== "shots" && !isScoreboardView(view)) stopLineupLivePull();
     if (view === "shots-games") {
       renderGames();
+      if (opts.keepScroll) window.scrollTo(0, scrollY);
       return;
     }
     if (view === "shots-history") {
@@ -10356,9 +11210,10 @@
       st.gameId = gameId;
       st.game = game;
       st.seasonId = game.season_id;
-      const b = brighton();
+      if (game.our_team_id) st.teamId = game.our_team_id;
+      const us = ourTeamOf(game) || currentTeam();
       const opp = opponentOf(game);
-      st.ourRoster = b ? await API.roster(b.id, game.season_id) : [];
+      st.ourRoster = us ? await API.roster(us.id, game.season_id) : [];
       st.oppRoster = opp ? await API.roster(opp.id, game.season_id) : [];
       applyLineupFromGame(game);
       const rows = await API.shotsForGame(gameId);
@@ -10427,6 +11282,8 @@
       }
       draw();
     },
+    selectTeam,
+    syncNavTeamPicker,
     async renderLiveScoreboard() {
       st.view = "live-scoreboard";
       await bootLiveScoreboard();
