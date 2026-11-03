@@ -272,7 +272,7 @@
       return data || [];
     },
 
-    async ensureRosterPlayer(teamId, seasonId, jerseyNumber, name) {
+    async ensureRosterPlayer(teamId, seasonId, jerseyNumber, name, extras) {
       const jersey = String(jerseyNumber);
       const existing = await getClient()
         .from("rosters")
@@ -284,11 +284,14 @@
       throwIfError(existing.error, "Could not look up roster");
       if (existing.data) return existing.data;
 
+      const extra = extras && typeof extras === "object" ? extras : {};
+      const groups = Array.isArray(extra.position_groups) ? extra.position_groups : [];
       const playerInsert = await getClient()
         .from("players")
         .insert({
           name: name ? String(name).trim() : null,
-          short_name: null,
+          short_name: extra.short_name ? String(extra.short_name).trim() : null,
+          position_groups: groups,
         })
         .select()
         .single();
@@ -317,6 +320,42 @@
         throwIfError(rosterInsert.error, "Could not add roster row");
       }
       return rosterInsert.data;
+    },
+
+    async updatePlayer(id, patch) {
+      const row = {};
+      if (Object.prototype.hasOwnProperty.call(patch, "name")) {
+        row.name = patch.name ? String(patch.name).trim() : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "short_name")) {
+        row.short_name = patch.short_name ? String(patch.short_name).trim() : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "position_groups")) {
+        row.position_groups = Array.isArray(patch.position_groups) ? patch.position_groups : [];
+      }
+      const { data, error } = await getClient().from("players").update(row).eq("id", id).select().single();
+      throwIfError(error, "Could not update player");
+      return data;
+    },
+
+    async updateRoster(id, patch) {
+      const row = {};
+      if (Object.prototype.hasOwnProperty.call(patch, "jersey_number")) {
+        row.jersey_number = String(patch.jersey_number || "").trim();
+      }
+      const { data, error } = await getClient()
+        .from("rosters")
+        .update(row)
+        .eq("id", id)
+        .select(ROSTER_SELECT)
+        .single();
+      throwIfError(error, "Could not update roster");
+      return data;
+    },
+
+    async deleteRoster(id) {
+      const { error } = await getClient().from("rosters").delete().eq("id", id);
+      throwIfError(error, "Could not remove player");
     },
 
     async shotsForGame(gameId) {

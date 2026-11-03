@@ -533,6 +533,7 @@
   }
 
   let lineupDirty = false;
+  const rosterDraftGroups = new Set();
   let lineupPushTimer = null;
   let lineupLiveBound = false;
   let lineupPullTimer = null;
@@ -685,6 +686,7 @@
     gameId: savedUi.gameId || sessionStorage.getItem("shots-game-id") || "",
     ourRoster: [],
     oppRoster: [],
+    seasonRoster: [],
     shots: [],
     namedPlayers: [],
     syncing: false,
@@ -1522,6 +1524,9 @@
       else if (isDev && !sub) sub = "DEV";
       brandSub.textContent = sub;
       brandSub.hidden = !sub;
+    }
+    if (brand.brandName) {
+      document.title = isDev ? `DEV · ${brand.brandName} Shot Tracker` : `${brand.brandName} Shot Tracker`;
     }
     // Header: DEV badge on DEV; otherwise the active team's logo.
     if (logo) {
@@ -2598,6 +2603,7 @@
     } catch {
       st.namedPlayers = [];
     }
+    await loadSeasonRoster();
     applyTeamBrand();
   }
 
@@ -2611,6 +2617,8 @@
     st.shots = [];
     st.ourRoster = [];
     st.oppRoster = [];
+    st.seasonRoster = [];
+    rosterDraftGroups.clear();
     st.history = {
       seasonId: "",
       playerId: "",
@@ -2908,10 +2916,18 @@
 
   async function selectSeason(id) {
     st.seasonId = id;
+    rosterDraftGroups.clear();
     if (st.allGames && st.allGames.length) {
       st.games = id ? st.allGames.filter((g) => g.season_id === id) : st.allGames.slice();
     } else {
       st.games = id ? await API.games(id) : await API.games();
+    }
+    try {
+      await loadSeasonRoster();
+      st.error = "";
+    } catch (err) {
+      st.seasonRoster = [];
+      st.error = err.message || "Could not load roster";
     }
     saveUi();
     draw();
@@ -3288,6 +3304,352 @@
     return `${opts}${includeNew ? `<option value="__new__">New season…</option>` : ""}`;
   }
 
+  function rosterBlank(value) {
+    const text = String(value ?? "").trim();
+    return text || null;
+  }
+
+  function rosterJerseySort(a, b) {
+    const aj = String(a.jersey_number || "");
+    const bj = String(b.jersey_number || "");
+    const an = /^\d+$/.test(aj) ? Number(aj) : NaN;
+    const bn = /^\d+$/.test(bj) ? Number(bj) : NaN;
+    const aNum = !Number.isNaN(an);
+    const bNum = !Number.isNaN(bn);
+    if (aNum && bNum && an !== bn) return an - bn;
+    if (aNum !== bNum) return aNum ? -1 : 1;
+    return aj.localeCompare(bj) || String(a.player?.name || "").localeCompare(String(b.player?.name || ""));
+  }
+
+  function storedPositionGroups(row) {
+    const allowed = new Set(POSITION_GROUPS.map((g) => g.id));
+    const raw = row?.player?.position_groups;
+    return (Array.isArray(raw) ? raw : []).filter((id) => allowed.has(id));
+  }
+
+  function orderedPositionGroups(ids) {
+    const set = new Set(ids || []);
+    return POSITION_GROUPS.map((g) => g.id).filter((id) => set.has(id));
+  }
+
+  function rosterGroupChips(selected, dataAttr) {
+    const set = new Set(selected || []);
+    return POSITION_GROUPS.map((g) => {
+      const on = set.has(g.id);
+      return `<button type="button" class="roster-group${on ? " is-on" : ""}" ${dataAttr}="${g.id}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(g.id)}</button>`;
+    }).join("");
+  }
+
+  function rosterErrorMessage(err, fallback) {
+    const msg = String(err && err.message ? err.message : "");
+    if (/duplicate key|jersey_number_key|already exists/i.test(msg)) return "That number is already on the roster";
+    return msg || fallback;
+  }
+
+  function mirrorSeasonRosterToGame() {
+    const us = currentTeam();
+    if (!us || !st.game || st.game.season_id !== st.seasonId) return;
+    if (st.game.our_team_id && st.game.our_team_id !== us.id) return;
+    st.ourRoster = st.seasonRoster;
+  }
+
+  function patchLineupBag(bag, playerId, patch) {
+    if (!bag || !playerId) return false;
+    let changed = false;
+    Object.keys(bag).forEach((slotId) => {
+      const player = bag[slotId];
+      if (!player || player.id !== playerId) return;
+      if (patch.remove) {
+        delete bag[slotId];
+        changed = true;
+        return;
+      }
+      if (patch.number != null && String(player.number) !== String(patch.number)) {
+        player.number = String(patch.number);
+        changed = true;
+      }
+      if (patch.name != null && player.name !== (patch.name || "")) {
+        player.name = patch.name || "";
+        changed = true;
+      }
+      if (patch.short != null && player.short !== (patch.short || "")) {
+        player.short = patch.short || "";
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function patchOpenLineupPlayer(playerId, patch) {
+    if (!playerId) return;
+    if (patchLineupBag(st.lineup?.us, playerId, patch)) {
+      saveLineupBag();
+      if (patch.remove || patch.number != null) markLineupDirty();
+    }
+    if (patchLineupBag(st.defaultLineup?.us, playerId, patch)) {
+      saveDefaultLineupBag(st.defaultLineup.us);
+    }
+  }
+
+  async function loadSeasonRoster() {
+    const team = currentTeam();
+    if (!team || !st.seasonId || (typeof API.isPlaceholderConfig === "function" && API.isPlaceholderConfig())) {
+      st.seasonRoster = [];
+      return;
+    }
+    st.seasonRoster = await API.roster(team.id, st.seasonId);
+    mirrorSeasonRosterToGame();
+  }
+
+  function rosterEditorMarkup() {
+    const team = currentTeam();
+    const season = st.seasons.find((s) => s.id === st.seasonId);
+    if (!team) return "";
+    if (!season) {
+      return `
+        <section class="roster-editor" id="roster-editor">
+          <h2>Roster</h2>
+          <p class="muted">Pick a season to edit this team's roster.</p>
+        </section>`;
+    }
+    const rows = (st.seasonRoster || []).slice().sort(rosterJerseySort);
+    const cards = rows
+      .map((row) => {
+        const player = row.player || {};
+        const groups = storedPositionGroups(row);
+        const label = player.short_name || player.name || `Number ${row.jersey_number}`;
+        return `
+          <li class="roster-card" data-roster-id="${escapeHtml(row.id)}">
+            <div class="roster-card-top">
+              <label class="shots-field">Number
+                <input type="text" inputmode="numeric" maxlength="4" autocomplete="off" data-roster-field="jersey" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(row.jersey_number || "")}" aria-label="Number for ${escapeHtml(label)}" />
+              </label>
+              <label class="shots-field">Preferred name
+                <input type="text" maxlength="40" autocomplete="off" data-roster-field="short" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(player.short_name || "")}" placeholder="Addy" aria-label="Preferred name for ${escapeHtml(label)}" />
+              </label>
+            </div>
+            <label class="shots-field">Full name
+              <input type="text" maxlength="80" autocomplete="name" data-roster-field="name" data-roster-id="${escapeHtml(row.id)}" value="${escapeHtml(player.name || "")}" placeholder="First Last" aria-label="Full name for ${escapeHtml(label)}" />
+            </label>
+            <div class="roster-groups" role="group" aria-label="Position groups for ${escapeHtml(label)}">
+              ${rosterGroupChips(groups, "data-roster-group")}
+            </div>
+            <button type="button" class="btn btn-ghost roster-remove" data-roster-remove="${escapeHtml(row.id)}">Remove</button>
+          </li>`;
+      })
+      .join("");
+    return `
+      <section class="roster-editor" id="roster-editor">
+        <h2>Roster</h2>
+        <p class="muted">${escapeHtml(team.name)} · ${escapeHtml(season.label)}. Number and names save for this season. Position groups stay with the player. Edits save when you leave a field or tap a group.</p>
+        <form id="roster-add-form" class="roster-add">
+          <div class="roster-card-top">
+            <label class="shots-field">Number
+              <input type="text" id="roster-new-number" inputmode="numeric" maxlength="4" autocomplete="off" required placeholder="11" />
+            </label>
+            <label class="shots-field">Preferred name
+              <input type="text" id="roster-new-short" maxlength="40" autocomplete="off" placeholder="Addy" />
+            </label>
+          </div>
+          <label class="shots-field">Full name
+            <input type="text" id="roster-new-name" maxlength="80" autocomplete="off" placeholder="First Last" />
+          </label>
+          <div class="roster-groups" role="group" aria-label="Position groups for new player">
+            ${rosterGroupChips(rosterDraftGroups, "data-roster-draft-group")}
+          </div>
+          <button type="submit" class="btn btn-primary">Add player</button>
+        </form>
+        ${
+          cards
+            ? `<ul class="roster-editor-list">${cards}</ul>`
+            : `<p class="muted">No players on this season yet.</p>`
+        }
+      </section>`;
+  }
+
+  function replaceSeasonRosterRow(next) {
+    st.seasonRoster = (st.seasonRoster || []).map((row) => (row.id === next.id ? next : row));
+    mirrorSeasonRosterToGame();
+  }
+
+  async function commitRosterField(input) {
+    const id = input.getAttribute("data-roster-id");
+    const field = input.getAttribute("data-roster-field");
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    if (!row || !field) return;
+    if (input.dataset.saving === "1") return;
+    try {
+      if (field === "jersey") {
+        const jersey = String(input.value || "").trim();
+        if (!jersey) {
+          input.value = row.jersey_number || "";
+          showToast("Jersey number is required");
+          return;
+        }
+        if (jersey === String(row.jersey_number || "")) return;
+        if ((st.seasonRoster || []).some((item) => item.id !== row.id && String(item.jersey_number) === jersey)) {
+          input.value = row.jersey_number || "";
+          showToast("That number is already on the roster");
+          return;
+        }
+        input.dataset.saving = "1";
+        const updated = await API.updateRoster(row.id, { jersey_number: jersey });
+        replaceSeasonRosterRow(updated);
+        patchOpenLineupPlayer(updated.player_id, { number: jersey });
+        input.value = updated.jersey_number || jersey;
+        return;
+      }
+      const playerId = row.player_id || row.player?.id;
+      if (!playerId) return;
+      const current = field === "short" ? row.player?.short_name || "" : row.player?.name || "";
+      const next = rosterBlank(input.value);
+      if ((next || "") === String(current || "").trim()) return;
+      input.dataset.saving = "1";
+      const patch = field === "short" ? { short_name: next } : { name: next };
+      const player = await API.updatePlayer(playerId, patch);
+      replaceSeasonRosterRow({ ...row, player: { ...(row.player || {}), ...player } });
+      patchOpenLineupPlayer(playerId, {
+        name: player.name || "",
+        short: player.short_name || "",
+      });
+    } catch (err) {
+      if (field === "jersey") input.value = row.jersey_number || "";
+      showToast(rosterErrorMessage(err, "Could not save roster"));
+    } finally {
+      delete input.dataset.saving;
+    }
+  }
+
+  async function toggleRosterGroup(button) {
+    const card = button.closest("[data-roster-id]");
+    const id = card?.getAttribute("data-roster-id");
+    const groupId = button.getAttribute("data-roster-group");
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    const playerId = row?.player_id || row?.player?.id;
+    if (!row || !playerId || !groupId || button.dataset.saving === "1") return;
+    const next = orderedPositionGroups(
+      toggleId(storedPositionGroups(row), groupId)
+    );
+    button.dataset.saving = "1";
+    const wasOn = button.classList.contains("is-on");
+    button.classList.toggle("is-on", next.includes(groupId));
+    button.setAttribute("aria-pressed", next.includes(groupId) ? "true" : "false");
+    try {
+      const player = await API.updatePlayer(playerId, { position_groups: next });
+      replaceSeasonRosterRow({ ...row, player: { ...(row.player || {}), ...player } });
+    } catch (err) {
+      button.classList.toggle("is-on", wasOn);
+      button.setAttribute("aria-pressed", wasOn ? "true" : "false");
+      showToast(rosterErrorMessage(err, "Could not save position groups"));
+    } finally {
+      delete button.dataset.saving;
+    }
+  }
+
+  function toggleId(list, id) {
+    const set = new Set(list || []);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    return set;
+  }
+
+  async function removeRosterPlayer(id, button) {
+    const row = (st.seasonRoster || []).find((item) => item.id === id);
+    if (!row) return;
+    if (button.getAttribute("data-armed") !== "1") {
+      $$("[data-roster-remove][data-armed]").forEach((el) => {
+        el.removeAttribute("data-armed");
+        el.textContent = "Remove";
+      });
+      button.setAttribute("data-armed", "1");
+      button.textContent = "Remove?";
+      return;
+    }
+    button.disabled = true;
+    try {
+      await API.deleteRoster(row.id);
+      st.seasonRoster = (st.seasonRoster || []).filter((item) => item.id !== row.id);
+      mirrorSeasonRosterToGame();
+      patchOpenLineupPlayer(row.player_id || row.player?.id, { remove: true });
+      draw({ keepScroll: true });
+    } catch (err) {
+      button.disabled = false;
+      showToast(rosterErrorMessage(err, "Could not remove player"));
+    }
+  }
+
+  async function addRosterPlayer(form) {
+    const team = currentTeam();
+    if (!team || !st.seasonId) {
+      showToast("Pick a team and season first");
+      return;
+    }
+    const numberInput = $("#roster-new-number");
+    const jersey = String(numberInput?.value || "").trim();
+    const name = rosterBlank($("#roster-new-name")?.value);
+    const shortName = rosterBlank($("#roster-new-short")?.value);
+    if (!jersey) {
+      showToast("Jersey number is required");
+      return;
+    }
+    if ((st.seasonRoster || []).some((item) => String(item.jersey_number) === jersey)) {
+      showToast("That number is already on the roster");
+      return;
+    }
+    const submit = form.querySelector("[type=submit]");
+    if (submit) submit.disabled = true;
+    try {
+      const created = await API.ensureRosterPlayer(team.id, st.seasonId, jersey, name, {
+        short_name: shortName,
+        position_groups: orderedPositionGroups(rosterDraftGroups),
+      });
+      if ((st.seasonRoster || []).some((item) => item.id === created.id)) {
+        showToast("That number is already on the roster");
+        return;
+      }
+      st.seasonRoster = (st.seasonRoster || []).concat(created);
+      mirrorSeasonRosterToGame();
+      rosterDraftGroups.clear();
+      draw({ keepScroll: true });
+    } catch (err) {
+      showToast(rosterErrorMessage(err, "Could not add player"));
+      if (submit) submit.disabled = false;
+    }
+  }
+
+  function bindRosterEditor() {
+    const editor = $("#roster-editor");
+    if (!editor) return;
+    editor.addEventListener("focusout", (e) => {
+      const input = e.target.closest("[data-roster-field]");
+      if (!input || !editor.contains(input)) return;
+      commitRosterField(input);
+    });
+    editor.addEventListener("click", (e) => {
+      const draft = e.target.closest("[data-roster-draft-group]");
+      if (draft) {
+        const id = draft.getAttribute("data-roster-draft-group");
+        if (rosterDraftGroups.has(id)) rosterDraftGroups.delete(id);
+        else rosterDraftGroups.add(id);
+        const on = rosterDraftGroups.has(id);
+        draft.classList.toggle("is-on", on);
+        draft.setAttribute("aria-pressed", on ? "true" : "false");
+        return;
+      }
+      const group = e.target.closest("[data-roster-group]");
+      if (group) {
+        toggleRosterGroup(group);
+        return;
+      }
+      const remove = e.target.closest("[data-roster-remove]");
+      if (remove) removeRosterPlayer(remove.getAttribute("data-roster-remove"), remove);
+    });
+    $("#roster-add-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      addRosterPlayer(e.currentTarget);
+    });
+  }
+
   function renderGames() {
     const localCount = localEvents().length;
     const today = localYmd();
@@ -3337,6 +3699,8 @@
           <select id="season-pick">${seasonOptions(st.seasonId, false)}</select>
         </label>
         ${gamesBlock}
+
+        ${rosterEditorMarkup()}
 
         <h2>Add game</h2>
         <form id="new-game-form" class="shots-form">
@@ -3454,6 +3818,7 @@
       st.csvPending = null;
       draw();
     });
+    bindRosterEditor();
     $("#import-local-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
@@ -3655,7 +4020,7 @@
       return;
     }
     downloadCsv(
-      filename || `bengals-shots-${new Date().toISOString().slice(0, 10)}.csv`,
+      filename || `${slugify(ourTeamName()) || "team"}-shots-${new Date().toISOString().slice(0, 10)}.csv`,
       CSV_HEADERS,
       events.map((ev) => shotCsvRow(ev))
     );
@@ -3912,7 +4277,7 @@
       : `translate(${HALF_L}, 0) rotate(90)`;
     const viewBox = swapped ? "-3.5 -1 64.8 70" : "-9.4 -1 64.8 70";
     return `
-      <svg class="pitch-svg tracker-pitch-svg ${team === "opp" ? "is-opp-pitch" : "is-us-pitch"}" data-pitch-team="${team}" viewBox="${viewBox}" role="application" aria-label="${team === "opp" ? "Opponent" : "Brighton"} attacking half. Goal ${swapped ? "on the left" : "on the right"}.">
+      <svg class="pitch-svg tracker-pitch-svg ${team === "opp" ? "is-opp-pitch" : "is-us-pitch"}" data-pitch-team="${team}" viewBox="${viewBox}" role="application" aria-label="${team === "opp" ? "Opponent" : escapeHtml(ourTeamName())} attacking half. Goal ${swapped ? "on the left" : "on the right"}.">
         <g transform="${inner}">
           ${stripes.join("")}
           <g class="tracker-grid">${grid}</g>
@@ -6143,12 +6508,12 @@
   function playsFilterMarkup() {
     const teamBtns = [
       ["all", "All teams"],
-      ["us", "Brighton"],
+      ["us", ourTeamName()],
       ["opp", "Opponent"],
     ]
       .map(
         ([id, label]) =>
-          `<button type="button" class="plays-filter-btn ${st.logTeam === id ? "is-on" : ""}" data-log-team="${id}">${label}</button>`
+          `<button type="button" class="plays-filter-btn ${st.logTeam === id ? "is-on" : ""}" data-log-team="${id}">${escapeHtml(label)}</button>`
       )
       .join("");
     const resultBtns = Object.entries(LOG_RESULT_FILTERS)
@@ -7367,7 +7732,7 @@
         </div>
         <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"}${
           trackerMapFilterCount() ? ` of ${events.length}` : ""
-        } · Brighton attack up${selected ? "" : " · tap a shot"}</p>
+        } · ${escapeHtml(ourTeamName())} attack up${selected ? "" : " · tap a shot"}</p>
       </section>`;
   }
 
@@ -7620,7 +7985,10 @@
     $("#tracker-map-panel #prep-shot-popup")?.addEventListener("click", (e) => e.stopPropagation());
 
     $("#tracker-export-csv")?.addEventListener("click", () => {
-      exportShotsCsv(st.shots || [], `bengals-shots-${String(st.game?.date || "").slice(0, 10) || "game"}.csv`);
+      exportShotsCsv(
+        st.shots || [],
+        `${slugify(ourTeamName()) || "team"}-shots-${String(st.game?.date || "").slice(0, 10) || "game"}.csv`
+      );
     });
     const bindNewToggle = (sel, extra) => {
       $(sel)?.addEventListener("change", () => {
@@ -7714,7 +8082,8 @@
     // Recording half-pitches always show full plays; shots-only lives on the Shot Map tab.
     const pitchOpts = { showGrid: st.showGrid, period, shotsOnlyMode: false };
     const goalSide = usSwapped ? "left" : "right";
-    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · Brighton goal on the ${goalSide}, opponent opposite.`;
+    const usName = ourTeamName();
+    let status = `Tap a shot or assist for who did what. Double-tap to start a play (marks are fine). ${periodLabel(period)} · ${usName} goal on the ${goalSide}, opponent opposite.`;
     if (awaitingShot) {
       const teamPitch = teamLabel(recordingTeam());
       if (st.pending?.linkType) {
@@ -7733,12 +8102,12 @@
     const usCaption = awaitingShot
       ? usActive
         ? st.pending?.linkType
-          ? `Brighton · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
+          ? `${usName} · ${linkedPlayCopy(st.pending.linkKind === "secondAssist" || !!st.pending.assist).noun}`
           : st.pending?.cornerFollowUp === "pass" && !st.pending?.restartShot?.fromCorner
-            ? "Brighton · next pass or shot"
-            : "Brighton · tap the shot"
-        : "Brighton"
-      : "Brighton · double-tap to record";
+            ? `${usName} · next pass or shot`
+            : `${usName} · tap the shot`
+        : usName
+      : `${usName} · double-tap to record`;
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const oppCaption = awaitingShot
       ? !usActive
@@ -8044,7 +8413,7 @@
           const pngUrl = URL.createObjectURL(png);
           const a = document.createElement("a");
           a.href = pngUrl;
-          a.download = `bengals-shot-map-${new Date().toISOString().slice(0, 10)}.png`;
+          a.download = `${slugify(ourTeamName()) || "team"}-shot-map-${new Date().toISOString().slice(0, 10)}.png`;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -8065,6 +8434,7 @@
     const usEvents = events.filter((e) => eventTeam(e) === "us");
     const oppEvents = events.filter((e) => eventTeam(e) === "opp");
     const vs = opponentOf(st.game)?.name || "Opponent";
+    const usName = ourTeamName();
     const dateLabel = st.game?.date || "";
     const halfOpts = { allPeriods: true, swapped: false, showGrid: false };
     root().innerHTML = `
@@ -8078,7 +8448,7 @@
         </div>
         <div class="shot-map-print" id="shot-map-print-root">
           <header class="shot-map-header">
-            <h1>Brighton Bengals</h1>
+            <h1>${escapeHtml(usName)}</h1>
             <p>
               <span class="shot-map-vs-print">${vs ? `vs ${escapeHtml(vs)}` : ""}</span>
               <span class="muted"> · ${escapeHtml(String(dateLabel))}</span>
@@ -8086,7 +8456,7 @@
           </header>
           <div class="shot-map-dual">
             <div class="shot-map-team-block">
-              <h2>Brighton</h2>
+              <h2>${escapeHtml(usName)}</h2>
               <div class="shot-map-team-pitch">${halfPitchMarkup(events, Object.assign({ team: "us" }, halfOpts))}</div>
               <div class="tracker-summary">${summaryPills(trackerSummary(usEvents))}</div>
             </div>
@@ -8100,19 +8470,19 @@
           <div class="shot-map-combined">
             <h2>Full field (both teams)</h2>
             <div class="shot-map-pitch">${fullFieldMarkup(events)}</div>
-            <p class="shot-map-caption">1st half / ET 1: Brighton attack right, opponent left. 2nd half / ET 2 reverse. Red ring = opponent.</p>
+            <p class="shot-map-caption">1st half / ET 1: ${escapeHtml(usName)} attack right, opponent left. 2nd half / ET 2 reverse. Red ring = opponent.</p>
           </div>
           <div class="shot-map-stats">
             <div>
               <h2>1st Half</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(firstHalf.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(firstHalf.filter((e) => eventTeam(e) === "opp")))}</div>
             </div>
             <div>
               <h2>2nd Half</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(secondHalf.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(secondHalf.filter((e) => eventTeam(e) === "opp")))}</div>
@@ -8121,14 +8491,14 @@
               hasEt
                 ? `<div>
               <h2>ET 1</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etOne.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etOne.filter((e) => eventTeam(e) === "opp")))}</div>
             </div>
             <div>
               <h2>ET 2</h2>
-              <p class="shot-map-stat-split muted">Brighton</p>
+              <p class="shot-map-stat-split muted">${escapeHtml(usName)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etTwo.filter((e) => eventTeam(e) === "us")))}</div>
               <p class="shot-map-stat-split muted">${escapeHtml(vs)}</p>
               <div class="tracker-summary">${summaryPills(trackerSummary(etTwo.filter((e) => eventTeam(e) === "opp")))}</div>
@@ -8514,19 +8884,25 @@
     }
   }
 
-  const EXPLORE_STARTERS = [
-    "Show me the trend of assists from midfielders this season",
-    "Which forwards have been most successful creating shots on frame or goals from gap passes?",
-    "Last time we played Viewmont, which of their players took the most shots and from what parts of the field?",
-    "Where do Brighton goals tend to come from on the pitch?",
-  ];
+  function exploreStarters() {
+    const us = ourTeamName();
+    return [
+      "Show me the trend of assists from midfielders this season",
+      "Which forwards have been most successful creating shots on frame or goals from gap passes?",
+      "Last time we played Viewmont, which of their players took the most shots and from what parts of the field?",
+      `Where do ${us} goals tend to come from on the pitch?`,
+    ];
+  }
 
-  const SCENARIO_STARTERS = [
-    "What if we beat Lone Peak 2-1?",
-    "What if instead of beating Orem early we had played Lone Peak and lost 1-2?",
-    "Where is Brighton seeded in the Freeman model right now?",
-    "What if Alta beat Bountiful 1-0?",
-  ];
+  function scenarioStarters() {
+    const us = ourTeamName();
+    return [
+      "What if we beat Lone Peak 2-1?",
+      "What if instead of beating Orem early we had played Lone Peak and lost 1-2?",
+      `Where is ${us} seeded in the Freeman model right now?`,
+      "What if Alta beat Bountiful 1-0?",
+    ];
+  }
 
   function prepHashParams() {
     const raw = (location.hash || "").replace(/^#/, "");
@@ -8897,8 +9273,9 @@
       })
       .join("");
     const cornerMarks = [...cornerGroups.values()].map((group) => cornerCountMarkup(group, selectedId)).join("");
+    const usAttack = ourTeamName();
     return `
-      <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. Brighton attack up, opponent attack down.">
+      <svg class="prep-pitch-svg" viewBox="-4 -5 ${PW + 8} ${PL + 10}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tactical pitch. ${escapeHtml(usAttack)} attack up, opponent attack down.">
         ${stripes.join("")}
         <rect x="0" y="0" width="${PW}" height="${PL}" fill="none" stroke="${line}" stroke-width="0.45" />
         <line x1="0" y1="${HALF_L}" x2="${PW}" y2="${HALF_L}" stroke="${line}" stroke-width="0.4" />
@@ -8914,7 +9291,7 @@
         <circle cx="${PW / 2}" cy="${PL - spotInset}" r="0.45" fill="${line}" />
         <path d="M ${PW / 2 - dx} ${penH} A ${arcR} ${arcR} 0 0 0 ${PW / 2 + dx} ${penH}" fill="none" stroke="${line}" stroke-width="0.35" />
         <path d="M ${PW / 2 - dx} ${PL - penH} A ${arcR} ${arcR} 0 0 1 ${PW / 2 + dx} ${PL - penH}" fill="none" stroke="${line}" stroke-width="0.35" />
-        <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Brighton attack</text>
+        <text x="${PW / 2}" y="-2.4" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">${escapeHtml(usAttack)} attack</text>
         <text x="${PW / 2}" y="${PL + 3.6}" fill="${line}" font-size="2.4" font-weight="750" text-anchor="middle">Opponent attack</text>
         ${markers}
         ${cornerMarks}
@@ -9751,15 +10128,17 @@
         ${trackerNav()}
         <h1>Prep</h1>
         ${prepTabsMarkup("scenarios")}
-        <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for Brighton or any team in the season data.</p>
+        <p class="muted">Ask a what-if about rankings. Gemini reads the question; the Freeman model computes the seed move. Works for ${escapeHtml(ourTeamName())} or any team in the season data.</p>
         ${freshness}
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${sc.error && !sc.messages.length ? `<p class="shots-error">${escapeHtml(sc.error)}</p>` : ""}
         <div class="explore-starters" role="group" aria-label="Suggested scenarios">
-          ${SCENARIO_STARTERS.map(
-            (q) =>
-              `<button type="button" class="explore-starter" data-scenario-starter ${blocked ? "disabled" : ""}>${escapeHtml(q)}</button>`,
-          ).join("")}
+          ${scenarioStarters()
+            .map(
+              (q) =>
+                `<button type="button" class="explore-starter" data-scenario-starter ${blocked ? "disabled" : ""}>${escapeHtml(q)}</button>`,
+            )
+            .join("")}
         </div>
         <div class="explore-transcript" id="scenario-transcript">
           ${
@@ -9877,7 +10256,7 @@
                 ${selectedShot ? prepShotPopupMarkup(selectedShot) : ""}
               </div>
             </div>
-            <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · Brighton attack up${
+            <p class="prep-pitch-caption">${visible.length} play${visible.length === 1 ? "" : "s"} · ${escapeHtml(ourTeamName())} attack up${
               selectedShot ? "" : " · tap a shot"
             }</p>
           </section>
@@ -10203,10 +10582,12 @@
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         ${ex.error ? `<p class="shots-error">${escapeHtml(ex.error)}</p>` : ""}
         <div class="explore-starters" role="group" aria-label="Suggested questions">
-          ${EXPLORE_STARTERS.map(
-            (q) =>
-              `<button type="button" class="explore-starter" data-explore-starter>${escapeHtml(q)}</button>`
-          ).join("")}
+          ${exploreStarters()
+            .map(
+              (q) =>
+                `<button type="button" class="explore-starter" data-explore-starter>${escapeHtml(q)}</button>`
+            )
+            .join("")}
         </div>
         <div class="explore-transcript" id="explore-transcript">
           ${
@@ -10217,7 +10598,7 @@
         </div>
         <form id="explore-form" class="explore-form">
           <label class="sr-only" for="explore-input">Question</label>
-          <textarea id="explore-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. Which Brighton players assisted the most goals?" ${ex.loading ? "disabled" : ""}>${escapeHtml(ex.draft)}</textarea>
+          <textarea id="explore-input" class="explore-input" rows="2" maxlength="2000" placeholder="e.g. Which ${escapeHtml(ourTeamName())} players assisted the most goals?" ${ex.loading ? "disabled" : ""}>${escapeHtml(ex.draft)}</textarea>
           <div class="explore-form-actions">
             <button type="submit" class="btn btn-primary" ${ex.loading ? "disabled" : ""}>Ask</button>
             <button type="button" class="btn btn-ghost" id="explore-clear" ${ex.loading || !ex.messages.length ? "disabled" : ""}>Clear</button>
@@ -10739,6 +11120,7 @@
     if (view !== "shots" && !isScoreboardView(view)) stopLineupLivePull();
     if (view === "shots-games") {
       renderGames();
+      if (opts.keepScroll) window.scrollTo(0, scrollY);
       return;
     }
     if (view === "shots-history") {

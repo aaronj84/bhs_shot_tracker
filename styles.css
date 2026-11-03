@@ -3026,6 +3026,86 @@ button.formation-card.is-empty {
   font-weight: 500;
 }
 
+.roster-editor {
+  margin-top: 1.35rem;
+}
+
+.roster-editor > h2 {
+  margin-top: 0;
+}
+
+.roster-add,
+.roster-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  padding: 0.7rem 0.7rem 0.75rem;
+  margin: 0 0 0.65rem;
+}
+
+.roster-editor-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+}
+
+.roster-card-top {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.roster-card .shots-field,
+.roster-add .shots-field {
+  margin-bottom: 0.45rem;
+  min-width: 0;
+}
+
+.roster-card .shots-field input,
+.roster-add .shots-field input {
+  width: 100%;
+  min-width: 0;
+  font-size: 1rem;
+}
+
+.roster-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.55rem;
+}
+
+.roster-group {
+  flex: 1 1 3.1rem;
+  min-height: 44px;
+  min-width: 2.75rem;
+  padding: 0.35rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.roster-group.is-on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.roster-remove,
+.roster-add .btn-primary {
+  width: 100%;
+}
+
+.roster-remove[data-armed="1"] {
+  background: #fde8e8;
+  color: #9b1c1c;
+  border-color: #f5c2c2;
+}
+
 .shots-confirm {
   margin: 0.75rem 0;
   padding: 0.85rem;
