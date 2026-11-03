@@ -37,7 +37,9 @@ test.describe("Club Player Visitation Planner", () => {
       if (window.TeamModules) window.TeamModules.publish([]);
     });
     await page.locator("#menu-btn").click();
-    await expect(page.locator("#nav-drawer [data-module='planning']")).toBeHidden();
+    // Heading + sub-group both carry data-module="planning" — assert each uniquely.
+    await expect(page.locator("#nav-planning-label")).toBeHidden();
+    await expect(page.locator("#nav-drawer .nav-drawer-sub[data-module='planning']")).toBeHidden();
     await expect(page.locator("#nav-drawer a[data-nav='club']")).toBeHidden();
   });
 
