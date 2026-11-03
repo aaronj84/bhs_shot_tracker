@@ -489,6 +489,12 @@ a {
   color: #fff;
 }
 
+/* Opt-in team modules (e.g. Planning). Author display:flex rules would otherwise
+   override the UA [hidden] { display: none } mapping. */
+[data-module][hidden] {
+  display: none !important;
+}
+
 .nav-drawer-sub {
   display: flex;
   flex-direction: column;
