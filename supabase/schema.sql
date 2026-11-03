@@ -189,7 +189,7 @@ begin
       add constraint shots_miss_direction_check
       check (
         miss_direction is null
-        or miss_direction in ('over', 'short', 'wide-left', 'wide-right', 'crossbar', 'post')
+        or miss_direction in ('over', 'short', 'wide-left', 'wide-right', 'crossbar', 'post', 'weak-gk')
       );
 
     alter table public.shots drop constraint if exists shots_assist_type_check;
