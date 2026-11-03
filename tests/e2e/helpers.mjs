@@ -308,7 +308,7 @@ export async function pickMissDirection(page, missDir = "over") {
   const modal = page.locator("#shot-event-modal");
   await expect(page.locator("#shot-modal-title")).toHaveText("Where did it miss?", { timeout: 10000 });
   const btn = modal.locator(`#shot-action-grid [data-miss-dir="${missDir}"]`);
-  await expect(modal.locator("#shot-action-grid [data-miss-dir]")).toHaveCount(6, { timeout: 10000 });
+  await expect(modal.locator("#shot-action-grid [data-miss-dir]")).toHaveCount(7, { timeout: 10000 });
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.scrollIntoViewIfNeeded();
   await btn.click({ timeout: 15000 });
