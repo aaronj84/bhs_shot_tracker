@@ -16,10 +16,12 @@ const CORE_SHOT_TYPES = [
   { actionId: "goal", log: /Goal/i },
   { actionId: "on-target", log: /Shot on Goal|On Goal/i },
   { actionId: "missed", missDir: "crossbar", log: /Crossbar/i },
+  { actionId: "weak-gk", log: /Weak to GK/i },
   { actionId: "foul", restartResult: "foul", log: /Free Kick/i },
   { actionId: "foul", restartResult: "goal", log: /Goal/i },
   { actionId: "corner", restartResult: "corner", log: /Corner/i },
-  { actionId: "pk-goal", log: /PK Goal/i },
+  { actionId: "pk", pkDecision: "make", log: /PK Goal/i },
+  { actionId: "pk", pkDecision: "miss", pkOutcome: "on-target", log: /PK Miss · On Goal/i },
 ];
 
 test.describe("Shot types", () => {
@@ -48,6 +50,8 @@ test.describe("Shot types", () => {
         actionId: kind.actionId,
         restartResult: kind.restartResult,
         missDir: kind.missDir,
+        pkDecision: kind.pkDecision,
+        pkOutcome: kind.pkOutcome,
       });
       await expect(page.locator("#tracker-log")).toContainText(kind.log, { timeout: 20000 });
     }

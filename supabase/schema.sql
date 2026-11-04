@@ -76,6 +76,7 @@ create table if not exists public.shots (
   zone_label text,
   result text not null,
   miss_direction text,
+  pk_outcome text,
   -- Free Kick / PK: player_id is the taker; fouler_* is the infringer.
   fouler_player_id uuid references public.players (id),
   fouler_jersey_number_at_time text,
@@ -112,6 +113,8 @@ alter table public.shots
   add column if not exists zone_label text;
 alter table public.shots
   add column if not exists miss_direction text;
+alter table public.shots
+  add column if not exists pk_outcome text;
 alter table public.shots
   add column if not exists fouler_player_id uuid references public.players (id);
 alter table public.shots
@@ -177,11 +180,20 @@ begin
           'on-target',
           'blocked',
           'missed',
+          'weak-gk',
           'foul',
           'corner',
           'pk-goal',
           'pk-missed'
         )
+      );
+
+    alter table public.shots drop constraint if exists shots_pk_outcome_check;
+    alter table public.shots
+      add constraint shots_pk_outcome_check
+      check (
+        pk_outcome is null
+        or pk_outcome in ('on-target', 'missed', 'corner', 'foul', 'pk')
       );
 
     alter table public.shots drop constraint if exists shots_miss_direction_check;

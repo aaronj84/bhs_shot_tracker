@@ -2,6 +2,15 @@
 
 Coach-facing module to find returning Brighton players at club soccer games and plan field visits during the high-school offseason.
 
+Part of the **Planning** team module (`teams.modules` includes `"planning"`). Planning is enabled for Brighton by default and off for other owned teams (e.g. CFC). Enable for another team with:
+
+```sql
+update public.teams
+set modules = modules || '["planning"]'::jsonb
+where is_ours and name = 'Your Team'
+  and not (modules @> '"planning"'::jsonb);
+```
+
 Hash routes: `#club` / `#club-agenda` (default) · `#club-itinerary` · `#club-data`
 
 ## Design decisions (repository audit)

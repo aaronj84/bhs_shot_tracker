@@ -489,6 +489,12 @@ a {
   color: #fff;
 }
 
+/* Opt-in team modules (e.g. Planning). Author display:flex rules would otherwise
+   override the UA [hidden] { display: none } mapping. */
+[data-module][hidden] {
+  display: none !important;
+}
+
 .nav-drawer-sub {
   display: flex;
   flex-direction: column;
@@ -2273,6 +2279,11 @@ button.formation-card.is-empty {
   color: var(--text-muted);
 }
 
+.shot-result-pill.weak-gk {
+  background: #d6e6f5;
+  color: #1a4d7c;
+}
+
 .shot-result-pill.foul {
   background: rgba(155, 89, 182, 0.18);
   color: #6c3483;
@@ -2496,6 +2507,11 @@ button.formation-card.is-empty {
   background: rgba(52, 152, 219, 0.14);
 }
 
+.shot-action-btn.is-weak-gk {
+  background: #d6e6f5;
+}
+
+.shot-action-btn.is-pk,
 .shot-action-btn.is-pk-goal {
   background: rgba(240, 193, 75, 0.28);
 }

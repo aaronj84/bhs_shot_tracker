@@ -169,6 +169,7 @@
     "on-target": "Shot on Goal",
     blocked: "Shot Blocked",
     missed: "Missed Shot",
+    "weak-gk": "Weak to GK",
     foul: "Free Kick",
     corner: "Corner",
     "pk-goal": "PK Goal",
@@ -183,7 +184,15 @@
     post: "Post",
     "weak-gk": "Weak to GK",
   };
-  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right", "crossbar", "post", "weak-gk"];
+  const MISS_DIRECTIONS = ["over", "short", "wide-left", "wide-right", "crossbar", "post"];
+  const PK_OUTCOMES = [
+    { id: "on-target", label: "On Goal" },
+    { id: "missed", label: "Missed" },
+    { id: "corner", label: "Corner" },
+    { id: "foul", label: "Free Kick" },
+    { id: "pk", label: "PK" },
+  ];
+  const PK_OUTCOME_LABELS = Object.fromEntries(PK_OUTCOMES.map((row) => [row.id, row.label]));
   const ASSIST_TYPE_LABELS = {
     pass: "Pass",
     gap: "Gap",
@@ -210,26 +219,75 @@
     { id: "on-target", label: "Shot on Goal", kind: "shot", result: "on-target" },
     { id: "blocked", label: "Shot Blocked", kind: "shot", result: "blocked" },
     { id: "missed", label: "Missed Shot", kind: "shot", result: "missed" },
+    { id: "weak-gk", label: "Weak to GK", kind: "shot", result: "weak-gk" },
   ];
   const TRACKER_OTHER_ACTIONS = [
     { id: "foul", label: "Free Kick", kind: "shot", result: "foul" },
     { id: "corner", label: "Corner", kind: "shot", result: "corner" },
-    { id: "pk-goal", label: "PK Goal", kind: "shot", result: "pk-goal" },
-    { id: "pk-missed", label: "PK Missed", kind: "shot", result: "pk-missed" },
+    { id: "pk", label: "PK", kind: "shot", result: "pk" },
   ];
   const TRACKER_FIRST_ACTIONS = [...TRACKER_ASSIST_ACTIONS, ...TRACKER_SHOT_ACTIONS, ...TRACKER_OTHER_ACTIONS];
-  const SHOT_RESULTS = new Set(["goal", "on-target", "blocked", "missed", "pk-goal", "pk-missed"]);
+  const SHOT_RESULTS = new Set(["goal", "on-target", "blocked", "missed", "weak-gk", "pk-goal", "pk-missed"]);
   const LOG_RESULT_FILTERS = {
     all: { label: "All results", match: () => true },
-    shots: { label: "Shots", match: (e) => SHOT_RESULTS.has(e.result) },
+    shots: { label: "Shots", match: (e) => SHOT_RESULTS.has(e.result) || isWeakToGk(e) },
     goal: { label: "Goals", match: (e) => e.result === "goal" || e.result === "pk-goal" },
-    "on-target": { label: "On target", match: (e) => e.result === "on-target" },
+    "on-target": { label: "On target", match: (e) => e.result === "on-target" || isPkOnTarget(e) },
     blocked: { label: "Blocked", match: (e) => e.result === "blocked" },
-    missed: { label: "Missed", match: (e) => e.result === "missed" || e.result === "pk-missed" },
+    missed: {
+      label: "Missed",
+      match: (e) => (e.result === "missed" && !isWeakToGk(e)) || isPkMissedOffTarget(e),
+    },
+    "weak-gk": { label: "Weak to GK", match: (e) => isWeakToGk(e) },
     foul: { label: "Free kicks", match: (e) => e.result === "foul" },
     corner: { label: "Corners", match: (e) => e.result === "corner" },
     pk: { label: "PKs", match: (e) => e.result === "pk-goal" || e.result === "pk-missed" },
   };
+
+  function isWeakToGk(ev) {
+    if (!ev) return false;
+    return ev.result === "weak-gk" || (ev.result === "missed" && (ev.missDirection || ev.miss_direction) === "weak-gk");
+  }
+
+  function pkOutcomeOf(ev) {
+    return ev?.pkOutcome || ev?.pk_outcome || "";
+  }
+
+  function isPkOnTarget(ev) {
+    return ev?.result === "pk-missed" && pkOutcomeOf(ev) === "on-target";
+  }
+
+  function isPkMissedOffTarget(ev) {
+    if (ev?.result !== "pk-missed") return false;
+    const outcome = pkOutcomeOf(ev);
+    return !outcome || outcome === "missed";
+  }
+
+  function isOnFrameEvent(ev) {
+    if (!ev) return false;
+    if (isWeakToGk(ev) || isPkOnTarget(ev)) return true;
+    return ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal";
+  }
+
+  function eventResultLabel(ev) {
+    if (!ev) return "";
+    if (isWeakToGk(ev)) return "Weak to GK";
+    if (ev.result === "pk-missed" && pkOutcomeOf(ev)) {
+      return `PK Miss · ${PK_OUTCOME_LABELS[pkOutcomeOf(ev)] || pkOutcomeOf(ev)}`;
+    }
+    return SHOT_RESULT_LABELS[ev.result] || ev.result || "";
+  }
+
+  function eventResultClass(ev) {
+    if (isWeakToGk(ev)) return "weak-gk";
+    return ev?.result || "";
+  }
+
+  function shotNeedsMissDirection(result, pkOutcome) {
+    if (result === "missed") return true;
+    if (result === "pk-missed") return !pkOutcome || pkOutcome === "missed";
+    return false;
+  }
 
   function normalizeTrackerPanel(value) {
     return value === "detail" || value === "settings" || value === "notes" ? value : "map";
@@ -781,6 +839,8 @@
     position: "",
     missDirection: "",
     fkOutcome: "",
+    pkDecision: "",
+    pkOutcome: "",
     cornerDelivery: "",
     subSlotId: null,
     subReturnPhase: "",
@@ -1593,6 +1653,16 @@
     };
     window.__SHOTS_ACTIVE_BRAND = brand;
     paintBrandChrome(brand);
+    if (window.TeamModules) {
+      window.TeamModules.publish(window.TeamModules.fromTeam(t));
+      // Leaving Planning when the new team does not have the module.
+      if (
+        !window.TeamModules.has(t, window.TeamModules.PLANNING) &&
+        window.TeamModules.isPlanningHash(location.hash || "")
+      ) {
+        location.hash = "#shots";
+      }
+    }
     syncNavTeamPicker();
   }
 
@@ -2277,18 +2347,19 @@
     if (!action) return "Who?";
     if (action.result === "foul") return "Who took the free kick?";
     if (action.result === "corner") return "Who took the corner?";
-    if (action.result === "pk-goal" || action.result === "pk-missed") return "Who took the PK?";
+    if (action.result === "pk" || action.result === "pk-goal" || action.result === "pk-missed") return "Who took the PK?";
     if (action.kind === "assist") return "Who played the pass?";
     return "Who took the shot?";
   }
 
   function needsMissDirection(action) {
+    if (action?.result === "pk") return shotModalDraft.pkOutcome === "missed";
     const result = action?.result === "foul" || action?.result === "corner" ? shotModalDraft.fkOutcome || "" : action?.result;
     return !!(result && RESULTS_NEEDING_MISS_DIR.has(result));
   }
 
   function needsFoulerStep(action) {
-    return !!(action && (action.result === "foul" || RESULTS_NEEDING_FOULER.has(action.result)));
+    return !!(action && (action.result === "foul" || action.result === "pk" || RESULTS_NEEDING_FOULER.has(action.result)));
   }
 
   function awaitingFollowUp() {
@@ -2304,7 +2375,7 @@
   }
 
   function canOfferLinkedPlay(result) {
-    return result === "goal" || result === "on-target" || result === "blocked" || result === "missed";
+    return result === "goal" || result === "on-target" || result === "blocked" || result === "missed" || result === "weak-gk";
   }
 
   function linkedPlayCopy(second = false) {
@@ -2392,6 +2463,10 @@
     const origin = shotModalDraft.action?.result;
     if ((origin === "foul" || origin === "corner") && shotModalDraft.fkOutcome) {
       return shotModalDraft.fkOutcome;
+    }
+    if (origin === "pk") {
+      if (shotModalDraft.pkDecision === "make") return "pk-goal";
+      if (shotModalDraft.pkDecision === "miss") return "pk-missed";
     }
     return shotModalDraft.action?.result || "";
   }
@@ -2560,6 +2635,7 @@
       position: normalizePositionCode(row.position || ""),
       result: row.result,
       missDirection: row.miss_direction || "",
+      pkOutcome: row.pk_outcome || row.pkOutcome || "",
       fouler_player_id: row.fouler_player_id || null,
       foulerNumber: row.fouler_jersey_number_at_time || "",
       foulerName: row.fouler?.name || "",
@@ -3951,8 +4027,9 @@
       ev.shooterNumber ?? ev.jersey_number_at_time ?? "",
       csvEscape(ev.shooterName || ev.player?.name || ""),
       ev.position || "",
-      csvEscape(SHOT_RESULT_LABELS[ev.result] || ev.result),
+      csvEscape(eventResultLabel(ev)),
       ev.missDirection || ev.miss_direction || "",
+      pkOutcomeOf(ev),
       ev.foulerNumber || ev.fouler_jersey_number_at_time || "",
       csvEscape(ev.foulerName || ev.fouler?.name || ""),
       ev.shot?.zoneId ?? ev.zone_id ?? "",
@@ -3994,6 +4071,7 @@
     "position",
     "result",
     "miss_direction",
+    "pk_outcome",
     "fouler_number",
     "fouler_name",
     "shot_zone_id",
@@ -4109,8 +4187,8 @@
     if (!mark) return "";
     const { left, top, place } = inspectPopupPlace(Number(mark.x), Number(mark.y), swapped);
     const shooter = eventPersonLabel(team, ev.shooterNumber, ev.shooterName, ev.shooterShort);
-    const result = SHOT_RESULT_LABELS[ev.result] || ev.result || "";
-    const miss = ev.missDirection ? MISS_DIRECTION_LABELS[ev.missDirection] : "";
+    const result = eventResultLabel(ev);
+    const miss = ev.missDirection && !isWeakToGk(ev) ? MISS_DIRECTION_LABELS[ev.missDirection] : "";
     const clock = formatEventClock(ev, ev.game || st.game);
     const zone = ev.shot?.zoneLabel || ev.shot?.zoneId || "";
     const roleLabel =
@@ -4318,6 +4396,8 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.pkDecision = "";
+    shotModalDraft.pkOutcome = "";
     shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
@@ -4337,6 +4417,8 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.pkDecision = "";
+    shotModalDraft.pkOutcome = "";
     shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
@@ -4368,6 +4450,8 @@
     shotModalDraft.position = "";
     shotModalDraft.missDirection = "";
     shotModalDraft.fkOutcome = "";
+    shotModalDraft.pkDecision = "";
+    shotModalDraft.pkOutcome = "";
     shotModalDraft.cornerDelivery = "";
     shotModalDraft.subSlotId = null;
     shotModalDraft.subReturnPhase = "";
@@ -4420,6 +4504,8 @@
     if (action.result === "goal") return "Goal";
     if (action.result === "foul") return "Free Kick";
     if (action.result === "corner") return "Corner";
+    if (action.result === "pk") return "PK";
+    if (action.result === "weak-gk") return "Weak to GK";
     if (action.result === "pk-goal") return "PK Goal";
     if (action.result === "pk-missed") return "PK Miss";
     return action.label || "";
@@ -4578,6 +4664,8 @@
           phase === "miss-dir" ||
           phase === "fk-result" ||
           phase === "fk-shot-result" ||
+          phase === "pk-decision" ||
+          phase === "pk-miss-result" ||
           phase === "corner-result" ||
           phase === "corner-after" ||
           phase === "corner-shot-result" ||
@@ -4675,6 +4763,46 @@
         <div class="shot-action-row shot-action-row-3">${assistBtns}</div>
         <div class="shot-action-row shot-action-row-fill" style="margin-top:0.55rem">
           <button type="button" class="shot-action-btn is-corner" data-offer-skip="1">${escapeHtml(copy.skip)}</button>
+        </div>`;
+      return;
+    }
+
+    if (phase === "pk-decision") {
+      const chosen = shotModalDraft.action;
+      title.textContent = "Make or miss?";
+      locEl.textContent = chosen ? `${actionShortLabel(chosen)}  ·  ${locText}` : locText;
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent = "Did the penalty kick score?";
+      }
+      if (nudge) nudge.hidden = true;
+      playerGrid.hidden = true;
+      actionGrid.hidden = false;
+      actionGrid.innerHTML = `
+        <div class="shot-action-row shot-action-row-fill">
+          <button type="button" class="shot-action-btn is-pk-goal" data-pk-decision="make">Make</button>
+          <button type="button" class="shot-action-btn is-pk-missed" data-pk-decision="miss">Miss</button>
+        </div>`;
+      return;
+    }
+
+    if (phase === "pk-miss-result") {
+      const chosen = shotModalDraft.action;
+      title.textContent = "What was the result?";
+      locEl.textContent = chosen ? `${actionShortLabel(chosen)} · Miss  ·  ${locText}` : locText;
+      if (playerHeading) {
+        playerHeading.hidden = false;
+        playerHeading.textContent = "On Goal, Missed, Corner, Free Kick, or another PK.";
+      }
+      if (nudge) nudge.hidden = true;
+      playerGrid.hidden = true;
+      actionGrid.hidden = false;
+      actionGrid.innerHTML = `
+        <div class="shot-action-row shot-action-row-fill">
+          ${PK_OUTCOMES.map(
+            (row) =>
+              `<button type="button" class="shot-action-btn is-${row.id === "on-target" ? "on-target" : row.id === "missed" ? "missed" : row.id === "foul" ? "foul" : row.id === "pk" ? "pk" : "corner"}" data-pk-outcome="${escapeHtml(row.id)}">${escapeHtml(row.label)}</button>`
+          ).join("")}
         </div>`;
       return;
     }
@@ -5202,6 +5330,11 @@
       renderShotModal();
       return;
     }
+    if (origin === "pk" && !shotModalDraft.pkDecision) {
+      shotModalDraft.phase = "pk-decision";
+      renderShotModal();
+      return;
+    }
     await afterShotReadyToSave();
   }
 
@@ -5258,6 +5391,8 @@
         missDirection: shotModalDraft.missDirection,
         action: shotModalDraft.action,
         fkOutcome: shotModalDraft.fkOutcome,
+        pkDecision: shotModalDraft.pkDecision,
+        pkOutcome: shotModalDraft.pkOutcome,
         fouler: shotModalDraft.fouler,
         foulerPicked: shotModalDraft.foulerPicked,
         foulerPickTeam: shotModalDraft.foulerPickTeam,
@@ -5305,6 +5440,8 @@
     shotModalDraft.missDirection = draft.missDirection || "";
     shotModalDraft.action = draft.action;
     shotModalDraft.fkOutcome = draft.fkOutcome || "";
+    shotModalDraft.pkDecision = draft.pkDecision || "";
+    shotModalDraft.pkOutcome = draft.pkOutcome || "";
     shotModalDraft.fouler = draft.fouler;
     shotModalDraft.foulerPicked = !!draft.foulerPicked;
     shotModalDraft.foulerPickTeam = draft.foulerPickTeam || oppositeTeam(recordingTeam());
@@ -5450,7 +5587,10 @@
       zone_id: loc.zoneId,
       zone_label: loc.zoneLabel,
       result,
-      miss_direction: RESULTS_NEEDING_MISS_DIR.has(result) ? shotModalDraft.missDirection || null : null,
+      miss_direction: shotNeedsMissDirection(result, shotModalDraft.pkOutcome)
+        ? shotModalDraft.missDirection || null
+        : null,
+      pk_outcome: result === "pk-missed" ? shotModalDraft.pkOutcome || null : null,
       fouler_player_id: saveFouler ? shotModalDraft.fouler?.id || null : null,
       fouler_jersey_number_at_time: saveFouler
         ? shotModalDraft.fouler
@@ -5506,7 +5646,8 @@
       resetTrackerDraft();
     }
     draw({ keepScroll: true });
-    const missBit = view.missDirection ? ` (${MISS_DIRECTION_LABELS[view.missDirection]})` : "";
+    const missBit =
+      view.missDirection && !isWeakToGk(view) ? ` (${MISS_DIRECTION_LABELS[view.missDirection] || view.missDirection})` : "";
     const foulerBit = view.foulerNumber || view.foulerName || view.foulerShort
       ? ` · foul: ${eventPersonLabel(oppositeTeam(team), view.foulerNumber, view.foulerName, view.foulerShort)}`
       : "";
@@ -5523,7 +5664,7 @@
             : ""
         })`
       : "";
-    showToast(`${SHOT_RESULT_LABELS[result]}${missBit} — ${playerLabel(shooter ? Object.assign({ team }, shooter) : null)}${foulerBit}${extra}`);
+    showToast(`${eventResultLabel(view)}${missBit} — ${playerLabel(shooter ? Object.assign({ team }, shooter) : null)}${foulerBit}${extra}`);
     const saved = await API.insertShot(payload);
     if (!saved.ok) {
       view.saveFailed = true;
@@ -5786,11 +5927,49 @@
       const missBtn = e.target.closest("[data-miss-dir]");
       if (missBtn) {
         shotModalDraft.missDirection = missBtn.getAttribute("data-miss-dir") || "";
+        if (shotModalDraft.action?.result === "pk") {
+          await afterShotReadyToSave();
+          return;
+        }
         if (shotModalDraft.fkOutcome) {
           await finishSetPieceOutcome();
           return;
         }
         advanceAfterAction();
+        return;
+      }
+      const pkDecisionBtn = e.target.closest("[data-pk-decision]");
+      if (pkDecisionBtn) {
+        const decision = pkDecisionBtn.getAttribute("data-pk-decision") || "";
+        if (decision === "make") {
+          shotModalDraft.pkDecision = "make";
+          shotModalDraft.pkOutcome = "";
+          shotModalDraft.missDirection = "";
+          await afterShotReadyToSave();
+          return;
+        }
+        if (decision === "miss") {
+          shotModalDraft.pkDecision = "miss";
+          shotModalDraft.pkOutcome = "";
+          shotModalDraft.missDirection = "";
+          shotModalDraft.phase = "pk-miss-result";
+          renderShotModal();
+          return;
+        }
+        return;
+      }
+      const pkOutcomeBtn = e.target.closest("[data-pk-outcome]");
+      if (pkOutcomeBtn) {
+        const outcome = pkOutcomeBtn.getAttribute("data-pk-outcome") || "";
+        if (!PK_OUTCOME_LABELS[outcome]) return;
+        shotModalDraft.pkOutcome = outcome;
+        shotModalDraft.missDirection = "";
+        if (outcome === "missed") {
+          shotModalDraft.phase = "miss-dir";
+          renderShotModal();
+          return;
+        }
+        await afterShotReadyToSave();
         return;
       }
       const offerLinkBtn = e.target.closest("[data-offer-link]");
@@ -5944,6 +6123,8 @@
         shotModalDraft.action = action;
         shotModalDraft.missDirection = "";
         shotModalDraft.fkOutcome = "";
+        shotModalDraft.pkDecision = "";
+        shotModalDraft.pkOutcome = "";
         if (shotModalDraft.step === "first") {
           shotModalDraft.fouler = null;
           shotModalDraft.foulerPicked = false;
@@ -6029,6 +6210,29 @@
         shotModalDraft.phase = "fk-result";
         shotModalDraft.fkOutcome = "";
         shotModalDraft.missDirection = "";
+        renderShotModal();
+        return;
+      }
+      if (shotModalDraft.phase === "pk-miss-result") {
+        shotModalDraft.phase = "pk-decision";
+        shotModalDraft.pkOutcome = "";
+        shotModalDraft.missDirection = "";
+        renderShotModal();
+        return;
+      }
+      if (shotModalDraft.phase === "miss-dir" && shotModalDraft.action?.result === "pk") {
+        shotModalDraft.phase = "pk-miss-result";
+        shotModalDraft.pkOutcome = "";
+        shotModalDraft.missDirection = "";
+        renderShotModal();
+        return;
+      }
+      if (shotModalDraft.phase === "pk-decision") {
+        shotModalDraft.pkDecision = "";
+        shotModalDraft.pkOutcome = "";
+        shotModalDraft.phase = takerPhaseFor(recordingTeam());
+        shotModalDraft.position = "";
+        shotModalDraft.player = null;
         renderShotModal();
         return;
       }
@@ -6240,9 +6444,12 @@
     const secondAssists = events.filter((e) => e.secondAssist).length;
     return {
       goals: n("goal") + n("pk-goal"),
-      onTarget: n("on-target"),
+      onTarget: n("on-target") + events.filter(isPkOnTarget).length,
       blocked: n("blocked"),
-      missed: n("missed") + n("pk-missed"),
+      missed:
+        events.filter((e) => e.result === "missed" && !isWeakToGk(e)).length +
+        events.filter(isPkMissedOffTarget).length,
+      weakGk: events.filter(isWeakToGk).length,
       fouls: n("foul"),
       corners: n("corner"),
       pks: n("pk-goal") + n("pk-missed"),
@@ -6259,6 +6466,7 @@
       <span class="pill">On target <strong>${sum.onTarget}</strong></span>
       <span class="pill">Blocked <strong>${sum.blocked}</strong></span>
       <span class="pill">Missed <strong>${sum.missed}</strong></span>
+      <span class="pill">Weak to GK <strong>${sum.weakGk || 0}</strong></span>
       <span class="pill">Free kicks <strong>${sum.fouls}</strong></span>
       <span class="pill">Corners <strong>${sum.corners}</strong></span>
       <span class="pill">PKs <strong>${sum.pks}</strong></span>
@@ -6272,7 +6480,7 @@
     const missByPlayer = {};
     events.forEach((ev) => {
       if (eventTeam(ev) !== "us") return;
-      const shotResults = ["goal", "on-target", "blocked", "missed", "pk-goal", "pk-missed"];
+      const shotResults = ["goal", "on-target", "blocked", "missed", "weak-gk", "pk-goal", "pk-missed"];
       if (!shotResults.includes(ev.result)) return;
       const pos = ev.position || "—";
       posCounts[pos] = (posCounts[pos] || 0) + 1;
@@ -6286,7 +6494,7 @@
           pairCounts[sKey] = (pairCounts[sKey] || 0) + 1;
         }
       }
-      if (ev.missDirection) {
+      if (ev.missDirection && ev.missDirection !== "weak-gk" && !isWeakToGk(ev)) {
         const who = eventPersonLabel("us", ev.shooterNumber, ev.shooterName, ev.shooterShort);
         if (!missByPlayer[who]) {
           missByPlayer[who] = {
@@ -6338,7 +6546,7 @@
       if (goal) c.goals += 1;
     };
     events.forEach((ev) => {
-      if (!shotResults.includes(ev.result)) return;
+      if (!shotResults.includes(ev.result) && !isWeakToGk(ev)) return;
       const lane = shotLane(ev.shot);
       const range = shotRange(ev.shot);
       if (!lane || !range) return;
@@ -6405,7 +6613,7 @@
               missRows
                 .map(
                   (r) =>
-                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]} CB${r.crossbar || 0} P${r.post || 0} WGK${r["weak-gk"] || 0}</span></li>`
+                    `<li><strong>${escapeHtml(r.who)}</strong> <span class="muted">O${r.over} S${r.short} WL${r["wide-left"]} WR${r["wide-right"]} CB${r.crossbar || 0} P${r.post || 0}</span></li>`
                 )
                 .join("") || "<li class='muted'>No miss directions yet</li>"
             }
@@ -6460,7 +6668,7 @@
                 : ""
             }`
           : "—";
-        const resultLabel = SHOT_RESULT_LABELS[ev.result] || ev.result;
+        const resultLabel = eventResultLabel(ev);
         const missLabel = ev.missDirection ? MISS_DIRECTION_LABELS[ev.missDirection] || ev.missDirection : "—";
         const failed = ev.saveFailed
           ? `<button type="button" class="btn btn-ghost shots-retry" data-retry-shot="${escapeHtml(ev.id)}">Retry save</button>`
@@ -6496,7 +6704,7 @@
             ${clockCell}
             ${extra}
             <td><span class="team-chip ${team === "opp" ? "is-opp" : "is-us"}">${escapeHtml(teamLabel(team, ev))}</span></td>
-            <td><button type="button" class="linkish" data-edit-shot="${escapeHtml(ev.id)}"><span class="shot-result-pill ${escapeHtml(ev.result)}">${escapeHtml(resultLabel)}</span></button></td>
+            <td><button type="button" class="linkish" data-edit-shot="${escapeHtml(ev.id)}"><span class="shot-result-pill ${escapeHtml(eventResultClass(ev))}">${escapeHtml(resultLabel)}</span></button></td>
             <td><button type="button" class="linkish" data-edit-shot="${escapeHtml(ev.id)}">${playerCell}</button></td>
             <td><button type="button" class="linkish" data-edit-shot="${escapeHtml(ev.id)}">${escapeHtml(ev.position || "—")}</button></td>
             <td>${escapeHtml(missLabel)}</td>
@@ -7044,6 +7252,22 @@
     }
   }
 
+  function syncEditResultFields() {
+    const result = $("#shot-edit-result")?.value || "";
+    const outcomeSel = $("#shot-edit-pk-outcome");
+    const wrap = $("#shot-edit-pk-outcome-wrap");
+    const missSel = $("#shot-edit-miss");
+    const showOutcome = result === "pk-missed";
+    if (wrap) wrap.hidden = !showOutcome;
+    if (outcomeSel && !showOutcome) outcomeSel.value = "";
+    const outcome = showOutcome ? outcomeSel?.value || "" : "";
+    if (missSel) {
+      const needs = shotNeedsMissDirection(result, outcome);
+      missSel.disabled = !needs;
+      if (!needs) missSel.value = "";
+    }
+  }
+
   function openEditShot(id) {
     const ev = st.shots.find((s) => s.id === id) || st.history.rows?.find((s) => s.id === id);
     if (!ev) return;
@@ -7055,13 +7279,13 @@
     if (title) title.textContent = "Edit play";
     const teamSel = $("#shot-edit-team");
     if (teamSel) teamSel.value = team;
-    $("#shot-edit-result").value = ev.result;
+    $("#shot-edit-result").value = ev.result === "missed" && isWeakToGk(ev) ? "weak-gk" : ev.result;
     $("#shot-edit-position").value = ev.position || "";
+    const pkOutcomeSel = $("#shot-edit-pk-outcome");
+    if (pkOutcomeSel) pkOutcomeSel.value = pkOutcomeOf(ev);
     const missSel = $("#shot-edit-miss");
-    if (missSel) {
-      missSel.value = ev.missDirection || "";
-      missSel.disabled = !RESULTS_NEEDING_MISS_DIR.has(ev.result);
-    }
+    if (missSel) missSel.value = isWeakToGk(ev) ? "" : ev.missDirection || "";
+    syncEditResultFields();
     const assistTypeSel = $("#shot-edit-assist-type");
     if (assistTypeSel) assistTypeSel.value = ev.assist?.type || "";
     const secondTypeSel = $("#shot-edit-second-assist-type");
@@ -7106,18 +7330,14 @@
       renderEditLocPitches(ev);
     });
     $("#shot-edit-result")?.addEventListener("change", () => {
-      const missSel = $("#shot-edit-miss");
-      if (missSel) {
-        const needs = RESULTS_NEEDING_MISS_DIR.has($("#shot-edit-result").value);
-        missSel.disabled = !needs;
-        if (!needs) missSel.value = "";
-      }
+      syncEditResultFields();
       const ev = currentEditShot();
       if (ev) {
         fillFoulerEditOptions(Object.assign({}, ev, { result: $("#shot-edit-result").value }), editModalTeam());
         renderEditLocPitches(ev);
       }
     });
+    $("#shot-edit-pk-outcome")?.addEventListener("change", () => syncEditResultFields());
     $("#shot-edit-assist-type")?.addEventListener("change", () => {
       const type = $("#shot-edit-assist-type").value;
       if (!type) {
@@ -7169,6 +7389,7 @@
       const playerId = $("#shot-edit-player").value || null;
       const player = playerId ? playerFromRoster(team, playerId, null) : null;
       const result = $("#shot-edit-result").value;
+      const pkOutcomeVal = result === "pk-missed" ? $("#shot-edit-pk-outcome")?.value || "" : "";
       const missVal = $("#shot-edit-miss")?.value || "";
       const foulerId = $("#shot-edit-fouler")?.value || null;
       const fouler = foulerId ? playerFromRoster(oppositeTeam(team), foulerId, null) : null;
@@ -7216,7 +7437,8 @@
         team_id: teamId,
         result,
         position: $("#shot-edit-position").value || null,
-        miss_direction: RESULTS_NEEDING_MISS_DIR.has(result) ? missVal || null : null,
+        miss_direction: shotNeedsMissDirection(result, pkOutcomeVal) ? missVal || null : null,
+        pk_outcome: result === "pk-missed" ? pkOutcomeVal || null : null,
         player_id: playerId,
         jersey_number_at_time: player ? String(player.number) : null,
         fouler_player_id: foulerId,
@@ -7634,7 +7856,7 @@
         return ev.result === "goal" || ev.result === "pk-goal";
       }
       if (st.trackerMapResultFilter === "on-frame") {
-        return ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal";
+        return isOnFrameEvent(ev);
       }
       return true;
     });
@@ -8231,9 +8453,10 @@
     return { fx: PL - y, fy: x };
   }
 
-  function resultFill(result) {
+  function resultFill(result, ev) {
+    if (result === "weak-gk" || (ev && isWeakToGk(ev))) return "#d6e6f5";
     if (result === "goal" || result === "pk-goal") return "#f15a24";
-    if (result === "on-target") return "#ffffff";
+    if (result === "on-target" || (ev && isPkOnTarget(ev))) return "#ffffff";
     if (result === "blocked") return "#6d5a8c";
     if (result === "foul") return "#9b59b6";
     if (result === "corner") return "#3498db";
@@ -8242,7 +8465,7 @@
   }
 
   function markerNumberFill(ev, team) {
-    if (ev.result === "on-target" || resultFill(ev.result) === "#ffffff") return "#0b1f33";
+    if (ev.result === "on-target" || isWeakToGk(ev) || resultFill(ev.result, ev) === "#ffffff" || resultFill(ev.result, ev) === "#d6e6f5") return "#0b1f33";
     if (team === "opp" || ev.result === "missed" || ev.result === "pk-missed") return "#ffffff";
     return "#0b1f33";
   }
@@ -8252,8 +8475,8 @@
   }
 
   function isActualShot(result) {
-    return result === "goal" || result === "pk-goal" || result === "on-target" || 
-           result === "blocked" || result === "missed" || result === "pk-missed";
+    return result === "goal" || result === "pk-goal" || result === "on-target" ||
+           result === "blocked" || result === "missed" || result === "weak-gk" || result === "pk-missed";
   }
 
   function shouldShowInShotsOnlyMode(result) {
@@ -8262,7 +8485,7 @@
 
   function getShotsOnlyEmphasis(result) {
     if (result === "goal" || result === "pk-goal") return "super";
-    if (result === "on-target" || result === "missed" || result === "pk-missed") return "high";
+    if (result === "on-target" || result === "missed" || result === "weak-gk" || result === "pk-missed") return "high";
     return "normal";
   }
 
@@ -8276,7 +8499,7 @@
     const r = size / 2;
     const extra = opts.attrs ? ` ${opts.attrs}` : "";
     const className = opts.className ? `class="${opts.className}"` : "";
-    const fill = opts.fill || resultFill(ev.result);
+    const fill = opts.fill || resultFill(ev.result, ev);
     const stroke = opts.stroke || "";
     const sw = opts.strokeWidth != null ? opts.strokeWidth : "";
     const paint = [
@@ -8340,7 +8563,7 @@
         html += `<g class="${emphasisClass}">`;
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: 3.3,
-          fill: resultFill(ev.result),
+          fill: resultFill(ev.result, ev),
           stroke,
           strokeWidth: team === "opp" ? 0.42 : 0.28,
         });
@@ -8483,7 +8706,7 @@
               <div class="tracker-summary">${summaryPills(trackerSummary(oppEvents))}</div>
             </div>
           </div>
-          <p class="shot-map-caption">Each map is that team’s attacking half (all periods overlaid). Goal at the top. Circles: Orange = goal · White = on target · Purple = blocked · Hollow = missed. Squares: Blue = assist · Lavender = 2nd assist · Purple = free kick · Blue = corner.</p>
+          <p class="shot-map-caption">Each map is that team’s attacking half (all periods overlaid). Goal at the top. Circles: Orange = goal · White = on target · Pale blue = weak to GK · Purple = blocked · Hollow = missed. Squares: Blue = assist · Lavender = 2nd assist · Purple = free kick · Blue = corner.</p>
           <div class="shot-map-combined">
             <h2>Full field (both teams)</h2>
             <div class="shot-map-pitch">${fullFieldMarkup(events)}</div>
@@ -9033,7 +9256,7 @@
         return ev.result === "goal" || ev.result === "pk-goal";
       }
       if (st.prep.resultFilter === "on-frame") {
-        return ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal";
+        return isOnFrameEvent(ev);
       }
       return true;
     });
@@ -9067,7 +9290,7 @@
     if (shot.fx < PW * 0.22) place.push("is-start");
     else if (shot.fx > PW * 0.78) place.push("is-end");
     const player = prepPlayerLabel(ev);
-    const result = SHOT_RESULT_LABELS[ev.result] || ev.result || "";
+    const result = eventResultLabel(ev);
     const clock = prepClockLabel(ev);
     const zone = ev.shot?.zoneLabel || ev.shot?.zoneId || "";
     const date = String(ev.gameDate || ev.game?.date || "").slice(0, 10);
@@ -9134,9 +9357,9 @@
         };
       }
       const row = playerMap[key];
-      if (SHOT_RESULTS.has(ev.result)) row.shots += 1;
+      if (SHOT_RESULTS.has(ev.result) || isWeakToGk(ev)) row.shots += 1;
       if (ev.result === "goal" || ev.result === "pk-goal") row.goals += 1;
-      if (ev.result === "goal" || ev.result === "on-target" || ev.result === "pk-goal") row.on_frame += 1;
+      if (isOnFrameEvent(ev)) row.on_frame += 1;
     });
     rows.forEach((ev) => {
       if (!ev.assist) return;
@@ -9275,7 +9498,7 @@
         html += shotShapeMarkup(ev, shot.fx, shot.fy, {
           size: selected ? 4.7 : 3.7,
           className: `prep-shot-dot ${emphasisClass}`,
-          fill: resultFill(ev.result),
+          fill: resultFill(ev.result, ev),
           stroke: selected ? "#f7e27c" : ring,
           strokeWidth: selected ? 0.55 : team === "opp" ? 0.42 : 0.28,
           attrs: `data-prep-shot="${escapeHtml(ev.id || "")}"`,
@@ -10682,7 +10905,7 @@
   function teamBoxLine(events) {
     const goals = events.filter((e) => isGoalResult(e.result));
     const shots = events.filter((e) => SHOT_RESULTS.has(e.result));
-    const onFrame = events.filter((e) => e.result === "goal" || e.result === "on-target" || e.result === "pk-goal");
+    const onFrame = events.filter((e) => isOnFrameEvent(e));
     const corners = events.filter((e) => e.result === "corner").length;
     const fouls = events.filter((e) => e.result === "foul").length;
     return {

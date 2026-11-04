@@ -124,7 +124,9 @@ Golden scope tests (no LLM): `python -m benchmark.golden --verify` — see [`../
 3. `python3 -m http.server 8080` → open `#shots`.
 4. Log in with PIN.
 
-Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-prep` opponent prep · `#shots-prep?tab=explore` AI explore · `#shots-map` game map · `#club` club visitation planner.
+Hashes: `#shots` record · `#shots-games` schedule · `#shots-history` queries · `#shots-prep` opponent prep · `#shots-prep?tab=explore` AI explore · `#shots-map` game map · `#club` club visitation planner (Planning module).
+
+Owned-team modules: `teams.modules` jsonb (default `[]`). `"planning"` unlocks Playoffs / Schedule / Club visits in the nav — enabled for Brighton by migration `team_planning_module`, off for other programs until opted in.
 
 ## Club Player Visitation Planner
 

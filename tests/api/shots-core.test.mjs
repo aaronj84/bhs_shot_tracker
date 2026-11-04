@@ -208,8 +208,9 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
       { result: "missed", miss_direction: "over" },
       { result: "foul" },
       { result: "corner" },
+      { result: "weak-gk" },
       { result: "pk-goal" },
-      { result: "pk-missed", miss_direction: "wide-left" },
+      { result: "pk-missed", miss_direction: "wide-left", pk_outcome: "missed" },
     ];
     const rows = [];
     for (const teamId of [brightonId, opponentId]) {
@@ -223,6 +224,7 @@ describe.skipIf(!configured)("Shot tracker API (DEV)", () => {
           y: 18,
           result: t.result,
           miss_direction: t.miss_direction || null,
+          pk_outcome: t.pk_outcome || null,
         });
       }
     }

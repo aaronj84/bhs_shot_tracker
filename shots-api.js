@@ -199,6 +199,8 @@
         primary_color: row.primary_color || null,
         accent_color: row.accent_color || null,
         logo_path: row.logo_path || null,
+        // Opt-in modules (e.g. ["planning"]). Empty unless the caller enables them.
+        modules: Array.isArray(row.modules) ? row.modules : [],
       };
       if (!payload.name) throw new Error("Team name is required");
       const { data, error } = await getClient().from("teams").insert(payload).select().single();
@@ -377,6 +379,7 @@
           if (k.startsWith("second_assist_")) delete slim[k];
         });
         delete slim.game_clock_seconds;
+        delete slim.pk_outcome;
         const retry = await runShotSelect((select) =>
           getClient().from("shots").insert(slim).select(select).single()
         );
