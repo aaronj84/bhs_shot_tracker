@@ -85,5 +85,5 @@ jobs:
       - name: Deploy all Edge Functions
         run: |
           test -n "$SUPABASE_PROJECT_ID" || (echo "Missing project ref secret" && exit 1)
-          supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy --yes --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
