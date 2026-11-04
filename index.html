@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f4f7fb" />
   <title>Brighton Bengals Shot Tracker</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=20261103b" />
+  <link rel="stylesheet" href="styles.css?v=20261103c" />
 </head>
 <body class="shots-mode tracker-view">
   <a class="sr-only" href="#main">Skip to content</a>
@@ -174,6 +174,7 @@
           <option value="on-target">Shot on Goal</option>
           <option value="blocked">Shot Blocked</option>
           <option value="missed">Missed Shot</option>
+          <option value="weak-gk">Weak to GK</option>
           <option value="foul">Free Kick</option>
           <option value="corner">Corner</option>
           <option value="pk-goal">PK Goal</option>
@@ -190,6 +191,16 @@
           <option value="crossbar">Crossbar</option>
           <option value="post">Post</option>
           <option value="weak-gk">Weak to GK</option>
+        </select>
+      </label>
+      <label class="shots-field" id="shot-edit-pk-outcome-wrap" hidden>PK miss result
+        <select id="shot-edit-pk-outcome">
+          <option value="">—</option>
+          <option value="on-target">On Goal</option>
+          <option value="missed">Missed</option>
+          <option value="corner">Corner</option>
+          <option value="foul">Free Kick</option>
+          <option value="pk">PK</option>
         </select>
       </label>
       <div class="edit-loc-block" id="shot-edit-shot-loc-wrap">
@@ -309,8 +320,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="shots-config.js?v=20260831c"></script>
   <script src="team-modules.js?v=20261103a"></script>
-  <script src="shots-api.js?v=20261103d"></script>
-  <script src="shots.js?v=20261103d"></script>
+  <script src="shots-api.js?v=20261103e"></script>
+  <script src="shots.js?v=20261103e"></script>
   <script src="schedule.js?v=20261012a"></script>
   <script src="club-visitation.js?v=20261023h"></script>
   <script src="app.js?v=20261103d"></script>

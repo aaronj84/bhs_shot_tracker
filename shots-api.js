@@ -379,6 +379,7 @@
           if (k.startsWith("second_assist_")) delete slim[k];
         });
         delete slim.game_clock_seconds;
+        delete slim.pk_outcome;
         const retry = await runShotSelect((select) =>
           getClient().from("shots").insert(slim).select(select).single()
         );
