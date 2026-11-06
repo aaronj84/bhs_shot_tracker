@@ -89,6 +89,7 @@ Preview / empty-database seed: [`seed.sql`](seed.sql) (wired in `config.toml` `[
 Natural-language questions live under **Prep → Explore** (`#shots-prep?tab=explore`; `#shots-explore` still works). Uses a Supabase Edge Function + OpenAI.
 
 Opponent Prep briefings (`#shots-prep`) use a separate function + Gemini.
+On-demand Game Summary (tracker tab) uses Edge Function `game-summary` + the same `GEMINI_API_KEY`.
 
 1. Migrations must include semantic + explore (already in `migrations/`) and `prep_notes`.
 2. Create an [OpenAI API](https://platform.openai.com) key. Set a low monthly spend limit.

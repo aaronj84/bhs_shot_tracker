@@ -619,6 +619,27 @@
       return { ok: true, data: boxed };
     },
 
+    /**
+     * On-demand game summary narrative via Edge Function game-summary (Gemini).
+     * Requires staff PIN session. GEMINI_API_KEY must be set as a Supabase secret.
+     */
+    async gameSummary(payload) {
+      const sb = getClient();
+      if (!sb) return { ok: false, error: "Supabase is not configured" };
+      const { data, error } = await sb.functions.invoke("game-summary", {
+        body: payload && typeof payload === "object" ? payload : {},
+      });
+      const boxed = await functionPayload(data, error);
+      if (error || (boxed && boxed.error)) {
+        return {
+          ok: false,
+          error: friendlyGameSummaryError((boxed && boxed.error) || error?.message),
+          data: boxed,
+        };
+      }
+      return { ok: true, data: boxed };
+    },
+
     /** Freeman what-if / NL scenarios via Edge Function mp-whatif. Requires staff PIN + Gemini for ask. */
     async mpWhatIf(payload) {
       const body = payload && typeof payload === "object" ? payload : { mode: "ask" };
@@ -788,6 +809,23 @@
       return "Prep summary failed. If this is a new project, set GEMINI_API_KEY on the Edge Function secrets.";
     }
     return text || "Prep request failed. Deploy prep-opponent and set GEMINI_API_KEY.";
+  }
+
+  function friendlyGameSummaryError(msg) {
+    const text = String(msg || "").trim();
+    if (/Sign in with the staff PIN/i.test(text)) {
+      return "Enter the staff PIN first — game summary needs a signed-in session.";
+    }
+    if (/GEMINI_API_KEY is not configured/i.test(text)) {
+      return "Gemini is not configured on this Supabase project. Run: supabase secrets set GEMINI_API_KEY=… then redeploy game-summary.";
+    }
+    if (/No recorded plays/i.test(text)) {
+      return "No recorded plays in this game to summarize yet.";
+    }
+    if (/non-2xx status code|Failed to send|404/i.test(text)) {
+      return "Game summary failed. Deploy the game-summary Edge Function and set GEMINI_API_KEY on this project.";
+    }
+    return text || "Game summary failed. Deploy game-summary and set GEMINI_API_KEY.";
   }
 
   function friendlyMpError(msg) {
