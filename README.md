@@ -57,6 +57,7 @@ npm run backup:prod    # local dump → backups/*.tar.gz (gitignored)
 | `#shots-prep` | Opponent Prep (Gemini chat + notes) |
 | `#shots-prep?tab=explore` | Explore (LLM Q&A; `#shots-explore` still redirects here) |
 | `#shots-map` | Full-field shot map |
+| Tracker → Game Summary | On-demand stats + condensed maps + Gemini narrative |
 | `#shots-bracket` | Playoffs / rankings (Planning module) |
 | `#schedule` | Postseason meeting scheduler — coach (Planning module) |
 | `#club` / `#club-agenda` | Club Player Visitation Planner (agenda; Planning module) |

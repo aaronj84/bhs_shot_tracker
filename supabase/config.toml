@@ -19,6 +19,9 @@ verify_jwt = true
 [functions.prep-opponent]
 verify_jwt = true
 
+[functions.game-summary]
+verify_jwt = true
+
 [functions.maxpreps-rankings]
 verify_jwt = true
 

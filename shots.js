@@ -290,7 +290,21 @@
   }
 
   function normalizeTrackerPanel(value) {
-    return value === "detail" || value === "settings" || value === "notes" ? value : "map";
+    return value === "detail" || value === "settings" || value === "notes" || value === "summary"
+      ? value
+      : "map";
+  }
+
+  function emptyGameSummaryState() {
+    return {
+      gameId: "",
+      refreshedAt: null,
+      loading: false,
+      error: "",
+      narrative: "",
+      stats: null,
+      eventsSnapshot: null,
+    };
   }
 
   function normalizeLogResult(value) {
@@ -765,6 +779,7 @@
     trackerMapTeamFilter: "both",
     trackerMapResultFilter: "all",
     trackerMapPeriodFilter: "all",
+    gameSummary: emptyGameSummaryState(),
     trackerNotes: null,
     trackerNotesGameId: "",
     trackerNoteBody: "",
@@ -2763,6 +2778,9 @@
     st.trackerNotes = null;
     st.trackerNotesGameId = "";
     st.trackerMapShotId = "";
+    if (st.gameSummary?.gameId && st.gameSummary.gameId !== st.gameId) {
+      st.gameSummary = emptyGameSummaryState();
+    }
     saveUi();
     rememberGame(st.game);
     await ensureGameClockDefaults();
@@ -7793,6 +7811,7 @@
     const tabs = [
       { id: "map", label: "Shot Map" },
       { id: "detail", label: "Shot Detail" },
+      { id: "summary", label: "Game Summary" },
       { id: "notes", label: "Notes" },
       { id: "settings", label: "Settings" },
     ];
@@ -7973,6 +7992,190 @@
           trackerMapFilterCount() ? ` of ${events.length}` : ""
         } · ${escapeHtml(ourTeamName())} attack up${selected ? "" : " · tap a shot"}</p>
       </section>`;
+  }
+
+  function gameSummaryStatsFromEvents(events) {
+    const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
+    if (!api?.buildGameSummaryStats) {
+      return { us: trackerSummary(events.filter((e) => eventTeam(e) === "us")), opp: trackerSummary(events.filter((e) => eventTeam(e) === "opp")), players: [], score: gameScore(events) };
+    }
+    return api.buildGameSummaryStats(events, {
+      laneOf: (ev) => shotLane(ev.shot || ev),
+      rangeOf: (ev) => shotRange(ev.shot || ev),
+    });
+  }
+
+  function formatSummaryRefreshedAt(iso) {
+    if (!iso) return "Not refreshed yet";
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "Not refreshed yet";
+      return `Last refreshed ${d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })}`;
+    } catch (_) {
+      return "Not refreshed yet";
+    }
+  }
+
+  function summaryCompareBarMarkup(label, usVal, oppVal) {
+    const a = Number(usVal) || 0;
+    const b = Number(oppVal) || 0;
+    const max = Math.max(a, b, 1);
+    const usPct = Math.round((a / max) * 100);
+    const oppPct = Math.round((b / max) * 100);
+    return `
+      <div class="gs-stat-row">
+        <span class="gs-stat-val is-us">${a}</span>
+        <div class="gs-stat-mid">
+          <div class="gs-stat-bars" aria-hidden="true">
+            <span class="gs-stat-bar is-us" style="width:${usPct}%"></span>
+            <span class="gs-stat-bar is-opp" style="width:${oppPct}%"></span>
+          </div>
+          <p class="gs-stat-label">${escapeHtml(label)}</p>
+        </div>
+        <span class="gs-stat-val is-opp">${b}</span>
+      </div>`;
+  }
+
+  function trackerSummaryCompareMarkup(stats) {
+    const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
+    const rows = api?.comparisonRows
+      ? api.comparisonRows(stats)
+      : [
+          { label: "Goals", us: stats?.us?.goals || 0, opp: stats?.opp?.goals || 0 },
+          { label: "Total shots", us: stats?.us?.shots || 0, opp: stats?.opp?.shots || 0 },
+          { label: "Corners", us: stats?.us?.corners || 0, opp: stats?.opp?.corners || 0 },
+          { label: "Free kicks", us: stats?.us?.freeKicks || stats?.us?.fouls || 0, opp: stats?.opp?.freeKicks || stats?.opp?.fouls || 0 },
+        ];
+    return `
+      <div class="gs-stat-list" role="list">
+        ${rows.map((r) => summaryCompareBarMarkup(r.label, r.us, r.opp)).join("")}
+      </div>`;
+  }
+
+  function trackerSummaryMapMarkup(events) {
+    const halfOpts = { allPeriods: true, showGrid: false, shotsOnlyMode: true, noPending: true };
+    return `
+      <div class="gs-shot-maps">
+        <div class="gs-shot-map-block">
+          <p class="gs-shot-map-caption">${escapeHtml(ourTeamName())}</p>
+          <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "us" }, halfOpts))}</div>
+        </div>
+        <div class="gs-shot-map-block is-opp">
+          <p class="gs-shot-map-caption">${escapeHtml(opponentOf(st.game)?.name || "Opponent")}</p>
+          <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "opp" }, halfOpts))}</div>
+        </div>
+      </div>
+      <p class="gs-shot-map-legend muted">Attacking half · goal at top · Orange goal · White on target · Purple blocked · Hollow missed</p>`;
+  }
+
+  function trackerSummaryPlayersMarkup(stats) {
+    const rows = stats?.players || [];
+    if (!rows.length) return `<p class="muted">No shot involvement yet.</p>`;
+    return `
+      <ul class="gs-player-list">
+        ${rows
+          .slice(0, 8)
+          .map((p) => {
+            const side = p.team === "opp" ? opponentOf(st.game)?.name || "Opp" : ourTeamName();
+            return `<li><strong>${escapeHtml(p.player)}</strong> <span class="muted">${escapeHtml(side)}</span>
+              <span class="gs-player-nums">${p.goals}G · ${p.shots}S · ${p.onFrame} frame · ${p.assists}A</span></li>`;
+          })
+          .join("")}
+      </ul>`;
+  }
+
+  function trackerSummaryPanelMarkup(events) {
+    const gsum = st.gameSummary || emptyGameSummaryState();
+    const hasRefresh = !!gsum.refreshedAt && gsum.stats;
+    const mapEvents = hasRefresh && Array.isArray(gsum.eventsSnapshot) ? gsum.eventsSnapshot : events;
+    const score = hasRefresh ? gsum.stats.score : gameScore(events);
+    const oppName = opponentOf(st.game)?.name || "Opponent";
+    const body = !hasRefresh
+      ? `<div class="gs-empty">
+          <p>Pull a snapshot of this game’s shot story — stats, condensed maps, and a short Gemini write-up.</p>
+          <p class="muted">On-demand only. Nothing updates live while you record.</p>
+        </div>`
+      : `<div class="gs-scoreline" aria-label="Score">
+          <span class="gs-score-team is-us"><span class="gs-score-name">${escapeHtml(ourTeamName())}</span><strong>${score.us}</strong></span>
+          <span class="gs-score-sep">–</span>
+          <span class="gs-score-team is-opp"><strong>${score.opp}</strong><span class="gs-score-name">${escapeHtml(oppName)}</span></span>
+        </div>
+        <section class="gs-section">
+          <h2>Match stats</h2>
+          ${trackerSummaryCompareMarkup(gsum.stats)}
+        </section>
+        <section class="gs-section">
+          <h2>Shot map</h2>
+          ${trackerSummaryMapMarkup(mapEvents)}
+        </section>
+        <section class="gs-section">
+          <h2>Involvement</h2>
+          ${trackerSummaryPlayersMarkup(gsum.stats)}
+        </section>
+        <section class="gs-section gs-narrative">
+          <h2>Narrative</h2>
+          ${
+            gsum.narrative
+              ? `<div class="gs-narrative-body">${markdownLite(gsum.narrative)}</div>`
+              : `<p class="muted">No narrative yet${gsum.error ? "" : "."}</p>`
+          }
+          ${gsum.error ? `<p class="shots-error" role="alert">${escapeHtml(gsum.error)}</p>` : ""}
+        </section>`;
+
+    return `
+      <section class="tracker-summary-panel" id="tracker-summary-panel">
+        <div class="gs-toolbar">
+          <p class="gs-refreshed muted" id="gs-refreshed-at">${escapeHtml(formatSummaryRefreshedAt(gsum.refreshedAt))}</p>
+          <button type="button" class="btn btn-primary" id="gs-refresh" ${gsum.loading ? "disabled" : ""}>
+            ${gsum.loading ? "Refreshing…" : hasRefresh ? "Refresh" : "Load summary"}
+          </button>
+        </div>
+        ${gsum.loading && !hasRefresh ? `<p class="muted">Building summary…</p>` : body}
+        ${!hasRefresh && gsum.error ? `<p class="shots-error" role="alert">${escapeHtml(gsum.error)}</p>` : ""}
+      </section>`;
+  }
+
+  async function refreshGameSummary() {
+    const gsum = st.gameSummary || (st.gameSummary = emptyGameSummaryState());
+    if (gsum.loading) return;
+    const events = st.shots || [];
+    gsum.loading = true;
+    gsum.error = "";
+    gsum.gameId = st.gameId || "";
+    draw({ keepScroll: true });
+
+    const stats = gameSummaryStatsFromEvents(events);
+    gsum.stats = stats;
+    gsum.eventsSnapshot = events.slice();
+    gsum.refreshedAt = new Date().toISOString();
+
+    const periods = [...new Set(events.map((e) => eventPeriod(e)))];
+    const inProgress = !gameIsFinal();
+    const result = await API.gameSummary({
+      our_team: ourTeamName(),
+      opponent: opponentOf(st.game)?.name || "Opponent",
+      in_progress: inProgress,
+      date: st.game?.date || "",
+      game_type: st.game?.game_type || "",
+      periods,
+      aggregates: stats,
+      shots: events.map(prepShotPayload),
+    });
+
+    gsum.loading = false;
+    if (!result.ok) {
+      gsum.error = result.error || "Could not generate narrative";
+      if (!events.length) gsum.narrative = "";
+    } else {
+      gsum.error = "";
+      gsum.narrative = result.data?.answer || "";
+    }
+    draw({ keepScroll: true });
   }
 
   function trackerSettingsPanelMarkup() {
@@ -8159,6 +8362,10 @@
         if (next === "notes") await ensureTrackerNotes();
         draw({ keepScroll: true });
       });
+    });
+
+    $("#gs-refresh")?.addEventListener("click", () => {
+      refreshGameSummary();
     });
 
     $("#tracker-map-filter-toggle")?.addEventListener("click", (e) => {
@@ -8403,9 +8610,11 @@
               ? trackerDetailPanelMarkup(events)
               : panel === "map"
                 ? trackerMapPanelMarkup(events)
-                : panel === "settings"
-                  ? trackerSettingsPanelMarkup()
-                  : trackerNotesPanelMarkup()
+                : panel === "summary"
+                  ? trackerSummaryPanelMarkup(events)
+                  : panel === "settings"
+                    ? trackerSettingsPanelMarkup()
+                    : trackerNotesPanelMarkup()
           }
         </div>
       </div>`;
