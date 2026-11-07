@@ -206,7 +206,7 @@ export async function startCornerFromFlag(page, team, side = "left") {
   await expect(modal).toBeVisible({ timeout: 10000 });
 }
 
-/** Tracker bottom tabs: map | detail | notes | settings */
+/** Tracker bottom tabs: map | detail | summary | notes | settings */
 export async function openTrackerPanel(page, id = "detail") {
   const btn = page.locator(`[data-tracker-panel="${id}"]`);
   await expect(btn).toBeVisible({ timeout: 10000 });
