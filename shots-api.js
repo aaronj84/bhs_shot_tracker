@@ -78,6 +78,23 @@
     if (sa) sa.clearUnlock();
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Anonymous auth with backoff — CI/e2e can burn the Supabase rate limit. */
+  async function signInAnonymouslyWithRetry(sb) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (!error) return { data, error: null };
+      lastError = error;
+      if (!/rate limit/i.test(error.message || "") || attempt === 4) break;
+      await sleep(1500 * (attempt + 1));
+    }
+    return { data: null, error: lastError };
+  }
+
   function throwIfError(error, fallback) {
     if (error) throw new Error(error.message || fallback || "Request failed");
   }
@@ -165,7 +182,7 @@
         if (team) writeStaffUnlock(team);
         return { ok: true, session: existing };
       }
-      const { data, error } = await sb.auth.signInAnonymously();
+      const { data, error } = await signInAnonymouslyWithRetry(sb);
       if (error) {
         return {
           ok: false,
@@ -224,7 +241,7 @@
       if (!sb) throw new Error("Supabase is not configured");
       const existing = await this.getSession();
       if (!existing) {
-        const { error } = await sb.auth.signInAnonymously();
+        const { error } = await signInAnonymouslyWithRetry(sb);
         if (error) {
           throw new Error(error.message || "Could not connect. Enable Anonymous auth in Supabase.");
         }

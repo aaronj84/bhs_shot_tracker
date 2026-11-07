@@ -3089,13 +3089,15 @@
     applyTeamBrand();
   }
 
-  async function loadGateTeams() {
-    if (st.gateTeamsLoading || st.gateTeamsLoaded) return;
+  async function loadGateTeams(force) {
+    if (st.gateTeamsLoading) return;
+    if (st.gateTeamsLoaded && !force) return;
     if (typeof API.loadOwnedTeamsForGate !== "function") {
       st.gateTeamsLoaded = true;
       return;
     }
     st.gateTeamsLoading = true;
+    st.gateTeamsLoaded = false;
     draw();
     try {
       const teams = await API.loadOwnedTeamsForGate();
@@ -3137,7 +3139,16 @@
           }>Open tracker</button>
         </form>
         ${st.pinError ? `<p class="shots-error">${escapeHtml(st.pinError)}</p>` : ""}
+        ${
+          st.gateTeamsLoaded && !st.gateTeamsLoading && !(st.gateTeams || []).length
+            ? `<button type="button" class="btn btn-secondary" id="shots-gate-retry">Retry loading teams</button>`
+            : ""
+        }
       </div>`;
+    $("#shots-gate-retry")?.addEventListener("click", () => {
+      st.pinError = "";
+      loadGateTeams(true);
+    });
     root().querySelectorAll("[data-gate-team-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-gate-team-id");

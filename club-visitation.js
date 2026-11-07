@@ -478,20 +478,23 @@
     </div>`;
   }
 
-  async function loadClubGateTeams() {
-    if (st.gateTeamsLoading || st.gateTeamsLoaded) return;
+  async function loadClubGateTeams(force) {
+    if (st.gateTeamsLoading) return;
+    if (st.gateTeamsLoaded && !force) return;
     const a = api();
     if (!a || typeof a.loadOwnedTeamsForGate !== "function") {
       st.gateTeamsLoaded = true;
       return;
     }
     st.gateTeamsLoading = true;
+    st.gateTeamsLoaded = false;
     paintPinGate();
     try {
       st.gateTeams = (await a.loadOwnedTeamsForGate()) || [];
       if (!st.gateTeamId || !st.gateTeams.some((t) => t.id === st.gateTeamId)) {
         st.gateTeamId = st.gateTeams[0]?.id || "";
       }
+      st.gateLoadError = "";
     } catch (err) {
       st.gateTeams = [];
       st.gateLoadError = err.message || "Could not load teams";
@@ -528,7 +531,16 @@
             st.pinBusy || st.gateTeamsLoading || !st.gateTeamId ? "disabled" : ""
           }>Unlock</button>
         </form>
+        ${
+          st.gateTeamsLoaded && !st.gateTeamsLoading && !(st.gateTeams || []).length
+            ? `<button type="button" class="btn btn-secondary" id="club-gate-retry">Retry loading teams</button>`
+            : ""
+        }
       </section>`;
+    $("#club-gate-retry")?.addEventListener("click", () => {
+      st.gateLoadError = "";
+      loadClubGateTeams(true);
+    });
     root.querySelectorAll("[data-club-gate-team-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-club-gate-team-id");

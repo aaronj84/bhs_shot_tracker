@@ -32,11 +32,11 @@ test.describe("Game Summary tab", () => {
     await page.locator("#gs-refresh").click();
     await expect(page.locator(".gs-empty")).toHaveCount(0, { timeout: 45000 });
     await expect(page.locator(".gs-period-filters")).toBeVisible();
-    await expect(page.locator(".gs-card", { hasText: "Top stats" })).toBeVisible();
-    await expect(page.locator(".gs-card", { hasText: "Attacking zones" })).toBeVisible();
-    await expect(page.locator(".gs-card", { hasText: "Shots" })).toBeVisible();
-    await expect(page.locator(".gs-card", { hasText: "Shot map" })).toBeVisible();
-    await expect(page.locator(".gs-card", { hasText: "Narrative" })).toBeVisible();
+    await expect(page.locator(".gs-card h2", { hasText: "Top stats" })).toBeVisible();
+    await expect(page.locator(".gs-card h2", { hasText: "Attacking zones" })).toBeVisible();
+    await expect(page.locator(".gs-card h2", { hasText: /^Shots$/ })).toBeVisible();
+    await expect(page.locator(".gs-card h2", { hasText: "Shot map" })).toBeVisible();
+    await expect(page.locator(".gs-card h2", { hasText: "Narrative" })).toBeVisible();
 
     await page.locator('[data-gs-period="1"]').click();
     await expect(page.locator('[data-gs-period="1"]')).toHaveClass(/is-on/);

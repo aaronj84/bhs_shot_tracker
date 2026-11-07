@@ -104,17 +104,30 @@ export const test = base.extend({
 
 /** Pick an owned team on a staff PIN gate (shots or club). */
 export async function pickGateTeam(page, teamName = "Brighton") {
-  await expect(page.locator(".shots-gate-team-btn, .shots-gate-teams-status").first()).toBeVisible({
-    timeout: 15000,
-  });
+  // Gate may hit Supabase anon rate limits mid-suite — retry load a few times.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const firstBtn = page.locator(".shots-gate-team-btn").first();
+    try {
+      await expect(firstBtn).toBeVisible({ timeout: attempt === 0 ? 20000 : 25000 });
+      break;
+    } catch (err) {
+      if (attempt === 4) throw err;
+      const retry = page.locator("#shots-gate-retry, #club-gate-retry");
+      if (await retry.isVisible().catch(() => false)) {
+        await retry.click();
+      } else {
+        await page.reload();
+        await expect(page.locator("#shots-pin, #club-pin").first()).toBeVisible({ timeout: 15000 });
+      }
+      await page.waitForTimeout(1500 * (attempt + 1));
+    }
+  }
   const named = page.locator(".shots-gate-team-btn", { hasText: teamName });
   if (await named.count()) {
     await named.first().click();
     return;
   }
-  const first = page.locator(".shots-gate-team-btn").first();
-  await expect(first).toBeVisible({ timeout: 15000 });
-  await first.click();
+  await page.locator(".shots-gate-team-btn").first().click();
 }
 
 export async function signIn(page, teamName = "Brighton") {
