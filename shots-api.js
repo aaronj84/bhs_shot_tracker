@@ -47,8 +47,35 @@
     return client;
   }
 
+  function staff() {
+    return global.StaffAccess || null;
+  }
+
   function pinValue() {
+    const sa = staff();
+    if (sa) return sa.defaultPin(cfg());
     return String(cfg().pin || "KEPPA").trim().toUpperCase();
+  }
+
+  function pinForTeam(team) {
+    const sa = staff();
+    if (sa) return sa.pinForTeam(cfg(), team);
+    return pinValue();
+  }
+
+  function readStaffUnlock() {
+    const sa = staff();
+    return sa ? sa.readUnlock() : null;
+  }
+
+  function writeStaffUnlock(team) {
+    const sa = staff();
+    if (sa) sa.writeUnlock(team);
+  }
+
+  function clearStaffUnlock() {
+    const sa = staff();
+    if (sa) sa.clearUnlock();
   }
 
   function throwIfError(error, fallback) {
@@ -93,6 +120,10 @@
     isConfigured,
     isPlaceholderConfig,
     pinValue,
+    pinForTeam,
+    readStaffUnlock,
+    writeStaffUnlock,
+    clearStaffUnlock,
     getClient,
 
     async getSession() {
@@ -104,8 +135,18 @@
       return data.session || null;
     },
 
-    async signInWithPin(entered) {
-      if (String(entered || "").trim().toUpperCase() !== pinValue()) {
+    /**
+     * Staff unlock for a specific owned team. PIN is checked against that team's
+     * override (SHOTS_CONFIG.teamPins) or the default pin. Anonymous Supabase
+     * session is created/reused afterward for RLS.
+     *
+     * @param {string} entered
+     * @param {{ id?: string, name?: string } | null} [team]
+     */
+    async signInWithPin(entered, team) {
+      const sa = staff();
+      const okPin = sa ? sa.pinMatches(cfg(), team || null, entered) : String(entered || "").trim().toUpperCase() === pinValue();
+      if (!okPin) {
         return { ok: false, error: "Wrong PIN" };
       }
       if (isPlaceholderConfig()) {
@@ -114,10 +155,16 @@
         } catch (_) {
           /* ignore */
         }
+        if (team) writeStaffUnlock(team);
         return { ok: true, session: localDemoSession() || { access_token: "local-demo", user: { id: "local-demo" } } };
       }
       const sb = getClient();
       if (!sb) return { ok: false, error: "Supabase is not configured" };
+      const existing = await this.getSession();
+      if (existing) {
+        if (team) writeStaffUnlock(team);
+        return { ok: true, session: existing };
+      }
       const { data, error } = await sb.auth.signInAnonymously();
       if (error) {
         return {
@@ -125,10 +172,12 @@
           error: error.message || "Sign-in failed. Enable Anonymous auth in Supabase.",
         };
       }
+      if (team) writeStaffUnlock(team);
       return { ok: true, session: data.session };
     },
 
     async signOut() {
+      clearStaffUnlock();
       try {
         sessionStorage.removeItem(LOCAL_DEMO_SESSION_KEY);
       } catch (_) {
@@ -136,6 +185,52 @@
       }
       const sb = getClient();
       if (sb && !isPlaceholderConfig()) await sb.auth.signOut();
+    },
+
+    /**
+     * Owned teams for the PIN gate. Uses (or creates) an anonymous session so
+     * RLS can read teams — does not mark staff as unlocked.
+     */
+    async loadOwnedTeamsForGate() {
+      if (isPlaceholderConfig()) {
+        // Two programs so the gate can exercise per-team PINs without Supabase.
+        return [
+          {
+            id: "local-brighton",
+            name: "Brighton",
+            is_ours: true,
+            organization: "Brighton High School",
+            level: "Varsity",
+            brand_name: cfg().brandName || "Brighton Bengals",
+            brand_sub: cfg().brandSub || "Shot Tracker",
+            primary_color: "#1a4d7c",
+            logo_path: "assets/logo.svg",
+          },
+          {
+            id: "local-cfc",
+            name: "CFC G10 BD",
+            is_ours: true,
+            organization: "Cottonwood FC",
+            level: "U17",
+            brand_name: "CFC G10 BD",
+            brand_sub: "Cottonwood FC · U17",
+            primary_color: "#9b1b2e",
+            accent_color: "#c9a227",
+            logo_path: "assets/logo-cfc.png",
+          },
+        ];
+      }
+      const sb = getClient();
+      if (!sb) throw new Error("Supabase is not configured");
+      const existing = await this.getSession();
+      if (!existing) {
+        const { error } = await sb.auth.signInAnonymously();
+        if (error) {
+          throw new Error(error.message || "Could not connect. Enable Anonymous auth in Supabase.");
+        }
+      }
+      const rows = await this.teams();
+      return (rows || []).filter((t) => t && t.is_ours);
     },
 
     async teams() {

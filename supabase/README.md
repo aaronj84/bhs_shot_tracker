@@ -12,13 +12,16 @@ window.SHOTS_CONFIG = {
   storageKey: "brighton-varsity-shot-tracker",
   supabaseUrl: "https://YOUR_DEV_REF.supabase.co",
   supabaseAnonKey: "YOUR_DEV_ANON_KEY",
-  pin: "KEPPA"
+  pin: "KEPPA",
+  teamPins: {
+    // "CFC G10 BD": "YOUR_CFC_PIN"
+  }
 };
 ```
 
 | Setting | Value |
 | --- | --- |
-| PIN (shared staff gate) | `KEPPA` (or your chosen PIN) |
+| PIN (default staff gate) | `KEPPA` (or your chosen PIN); optional `teamPins` overrides per team |
 | Project URL | Settings → API → Project URL |
 | Anon / public key | Settings → API → anon `public` |
 | Service role key | Do **not** put this in the app or git |

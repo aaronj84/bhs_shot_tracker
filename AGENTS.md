@@ -27,7 +27,7 @@ python3 -m http.server 8080
 # http://127.0.0.1:8080/#shots
 ```
 
-Required env: `SHOTS_SUPABASE_URL`, `SHOTS_SUPABASE_ANON_KEY`. Optional: `SHOTS_PIN` (default `KEPPA`).
+Required env: `SHOTS_SUPABASE_URL`, `SHOTS_SUPABASE_ANON_KEY`. Optional: `SHOTS_PIN` (default `KEPPA`), `SHOTS_TEAM_PINS` (JSON map of team name/id → PIN, e.g. `{"CFC G10 BD":"OTHER"}`). The PIN gate lets coaches pick a team first, then enter that team’s PIN.
 
 ```bash
 npm ci

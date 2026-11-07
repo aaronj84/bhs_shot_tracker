@@ -12,5 +12,11 @@ window.SHOTS_CONFIG = {
   brandSub: "Shot Tracker",
   supabaseUrl: "https://YOUR_PROJECT.supabase.co",
   supabaseAnonKey: "YOUR_ANON_PUBLIC_KEY",
-  pin: "KEPPA"
+  // Default staff PIN (used when a team has no override below).
+  pin: "KEPPA",
+  // Optional per-team staff PINs (keyed by team name or uuid).
+  // CFC coaches unlock with their PIN without knowing Brighton's.
+  teamPins: {
+    "CFC G10 BD": "COTTON"
+  }
 };

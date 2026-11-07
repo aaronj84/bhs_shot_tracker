@@ -13,6 +13,7 @@ jobs:
       SHOTS_SUPABASE_URL: ${{ secrets.SHOTS_SUPABASE_URL_DEV }}
       SHOTS_SUPABASE_ANON_KEY: ${{ secrets.SHOTS_SUPABASE_ANON_KEY_DEV }}
       SHOTS_PIN: ${{ secrets.SHOTS_PIN }}
+      SHOTS_TEAM_PINS: ${{ secrets.SHOTS_TEAM_PINS }}
     steps:
       - uses: actions/checkout@v4
 

@@ -102,14 +102,44 @@ export const test = base.extend({
   ],
 });
 
-export async function signIn(page) {
+/** Pick an owned team on a staff PIN gate (shots or club). */
+export async function pickGateTeam(page, teamName = "Brighton") {
+  await expect(page.locator(".shots-gate-team-btn, .shots-gate-teams-status").first()).toBeVisible({
+    timeout: 15000,
+  });
+  const named = page.locator(".shots-gate-team-btn", { hasText: teamName });
+  if (await named.count()) {
+    await named.first().click();
+    return;
+  }
+  const first = page.locator(".shots-gate-team-btn").first();
+  await expect(first).toBeVisible({ timeout: 15000 });
+  await first.click();
+}
+
+export async function signIn(page, teamName = "Brighton") {
   await page.goto("/#shots");
   await expect(page.locator("#shots-pin")).toBeVisible({ timeout: 15000 });
+  // Gate loads owned teams before unlock; pick the program whose PIN we know.
+  await pickGateTeam(page, teamName);
+  await expect(page.locator("#shots-pin-form button[type=submit]")).toBeEnabled({ timeout: 5000 });
   await page.fill("#shots-pin", pin);
   await page.click('button:has-text("Open tracker")');
   await expect(page.locator(".shots-admin h1, .tracker-page, .shots-gate h1").first()).toBeVisible({
     timeout: 20000,
   });
+  // Still on the gate means wrong PIN / team — fail clearly.
+  await expect(page.locator("#shots-pin")).toHaveCount(0);
+}
+
+/** Club planner PIN gate (when not already unlocked via the tracker). */
+export async function signInClub(page, teamName = "Brighton") {
+  await expect(page.locator("#club-pin")).toBeVisible({ timeout: 15000 });
+  await pickGateTeam(page, teamName);
+  await expect(page.locator("#club-pin-form button[type=submit]")).toBeEnabled({ timeout: 5000 });
+  await page.fill("#club-pin", pin);
+  await page.locator("#club-pin-form button[type=submit]").click();
+  await expect(page.locator(".club-tabs")).toBeVisible({ timeout: 20000 });
 }
 
 /** Swap is disabled until a slot has a player (DEV has no Brighton default XI). */

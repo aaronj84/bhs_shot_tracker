@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { pin, signIn } from "./helpers.mjs";
+import { signIn, signInClub } from "./helpers.mjs";
 
 test.describe("Club Player Visitation Planner", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -46,11 +46,8 @@ test.describe("Club Player Visitation Planner", () => {
   test("itinerary Add to calendar prefers iOS share sheet", async ({ page }) => {
     await page.goto("/#club-itinerary");
     await expect(page.locator(".club-shell")).toBeVisible({ timeout: 15000 });
-    const pinInput = page.locator("#club-pin");
-    if (await pinInput.isVisible().catch(() => false)) {
-      await pinInput.fill(pin);
-      await page.locator("#club-pin-form button[type=submit]").click();
-      await expect(page.locator(".club-tabs")).toBeVisible({ timeout: 20000 });
+    if (await page.locator("#club-pin").isVisible().catch(() => false)) {
+      await signInClub(page);
     }
     await expect(page).toHaveURL(/#club-itinerary/);
     await expect(page.locator("#club-itin-ics")).toBeHidden();
@@ -98,9 +95,7 @@ test.describe("Club Player Visitation Planner", () => {
     });
     await page.goto("/#club-itinerary");
     if (await page.locator("#club-pin").isVisible().catch(() => false)) {
-      await page.locator("#club-pin").fill(pin);
-      await page.locator("#club-pin-form button[type=submit]").click();
-      await expect(page.locator(".club-tabs")).toBeVisible({ timeout: 20000 });
+      await signInClub(page);
     }
 
     const shared = await page.evaluate(async () => {

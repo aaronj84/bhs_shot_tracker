@@ -758,6 +758,10 @@
     booting: false,
     session: null,
     pinError: "",
+    gateTeams: [],
+    gateTeamsLoading: false,
+    gateTeamsLoaded: false,
+    gateTeamId: "",
     loading: false,
     error: "",
     teams: [],
@@ -2714,8 +2718,64 @@
     applyTeamBrand();
   }
 
+  function staffUnlock() {
+    return typeof API.readStaffUnlock === "function" ? API.readStaffUnlock() : null;
+  }
+
+  function teamNeedsStaffPin(team) {
+    if (!team) return true;
+    const unlock = staffUnlock();
+    if (!unlock) return true;
+    if (window.StaffAccess && typeof window.StaffAccess.unlockCoversTeam === "function") {
+      return !window.StaffAccess.unlockCoversTeam(unlock, team);
+    }
+    return !(unlock.teamId && String(unlock.teamId) === String(team.id));
+  }
+
+  /** Drop staff unlock and show the PIN gate for a team (e.g. nav switch). */
+  function returnToPinGate(teamId) {
+    if (typeof API.clearStaffUnlock === "function") API.clearStaffUnlock();
+    st.session = null;
+    st.pinError = "";
+    st.gateTeamId = teamId || st.teamId || "";
+    if (teamId) st.teamId = teamId;
+    const ours = (st.teams || []).filter((t) => t.is_ours);
+    if (ours.length) {
+      st.gateTeams = ours;
+      st.gateTeamsLoaded = true;
+      st.gateTeamsLoading = false;
+    } else {
+      st.gateTeamsLoaded = false;
+      st.gateTeamsLoading = false;
+    }
+    const drawer = document.querySelector("#nav-drawer");
+    if (drawer) {
+      drawer.classList.remove("is-open");
+      drawer.hidden = true;
+    }
+    document.querySelector("#menu-btn")?.setAttribute("aria-expanded", "false");
+    saveUi();
+    draw();
+  }
+
   async function selectTeam(id) {
     if (!id || id === st.teamId) return;
+    const next = (st.teams || []).find((t) => t.id === id) || (st.gateTeams || []).find((t) => t.id === id);
+    // Still on the PIN gate: only change which team we're unlocking.
+    if (!st.session) {
+      st.gateTeamId = id;
+      st.teamId = id;
+      st.pinError = "";
+      saveUi();
+      applyGateTeamBrand();
+      draw();
+      return;
+    }
+    // Switching programs requires that team's staff PIN — CFC coaches stay out of Brighton.
+    if (teamNeedsStaffPin(next || { id })) {
+      returnToPinGate(id);
+      return;
+    }
     st.teamId = id;
     st.seasonId = "";
     st.gameId = "";
@@ -2808,22 +2868,29 @@
         draw();
         return;
       }
-      st.session = await API.getSession();
-      if (st.session) {
+      const session = await API.getSession();
+      const unlock = staffUnlock();
+      // Anonymous session alone is not enough — staff must unlock a team with its PIN.
+      if (session && unlock) {
+        st.session = session;
+        if (unlock.teamId) st.teamId = unlock.teamId;
         st.loading = true;
         draw();
-      try {
-        await refreshMeta();
-        const hashed = await consumeShareHash();
-        if (hashed === "drew") {
-          st.booted = true;
-          return;
+        try {
+          await refreshMeta();
+          const hashed = await consumeShareHash();
+          if (hashed === "drew") {
+            st.booted = true;
+            return;
+          }
+          if (st.gameId) await loadGameContext();
+        } catch (err) {
+          st.error = err.message || "Could not load data";
         }
-        if (st.gameId) await loadGameContext();
-      } catch (err) {
-        st.error = err.message || "Could not load data";
-      }
-      st.loading = false;
+        st.loading = false;
+      } else {
+        st.session = null;
+        if (unlock && typeof API.clearStaffUnlock === "function") API.clearStaffUnlock();
       }
       st.booted = true;
       draw();
@@ -2981,29 +3048,127 @@
       </div>`;
   }
 
+  function gateTeamOptionsMarkup() {
+    const teams = st.gateTeams || [];
+    if (st.gateTeamsLoading && !teams.length) {
+      return `<p class="muted shots-gate-teams-status">Loading teams…</p>`;
+    }
+    if (!teams.length) {
+      return `<p class="muted shots-gate-teams-status">No owned teams found yet.</p>`;
+    }
+    return `<div class="shots-gate-teams" role="listbox" aria-label="Team">
+      ${teams
+        .map((t) => {
+          const active = t.id === st.gateTeamId;
+          const logo = t.logo_path
+            ? `<img src="${escapeHtml(t.logo_path)}" alt="" width="36" height="36" />`
+            : `<img src="assets/logo.svg" alt="" width="36" height="36" />`;
+          const sub = [t.organization, t.level].filter(Boolean).join(" · ");
+          return `<button type="button" class="nav-team-btn shots-gate-team-btn${
+            active ? " is-active" : ""
+          }" role="option" aria-selected="${active ? "true" : "false"}" data-gate-team-id="${escapeHtml(t.id)}">
+            ${logo}
+            <span class="nav-team-btn-text">
+              <strong>${escapeHtml(t.name)}</strong>
+              ${sub ? `<span>${escapeHtml(sub)}</span>` : ""}
+            </span>
+          </button>`;
+        })
+        .join("")}
+    </div>`;
+  }
+
+  function applyGateTeamBrand() {
+    const t = (st.gateTeams || []).find((row) => row.id === st.gateTeamId);
+    if (!t) return;
+    // Seed st.teams so applyTeamBrand / currentTeam can resolve the pick.
+    if (!(st.teams || []).some((row) => row.id === t.id)) {
+      st.teams = [...(st.teams || []), t];
+    }
+    st.teamId = t.id;
+    applyTeamBrand();
+  }
+
+  async function loadGateTeams() {
+    if (st.gateTeamsLoading || st.gateTeamsLoaded) return;
+    if (typeof API.loadOwnedTeamsForGate !== "function") {
+      st.gateTeamsLoaded = true;
+      return;
+    }
+    st.gateTeamsLoading = true;
+    draw();
+    try {
+      const teams = await API.loadOwnedTeamsForGate();
+      st.gateTeams = teams || [];
+      if (!st.gateTeamId || !st.gateTeams.some((t) => t.id === st.gateTeamId)) {
+        st.gateTeamId =
+          (st.teamId && st.gateTeams.some((t) => t.id === st.teamId) && st.teamId) ||
+          st.gateTeams[0]?.id ||
+          "";
+      }
+      applyGateTeamBrand();
+      st.pinError = "";
+    } catch (err) {
+      st.pinError = err.message || "Could not load teams";
+      st.gateTeams = [];
+    } finally {
+      st.gateTeamsLoading = false;
+      st.gateTeamsLoaded = true;
+      draw();
+    }
+  }
+
   function renderPin() {
+    const selected = (st.gateTeams || []).find((t) => t.id === st.gateTeamId);
+    const teamLabel = selected?.name || "your team";
     root().innerHTML = `
       <div class="shots-gate">
         <h1>Shot tracker</h1>
-        <p>Enter the staff PIN to continue.</p>
+        <p>Choose a team, then enter that team’s staff PIN.</p>
+        <p class="shots-gate-label">Team</p>
+        ${gateTeamOptionsMarkup()}
         <form id="shots-pin-form" class="shots-pin-form">
-          <label class="sr-only" for="shots-pin">PIN</label>
-          <input id="shots-pin" class="text-gate-input" type="password" inputmode="text" autocomplete="off" maxlength="16" />
-          <button type="submit" class="btn btn-primary">Open tracker</button>
+          <label class="sr-only" for="shots-pin">PIN for ${escapeHtml(teamLabel)}</label>
+          <input id="shots-pin" class="text-gate-input" type="password" inputmode="text" autocomplete="off" maxlength="16" placeholder="Staff PIN" ${
+            st.gateTeamsLoading ? "disabled" : ""
+          } />
+          <button type="submit" class="btn btn-primary" ${
+            st.gateTeamsLoading || !st.gateTeamId ? "disabled" : ""
+          }>Open tracker</button>
         </form>
         ${st.pinError ? `<p class="shots-error">${escapeHtml(st.pinError)}</p>` : ""}
       </div>`;
-    $("#shots-pin-form").addEventListener("submit", async (e) => {
+    root().querySelectorAll("[data-gate-team-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-gate-team-id");
+        if (!id || id === st.gateTeamId) return;
+        st.gateTeamId = id;
+        st.pinError = "";
+        applyGateTeamBrand();
+        renderPin();
+      });
+    });
+    $("#shots-pin-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const value = $("#shots-pin").value;
+      const value = $("#shots-pin")?.value || "";
+      const team =
+        (st.gateTeams || []).find((t) => t.id === st.gateTeamId) ||
+        (st.gateTeamId ? { id: st.gateTeamId, name: "" } : null);
+      if (!team || !team.id) {
+        st.pinError = "Pick a team first";
+        renderPin();
+        return;
+      }
       st.pinError = "";
-      const result = await API.signInWithPin(value);
+      const result = await API.signInWithPin(value, team);
       if (!result.ok) {
         st.pinError = result.error;
         renderPin();
         return;
       }
       st.session = result.session;
+      st.teamId = team.id;
+      saveUi();
       trackAppEvent("control", "sign_in");
       st.loading = true;
       draw();
@@ -3018,6 +3183,9 @@
       st.loading = false;
       draw();
     });
+    if (!st.gateTeamsLoaded && !st.gateTeamsLoading) {
+      loadGateTeams();
+    }
     requestAnimationFrame(() => $("#shots-pin")?.focus());
   }
 

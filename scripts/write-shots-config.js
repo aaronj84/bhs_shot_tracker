@@ -6,7 +6,8 @@
  *   SHOTS_SUPABASE_URL
  *   SHOTS_SUPABASE_ANON_KEY
  * Optional:
- *   SHOTS_PIN (default KEPPA)
+ *   SHOTS_PIN (default KEPPA) — default staff PIN for teams without an override
+ *   SHOTS_TEAM_PINS — JSON map of team name or id → PIN, e.g. {"CFC G10 BD":"OTHER"}
  *   SHOTS_BRAND_NAME (default Brighton Bengals)
  *   SHOTS_BRAND_SUB (default Shot Tracker)
  *   SHOTS_ENV (dev|prod) — inferred from URL when unset
@@ -22,6 +23,23 @@ const anon = process.env.SHOTS_SUPABASE_ANON_KEY || "";
 const pin = process.env.SHOTS_PIN || "KEPPA";
 const brandName = process.env.SHOTS_BRAND_NAME || "Brighton Bengals";
 const brandSub = process.env.SHOTS_BRAND_SUB != null ? process.env.SHOTS_BRAND_SUB : "Shot Tracker";
+
+function parseTeamPins(raw) {
+  if (!raw || !String(raw).trim()) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.error("SHOTS_TEAM_PINS must be a JSON object of team name/id → PIN");
+      process.exit(1);
+    }
+    return parsed;
+  } catch (err) {
+    console.error("SHOTS_TEAM_PINS is not valid JSON:", err.message || err);
+    process.exit(1);
+  }
+}
+
+const teamPins = parseTeamPins(process.env.SHOTS_TEAM_PINS || "");
 
 function inferEnv(supabaseUrl) {
   const forced = String(process.env.SHOTS_ENV || "").toLowerCase();
@@ -51,7 +69,8 @@ window.SHOTS_CONFIG = {
   brandSub: ${JSON.stringify(brandSub)},
   supabaseUrl: ${JSON.stringify(url)},
   supabaseAnonKey: ${JSON.stringify(anon)},
-  pin: ${JSON.stringify(pin)}
+  pin: ${JSON.stringify(pin)},
+  teamPins: ${JSON.stringify(teamPins)}
 };
 `;
 

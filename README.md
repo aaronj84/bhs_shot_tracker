@@ -35,6 +35,7 @@ python3 -m http.server 8080
 ```bash
 npm ci
 export SHOTS_SUPABASE_URL=... SHOTS_SUPABASE_ANON_KEY=... SHOTS_PIN=KEPPA
+# Optional per-team PINs (JSON): export SHOTS_TEAM_PINS='{"CFC G10 BD":"OTHER"}'
 node scripts/write-shots-config.js   # for Playwright
 npm run test:api                     # Vitest vs DEV
 npm run test:e2e                     # Playwright smokes
