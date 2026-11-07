@@ -2585,11 +2585,11 @@ button.formation-card.is-empty {
   margin: 0 0 1.5rem;
 }
 
-/* Game Summary (on-demand; provisional FOTMOB-style layout) */
+/* Game Summary — FOTMOB-inspired on-demand cards */
 .tracker-summary-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.7rem;
 }
 
 .gs-toolbar {
@@ -2610,7 +2610,7 @@ button.formation-card.is-empty {
   padding: 0.85rem 0.75rem;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 14px;
 }
 
 .gs-empty p {
@@ -2621,12 +2621,35 @@ button.formation-card.is-empty {
   margin-bottom: 0;
 }
 
+.gs-period-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gs-period-chip {
+  min-height: 34px;
+  padding: 0.35rem 0.85rem;
+  border: 0;
+  border-radius: 999px;
+  background: #eceff3;
+  color: #5b6572;
+  font-weight: 700;
+  font-size: 0.84rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gs-period-chip.is-on {
+  background: #111827;
+  color: #fff;
+}
+
 .gs-scoreline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  padding: 0.65rem 0.4rem;
+  padding: 0.35rem 0.2rem 0.15rem;
   font-size: 1.35rem;
   font-weight: 800;
 }
@@ -2653,82 +2676,166 @@ button.formation-card.is-empty {
   font-weight: 600;
 }
 
-.gs-section {
-  padding: 0.75rem 0.65rem;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+.gs-card {
+  padding: 0.85rem 0.75rem;
+  background: #fff;
+  border: 1px solid #e6e9ee;
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
 
-.gs-section h2 {
-  margin: 0 0 0.55rem;
-  font-size: 0.95rem;
+.gs-card h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
-.gs-stat-list {
+.gs-fot-list {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.15rem;
 }
 
-.gs-stat-row {
+.gs-fot-row {
   display: grid;
-  grid-template-columns: 2.1rem 1fr 2.1rem;
+  grid-template-columns: 2.6rem 1fr 2.6rem;
   align-items: center;
   gap: 0.35rem;
+  min-height: 2.35rem;
+  padding: 0.15rem 0;
 }
 
-.gs-stat-val {
-  font-weight: 800;
-  font-size: 0.9rem;
+.gs-fot-label {
+  margin: 0;
   text-align: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3a4450;
+}
+
+.gs-fot-val {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.35rem;
+  min-height: 2.05rem;
+  margin: 0 auto;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
+  color: #111827;
 }
 
-.gs-stat-val.is-us {
-  color: var(--brand-strong, var(--brand));
+.gs-fot-val.is-win.is-us {
+  background: var(--brand, #1d4ed8);
+  color: #fff;
 }
 
-.gs-stat-val.is-opp {
-  color: #9b2c2c;
+.gs-fot-val.is-win.is-opp {
+  background: #16a34a;
+  color: #fff;
 }
 
-.gs-stat-mid {
-  min-width: 0;
+.gs-fot-nest {
+  margin: 0.15rem 0 0.25rem;
+  padding: 0.25rem 0.35rem;
+  background: #f3f5f8;
+  border-radius: 12px;
 }
 
-.gs-stat-bars {
+.gs-fot-nest.is-inner {
+  margin-top: 0.2rem;
+  background: #e7ebf0;
+}
+
+.gs-fot-row.is-emphasis .gs-fot-label {
+  font-weight: 750;
+}
+
+.gs-zones {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.25rem;
+  gap: 0.35rem;
+  min-height: 9.5rem;
+  padding: 0.35rem;
+  border-radius: 12px;
+  background:
+    linear-gradient(#2f7a4d, #2f7a4d) center/1px 100% no-repeat,
+    repeating-linear-gradient(
+      90deg,
+      #2d7549 0,
+      #2d7549 16.66%,
+      #277045 16.66%,
+      #277045 33.33%
+    );
+  overflow: hidden;
+}
+
+.gs-zones-half {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 0.35rem;
+  padding: 0.35rem 0.2rem;
+}
+
+.gs-zone-lane {
+  position: relative;
+  height: 1.7rem;
+  display: flex;
   align-items: center;
-  height: 0.55rem;
 }
 
-.gs-stat-bar {
-  display: block;
+.gs-zone-lane.is-us {
+  justify-content: flex-end;
+}
+
+.gs-zone-lane.is-opp {
+  justify-content: flex-start;
+}
+
+.gs-zone-lane::before {
+  content: "";
   height: 100%;
-  border-radius: 2px;
-  max-width: 100%;
-  justify-self: stretch;
+  width: calc(var(--zone, 20) * 1%);
+  min-width: 2.4rem;
+  border-radius: 6px;
+  opacity: 0.92;
 }
 
-.gs-stat-bar.is-us {
-  background: var(--brand);
-  justify-self: end;
+.gs-zone-lane.is-us::before {
+  background: linear-gradient(90deg, transparent, var(--brand, #2563eb));
+  clip-path: polygon(0 18%, 88% 18%, 88% 0, 100% 50%, 88% 100%, 88% 82%, 0 82%);
 }
 
-.gs-stat-bar.is-opp {
-  background: #c0392b;
-  justify-self: start;
+.gs-zone-lane.is-opp::before {
+  background: linear-gradient(90deg, #16a34a, transparent);
+  clip-path: polygon(12% 0, 12% 18%, 100% 18%, 100% 82%, 12% 82%, 12% 100%, 0 50%);
 }
 
-.gs-stat-label {
-  margin: 0.2rem 0 0;
-  text-align: center;
+.gs-zone-pct {
+  position: absolute;
+  z-index: 1;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.gs-zone-lane.is-us .gs-zone-pct {
+  right: 0.55rem;
+}
+
+.gs-zone-lane.is-opp .gs-zone-pct {
+  left: 0.55rem;
+}
+
+.gs-zones-caption {
+  margin: 0.45rem 0 0;
   font-size: 0.72rem;
-  font-weight: 650;
-  color: var(--muted);
 }
 
 .gs-shot-maps {
@@ -2745,7 +2852,7 @@ button.formation-card.is-empty {
 }
 
 .gs-shot-map-pitch {
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
   background: #2d7a4a;
 }
@@ -2784,6 +2891,11 @@ button.formation-card.is-empty {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+.gs-narrative-note {
+  margin: -0.25rem 0 0.55rem;
+  font-size: 0.75rem;
 }
 
 .gs-narrative-body {

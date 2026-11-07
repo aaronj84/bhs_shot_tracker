@@ -304,7 +304,18 @@
       narrative: "",
       stats: null,
       eventsSnapshot: null,
+      periodFilter: "all",
     };
+  }
+
+  function normalizeSummaryPeriodFilter(value) {
+    return value === "1" || value === "2" || value === "ET1" || value === "ET2" ? value : "all";
+  }
+
+  function filterSummaryEvents(events, periodFilter) {
+    const period = normalizeSummaryPeriodFilter(periodFilter);
+    if (period === "all") return events || [];
+    return (events || []).filter((ev) => eventPeriod(ev) === period);
   }
 
   function normalizeLogResult(value) {
@@ -7997,7 +8008,24 @@
   function gameSummaryStatsFromEvents(events) {
     const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
     if (!api?.buildGameSummaryStats) {
-      return { us: trackerSummary(events.filter((e) => eventTeam(e) === "us")), opp: trackerSummary(events.filter((e) => eventTeam(e) === "opp")), players: [], score: gameScore(events) };
+      const us = trackerSummary(events.filter((e) => eventTeam(e) === "us"));
+      const opp = trackerSummary(events.filter((e) => eventTeam(e) === "opp"));
+      return {
+        us: Object.assign({}, us, {
+          shotsOnTarget: (us.goals || 0) + (us.onTarget || 0) + (us.weakGk || 0),
+          shotsOffTarget: us.missed || 0,
+          woodwork: 0,
+          attackingZones: { left: 0, center: 0, right: 0, total: 0 },
+        }),
+        opp: Object.assign({}, opp, {
+          shotsOnTarget: (opp.goals || 0) + (opp.onTarget || 0) + (opp.weakGk || 0),
+          shotsOffTarget: opp.missed || 0,
+          woodwork: 0,
+          attackingZones: { left: 0, center: 0, right: 0, total: 0 },
+        }),
+        players: [],
+        score: gameScore(events),
+      };
     }
     return api.buildGameSummaryStats(events, {
       laneOf: (ev) => shotLane(ev.shot || ev),
@@ -8021,56 +8049,160 @@
     }
   }
 
-  function summaryCompareBarMarkup(label, usVal, oppVal) {
-    const a = Number(usVal) || 0;
-    const b = Number(oppVal) || 0;
-    const max = Math.max(a, b, 1);
-    const usPct = Math.round((a / max) * 100);
-    const oppPct = Math.round((b / max) * 100);
+  function summaryStatValueMarkup(val, side, winner) {
+    const n = Number(val) || 0;
+    const win = winner === side;
+    return `<span class="gs-fot-val${win ? ` is-win is-${side}` : ""}">${n}</span>`;
+  }
+
+  function summaryFotRowMarkup(row, opts = {}) {
+    const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
+    const winner = api?.winnerSide
+      ? api.winnerSide(row.us, row.opp, opts.preferLower)
+      : Number(row.us) > Number(row.opp)
+        ? "us"
+        : Number(row.opp) > Number(row.us)
+          ? "opp"
+          : "";
+    const nest = opts.nest ? ` is-nest-${opts.nest}` : "";
     return `
-      <div class="gs-stat-row">
-        <span class="gs-stat-val is-us">${a}</span>
-        <div class="gs-stat-mid">
-          <div class="gs-stat-bars" aria-hidden="true">
-            <span class="gs-stat-bar is-us" style="width:${usPct}%"></span>
-            <span class="gs-stat-bar is-opp" style="width:${oppPct}%"></span>
-          </div>
-          <p class="gs-stat-label">${escapeHtml(label)}</p>
-        </div>
-        <span class="gs-stat-val is-opp">${b}</span>
+      <div class="gs-fot-row${nest}${opts.emphasis ? " is-emphasis" : ""}" role="listitem">
+        ${summaryStatValueMarkup(row.us, "us", winner)}
+        <p class="gs-fot-label">${escapeHtml(row.label)}</p>
+        ${summaryStatValueMarkup(row.opp, "opp", winner)}
       </div>`;
   }
 
-  function trackerSummaryCompareMarkup(stats) {
+  function trackerSummaryPeriodFilterMarkup(periodFilter, events) {
+    const hasEt = (events || []).some((e) => {
+      const p = eventPeriod(e);
+      return p === "ET1" || p === "ET2";
+    });
+    const chips = [
+      { id: "all", label: "All" },
+      { id: "1", label: "1st" },
+      { id: "2", label: "2nd" },
+    ];
+    if (hasEt) {
+      chips.push({ id: "ET1", label: "ET1" }, { id: "ET2", label: "ET2" });
+    }
+    const current = normalizeSummaryPeriodFilter(periodFilter);
+    return `
+      <div class="gs-period-filters" role="tablist" aria-label="Summary period">
+        ${chips
+          .map(
+            (c) =>
+              `<button type="button" class="gs-period-chip${current === c.id ? " is-on" : ""}" data-gs-period="${c.id}" ${
+                current === c.id ? 'aria-current="true"' : ""
+              }>${escapeHtml(c.label)}</button>`
+          )
+          .join("")}
+      </div>`;
+  }
+
+  function trackerSummaryTopStatsMarkup(stats) {
     const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
-    const rows = api?.comparisonRows
-      ? api.comparisonRows(stats)
+    const rows = api?.topStatsRows
+      ? api.topStatsRows(stats)
       : [
           { label: "Goals", us: stats?.us?.goals || 0, opp: stats?.opp?.goals || 0 },
           { label: "Total shots", us: stats?.us?.shots || 0, opp: stats?.opp?.shots || 0 },
+          {
+            label: "Shots on target",
+            us: stats?.us?.shotsOnTarget || 0,
+            opp: stats?.opp?.shotsOnTarget || 0,
+          },
           { label: "Corners", us: stats?.us?.corners || 0, opp: stats?.opp?.corners || 0 },
-          { label: "Free kicks", us: stats?.us?.freeKicks || stats?.us?.fouls || 0, opp: stats?.opp?.freeKicks || stats?.opp?.fouls || 0 },
+          {
+            label: "Free kicks",
+            us: stats?.us?.freeKicks || stats?.us?.fouls || 0,
+            opp: stats?.opp?.freeKicks || stats?.opp?.fouls || 0,
+          },
         ];
     return `
-      <div class="gs-stat-list" role="list">
-        ${rows.map((r) => summaryCompareBarMarkup(r.label, r.us, r.opp)).join("")}
+      <section class="gs-card">
+        <h2>Top stats</h2>
+        <div class="gs-fot-list" role="list">
+          ${rows.map((r) => summaryFotRowMarkup(r)).join("")}
+        </div>
+      </section>`;
+  }
+
+  function trackerSummaryAttackingZonesMarkup(stats) {
+    const usZ = stats?.us?.attackingZones || { left: 0, center: 0, right: 0, total: 0 };
+    const oppZ = stats?.opp?.attackingZones || { left: 0, center: 0, right: 0, total: 0 };
+    const empty = !usZ.total && !oppZ.total;
+    const lane = (side, zone, pct) => {
+      const wide = Math.max(8, Number(pct) || 0);
+      return `<div class="gs-zone-lane is-${side}" style="--zone:${wide}">
+        <span class="gs-zone-pct">${pct}%</span>
       </div>`;
+    };
+    return `
+      <section class="gs-card">
+        <h2>Attacking zones</h2>
+        ${
+          empty
+            ? `<p class="muted">Record shot locations to see lane share.</p>`
+            : `<div class="gs-zones" aria-label="Attacking zones by lane">
+          <div class="gs-zones-half is-us">
+            ${lane("us", "left", usZ.left)}
+            ${lane("us", "center", usZ.center)}
+            ${lane("us", "right", usZ.right)}
+          </div>
+          <div class="gs-zones-half is-opp">
+            ${lane("opp", "left", oppZ.left)}
+            ${lane("opp", "center", oppZ.center)}
+            ${lane("opp", "right", oppZ.right)}
+          </div>
+        </div>
+        <p class="gs-zones-caption muted">${escapeHtml(ourTeamName())} left · center · right → ${escapeHtml(
+                opponentOf(st.game)?.name || "Opponent"
+              )} left · center · right</p>`
+        }
+      </section>`;
+  }
+
+  function trackerSummaryShotsCardMarkup(stats) {
+    const api = typeof GameSummaryStats !== "undefined" ? GameSummaryStats : null;
+    const card = api?.shotsCardRows ? api.shotsCardRows(stats) : null;
+    if (!card) return "";
+    return `
+      <section class="gs-card">
+        <h2>Shots</h2>
+        <div class="gs-fot-list" role="list">
+          ${summaryFotRowMarkup(card.total)}
+          <div class="gs-fot-nest">
+            ${summaryFotRowMarkup(card.offTarget, { nest: 1 })}
+            <div class="gs-fot-nest is-inner">
+              ${summaryFotRowMarkup(card.onTarget, { nest: 2, emphasis: true })}
+            </div>
+          </div>
+          ${summaryFotRowMarkup(card.blocked)}
+          ${summaryFotRowMarkup(card.woodwork)}
+          ${summaryFotRowMarkup(card.inBox)}
+          ${summaryFotRowMarkup(card.outsideBox)}
+        </div>
+      </section>`;
   }
 
   function trackerSummaryMapMarkup(events) {
     const halfOpts = { allPeriods: true, showGrid: false, shotsOnlyMode: true, noPending: true };
     return `
-      <div class="gs-shot-maps">
-        <div class="gs-shot-map-block">
-          <p class="gs-shot-map-caption">${escapeHtml(ourTeamName())}</p>
-          <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "us" }, halfOpts))}</div>
+      <section class="gs-card">
+        <h2>Shot map</h2>
+        <div class="gs-shot-maps">
+          <div class="gs-shot-map-block">
+            <p class="gs-shot-map-caption">${escapeHtml(ourTeamName())}</p>
+            <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "us" }, halfOpts))}</div>
+          </div>
+          <div class="gs-shot-map-block is-opp">
+            <p class="gs-shot-map-caption">${escapeHtml(opponentOf(st.game)?.name || "Opponent")}</p>
+            <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "opp" }, halfOpts))}</div>
+          </div>
         </div>
-        <div class="gs-shot-map-block is-opp">
-          <p class="gs-shot-map-caption">${escapeHtml(opponentOf(st.game)?.name || "Opponent")}</p>
-          <div class="gs-shot-map-pitch">${halfPitchMarkup(events, Object.assign({ team: "opp" }, halfOpts))}</div>
-        </div>
-      </div>
-      <p class="gs-shot-map-legend muted">Attacking half · goal at top · Orange goal · White on target · Purple blocked · Hollow missed</p>`;
+        <p class="gs-shot-map-legend muted">Attacking half · goal at top · Orange goal · White on target · Purple blocked · Hollow missed</p>
+      </section>`;
   }
 
   function trackerSummaryPlayersMarkup(stats) {
@@ -8091,34 +8223,37 @@
 
   function trackerSummaryPanelMarkup(events) {
     const gsum = st.gameSummary || emptyGameSummaryState();
-    const hasRefresh = !!gsum.refreshedAt && gsum.stats;
-    const mapEvents = hasRefresh && Array.isArray(gsum.eventsSnapshot) ? gsum.eventsSnapshot : events;
-    const score = hasRefresh ? gsum.stats.score : gameScore(events);
+    const hasRefresh = !!gsum.refreshedAt && Array.isArray(gsum.eventsSnapshot);
+    const periodFilter = normalizeSummaryPeriodFilter(gsum.periodFilter);
+    const baseEvents = hasRefresh ? gsum.eventsSnapshot : events;
+    const viewEvents = filterSummaryEvents(baseEvents, periodFilter);
+    const viewStats = hasRefresh ? gameSummaryStatsFromEvents(viewEvents) : null;
+    const score = viewStats ? viewStats.score : gameScore(events);
     const oppName = opponentOf(st.game)?.name || "Opponent";
     const body = !hasRefresh
       ? `<div class="gs-empty">
-          <p>Pull a snapshot of this game’s shot story — stats, condensed maps, and a short Gemini write-up.</p>
+          <p>Pull a snapshot of this game’s shot story — FOTMOB-style stats, condensed maps, and a short Gemini write-up.</p>
           <p class="muted">On-demand only. Nothing updates live while you record.</p>
         </div>`
-      : `<div class="gs-scoreline" aria-label="Score">
+      : `${trackerSummaryPeriodFilterMarkup(periodFilter, baseEvents)}
+        <div class="gs-scoreline" aria-label="Score">
           <span class="gs-score-team is-us"><span class="gs-score-name">${escapeHtml(ourTeamName())}</span><strong>${score.us}</strong></span>
           <span class="gs-score-sep">–</span>
           <span class="gs-score-team is-opp"><strong>${score.opp}</strong><span class="gs-score-name">${escapeHtml(oppName)}</span></span>
         </div>
-        <section class="gs-section">
-          <h2>Match stats</h2>
-          ${trackerSummaryCompareMarkup(gsum.stats)}
-        </section>
-        <section class="gs-section">
-          <h2>Shot map</h2>
-          ${trackerSummaryMapMarkup(mapEvents)}
-        </section>
-        <section class="gs-section">
+        ${trackerSummaryTopStatsMarkup(viewStats)}
+        ${trackerSummaryAttackingZonesMarkup(viewStats)}
+        ${trackerSummaryShotsCardMarkup(viewStats)}
+        ${trackerSummaryMapMarkup(viewEvents)}
+        <section class="gs-card">
           <h2>Involvement</h2>
-          ${trackerSummaryPlayersMarkup(gsum.stats)}
+          ${trackerSummaryPlayersMarkup(viewStats)}
         </section>
-        <section class="gs-section gs-narrative">
+        <section class="gs-card gs-narrative">
           <h2>Narrative</h2>
+          <p class="muted gs-narrative-note">Full-game write-up from last refresh${
+            periodFilter !== "all" ? " (not filtered by period)" : ""
+          }.</p>
           ${
             gsum.narrative
               ? `<div class="gs-narrative-body">${markdownLite(gsum.narrative)}</div>`
@@ -8366,6 +8501,15 @@
 
     $("#gs-refresh")?.addEventListener("click", () => {
       refreshGameSummary();
+    });
+    $$("[data-gs-period]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = normalizeSummaryPeriodFilter(btn.getAttribute("data-gs-period"));
+        const gsum = st.gameSummary || (st.gameSummary = emptyGameSummaryState());
+        if (gsum.periodFilter === next) return;
+        gsum.periodFilter = next;
+        draw({ keepScroll: true });
+      });
     });
 
     $("#tracker-map-filter-toggle")?.addEventListener("click", (e) => {
