@@ -35,6 +35,11 @@
     tab: "agenda",
     pinBusy: false,
     sessionOk: false,
+    gateTeams: [],
+    gateTeamsLoading: false,
+    gateTeamsLoaded: false,
+    gateTeamId: "",
+    gateLoadError: "",
     loading: false,
     error: "",
     agenda: {
@@ -431,7 +436,9 @@
     const a = api();
     if (!a) return false;
     const session = await a.getSession();
-    st.sessionOk = !!session;
+    const unlock = typeof a.readStaffUnlock === "function" ? a.readStaffUnlock() : null;
+    // Must have both an anonymous session and a team staff unlock.
+    st.sessionOk = !!(session && unlock);
     return st.sessionOk;
   }
 
@@ -441,30 +448,125 @@
     return false;
   }
 
+  function clubGateTeamMarkup() {
+    const teams = st.gateTeams || [];
+    if (st.gateTeamsLoading && !teams.length) {
+      return `<p class="muted">Loading teams…</p>`;
+    }
+    if (!teams.length) {
+      return `<p class="muted">No owned teams found yet.</p>`;
+    }
+    return `<div class="shots-gate-teams" role="listbox" aria-label="Team">
+      ${teams
+        .map((t) => {
+          const active = t.id === st.gateTeamId;
+          const logo = t.logo_path
+            ? `<img src="${escapeHtml(t.logo_path)}" alt="" width="36" height="36" />`
+            : `<img src="assets/logo.svg" alt="" width="36" height="36" />`;
+          const sub = [t.organization, t.level].filter(Boolean).join(" · ");
+          return `<button type="button" class="nav-team-btn shots-gate-team-btn${
+            active ? " is-active" : ""
+          }" role="option" aria-selected="${active ? "true" : "false"}" data-club-gate-team-id="${escapeHtml(t.id)}">
+            ${logo}
+            <span class="nav-team-btn-text">
+              <strong>${escapeHtml(t.name)}</strong>
+              ${sub ? `<span>${escapeHtml(sub)}</span>` : ""}
+            </span>
+          </button>`;
+        })
+        .join("")}
+    </div>`;
+  }
+
+  async function loadClubGateTeams(force) {
+    if (st.gateTeamsLoading) return;
+    if (st.gateTeamsLoaded && !force) return;
+    const a = api();
+    if (!a || typeof a.loadOwnedTeamsForGate !== "function") {
+      st.gateTeamsLoaded = true;
+      return;
+    }
+    st.gateTeamsLoading = true;
+    st.gateTeamsLoaded = false;
+    paintPinGate();
+    try {
+      st.gateTeams = (await a.loadOwnedTeamsForGate()) || [];
+      if (!st.gateTeamId || !st.gateTeams.some((t) => t.id === st.gateTeamId)) {
+        st.gateTeamId = st.gateTeams[0]?.id || "";
+      }
+      st.gateLoadError = "";
+    } catch (err) {
+      st.gateTeams = [];
+      st.gateLoadError = err.message || "Could not load teams";
+    } finally {
+      st.gateTeamsLoading = false;
+      st.gateTeamsLoaded = true;
+      paintPinGate();
+    }
+  }
+
   function paintPinGate() {
     const root = rootEl();
     if (!root) return;
+    const selected = (st.gateTeams || []).find((t) => t.id === st.gateTeamId);
+    const teamLabel = selected?.name || "your team";
     root.innerHTML = `
       <section class="club-shell">
         <header class="club-hero">
           <p class="club-kicker">Club Player Visitation Planner</p>
           <h1>Staff access</h1>
-          <p class="muted">Enter the staff PIN to view club schedules and build visit itineraries.</p>
+          <p class="muted">Choose a team, then enter that team’s staff PIN.</p>
         </header>
+        <p class="shots-gate-label">Team</p>
+        ${clubGateTeamMarkup()}
         <form id="club-pin-form" class="club-pin-form">
-          <label for="club-pin">PIN</label>
-          <input id="club-pin" type="password" inputmode="text" autocomplete="current-password" maxlength="32" />
-          <p class="form-error" id="club-pin-error" hidden></p>
-          <button type="submit" class="btn btn-primary" ${st.pinBusy ? "disabled" : ""}>Unlock</button>
+          <label for="club-pin">PIN for ${escapeHtml(teamLabel)}</label>
+          <input id="club-pin" type="password" inputmode="text" autocomplete="current-password" maxlength="32" ${
+            st.gateTeamsLoading ? "disabled" : ""
+          } />
+          <p class="form-error" id="club-pin-error" ${st.gateLoadError ? "" : "hidden"}>${escapeHtml(
+            st.gateLoadError || ""
+          )}</p>
+          <button type="submit" class="btn btn-primary" ${
+            st.pinBusy || st.gateTeamsLoading || !st.gateTeamId ? "disabled" : ""
+          }>Unlock</button>
         </form>
+        ${
+          st.gateTeamsLoaded && !st.gateTeamsLoading && !(st.gateTeams || []).length
+            ? `<button type="button" class="btn btn-secondary" id="club-gate-retry">Retry loading teams</button>`
+            : ""
+        }
       </section>`;
+    $("#club-gate-retry")?.addEventListener("click", () => {
+      st.gateLoadError = "";
+      loadClubGateTeams(true);
+    });
+    root.querySelectorAll("[data-club-gate-team-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-club-gate-team-id");
+        if (!id || id === st.gateTeamId) return;
+        st.gateTeamId = id;
+        st.gateLoadError = "";
+        paintPinGate();
+      });
+    });
     $("#club-pin-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const err = $("#club-pin-error");
       const val = $("#club-pin")?.value || "";
+      const team =
+        (st.gateTeams || []).find((t) => t.id === st.gateTeamId) ||
+        (st.gateTeamId ? { id: st.gateTeamId, name: "" } : null);
+      if (!team || !team.id) {
+        if (err) {
+          err.hidden = false;
+          err.textContent = "Pick a team first";
+        }
+        return;
+      }
       st.pinBusy = true;
       paintPinGate();
-      const res = await api().signInWithPin(val);
+      const res = await api().signInWithPin(val, team);
       st.pinBusy = false;
       if (!res.ok) {
         st.sessionOk = false;
@@ -484,6 +586,9 @@
       }
       render();
     });
+    if (!st.gateTeamsLoaded && !st.gateTeamsLoading) {
+      loadClubGateTeams();
+    }
     requestAnimationFrame(() => $("#club-pin")?.focus());
   }
 

@@ -32,12 +32,14 @@ jobs:
           SHOTS_SUPABASE_URL: ${{ secrets.SHOTS_SUPABASE_URL_PROD }}
           SHOTS_SUPABASE_ANON_KEY: ${{ secrets.SHOTS_SUPABASE_ANON_KEY_PROD }}
           SHOTS_PIN: ${{ secrets.SHOTS_PIN }}
+          SHOTS_TEAM_PINS: ${{ secrets.SHOTS_TEAM_PINS }}
         run: node scripts/write-shots-config.js
 
       - name: Assemble site
         run: |
           mkdir -p _site/assets
-          cp index.html styles.css app.js shots.js shots-api.js schedule.js club-visitation.js shots-config.js .nojekyll _site/
+          cp index.html styles.css app.js staff-access.js team-modules.js game-summary-stats.js \
+            shots.js shots-api.js schedule.js club-visitation.js shots-config.js .nojekyll _site/
           cp -R blue26 _site/
           cp -R assets/* _site/assets/ 2>/dev/null || true
 

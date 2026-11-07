@@ -125,7 +125,8 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `SHOTS_SUPABASE_ANON_KEY_DEV` | DEV anon key |
 | `SHOTS_SUPABASE_URL_PROD` | PROD Project URL (for GitHub Pages build) |
 | `SHOTS_SUPABASE_ANON_KEY_PROD` | PROD anon key |
-| `SHOTS_PIN` | Staff PIN (e.g. `KEPPA`) |
+| `SHOTS_PIN` | Default staff PIN (e.g. `KEPPA`) |
+| `SHOTS_TEAM_PINS` | Optional JSON map of team name/id → PIN (e.g. `{"CFC G10 BD":"COTTON"}`) |
 | `BACKUP_ENCRYPTION_KEY` | Optional passphrase for CI database archives; falls back to `SUPABASE_DB_PASSWORD_PROD`. See [backup.md](backup.md). |
 | `SUPABASE_SERVICE_ROLE_KEY_DEV` | DEV service_role key (Settings → API). Used only by the daily MaxPreps scrape to write `mp_*` tables. |
 | `SUPABASE_SERVICE_ROLE_KEY_PROD` | PROD service_role key. Same use. Never put either in the app or config. |
@@ -146,7 +147,7 @@ After secrets exist:
 
 **Before** the commit that removes `shots-config.js` hits `main`:
 
-1. Add `SHOTS_SUPABASE_URL_PROD`, `SHOTS_SUPABASE_ANON_KEY_PROD`, and `SHOTS_PIN` secrets
+1. Add `SHOTS_SUPABASE_URL_PROD`, `SHOTS_SUPABASE_ANON_KEY_PROD`, `SHOTS_PIN`, and optional `SHOTS_TEAM_PINS` secrets
 2. Repo → **Settings → Pages → Build and deployment → Source → GitHub Actions**
 3. Then merge/push to `main` so Pages rebuilds with a generated config
 

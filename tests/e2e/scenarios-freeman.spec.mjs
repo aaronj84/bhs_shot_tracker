@@ -27,7 +27,12 @@ function mockRefresh(page, handler) {
 
 async function openScenarios(page) {
   await page.goto("/#shots-prep?tab=scenarios");
-  await page.getByLabel("PIN").fill("KEPPA");
+  await expect(page.locator("#shots-pin")).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(".shots-gate-team-btn").first()).toBeVisible({ timeout: 15000 });
+  const brighton = page.locator(".shots-gate-team-btn", { hasText: "Brighton" });
+  if (await brighton.count()) await brighton.first().click();
+  else await page.locator(".shots-gate-team-btn").first().click();
+  await page.locator("#shots-pin").fill("KEPPA");
   await page.getByRole("button", { name: /open tracker/i }).click();
   await expect(page.getByRole("tab", { name: "Scenarios" })).toBeVisible({ timeout: 15000 });
 }

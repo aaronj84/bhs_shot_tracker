@@ -3230,6 +3230,30 @@ button.formation-card.is-empty {
   max-width: 16rem;
 }
 
+.shots-gate-label {
+  margin: 1rem 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.shots-gate-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0 0 1rem;
+  max-width: 22rem;
+}
+
+.shots-gate-teams-status {
+  margin: 0 0 1rem;
+}
+
+.shots-gate-team-btn {
+  width: 100%;
+  text-align: left;
+}
+
 .shots-error {
   color: var(--incorrect);
   font-weight: 650;
