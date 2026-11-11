@@ -37,7 +37,15 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/assets
-          cp index.html styles.css app.js shots.js shots-api.js schedule.js club-visitation.js shots-config.js .nojekyll _site/
+          # Ship every root app script index.html may load (team-modules, game-summary-stats, …).
+          # A brittle allowlist previously omitted team-modules.js and hid Planning/Schedule on Pages.
+          cp index.html styles.css .nojekyll _site/
+          for f in *.js; do
+            case "$f" in
+              shots-config.example.js) ;;
+              *) cp "$f" _site/ ;;
+            esac
+          done
           cp -R blue26 _site/
           cp -R assets/* _site/assets/ 2>/dev/null || true
 
