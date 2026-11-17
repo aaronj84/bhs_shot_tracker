@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PROMPT_VERSION = "explore-schema-v3"
+PROMPT_VERSION = "explore-schema-v5"
 
 # Known friendlies used in golden / scope checks (not hard-hidden from Explore).
 KNOWN_FRIENDLY_OPPONENTS = ("Raya Vallecano SC",)
@@ -41,6 +41,10 @@ def load_schema_prompt() -> str:
 
 def load_narrate_prompt() -> str:
     return _read("narrate_prompt.txt")
+
+
+def load_empty_result_repair() -> str:
+    return _read("empty_result_repair.txt")
 
 
 def shared_prompt_dir() -> Path:
@@ -85,14 +89,28 @@ def prompts_in_sync() -> tuple[bool, str]:
     try:
         schema_ts = extract_ts_prompt_export(ts, "SCHEMA_PROMPT").strip()
         narrate_ts = extract_ts_prompt_export(ts, "NARRATE_PROMPT").strip()
+        repair_ts = extract_ts_prompt_export(ts, "EMPTY_RESULT_REPAIR").strip()
+        version_m = re.search(
+            r'export const PROMPT_VERSION = "([^"]+)"',
+            ts,
+        )
     except ValueError as exc:
         return False, str(exc)
     schema_txt = load_schema_prompt()
     narrate_txt = load_narrate_prompt()
+    repair_txt = load_empty_result_repair()
     if schema_ts != schema_txt:
         return False, "SCHEMA_PROMPT in prompts.ts does not match schema_prompt.txt"
     if narrate_ts != narrate_txt:
         return False, "NARRATE_PROMPT in prompts.ts does not match narrate_prompt.txt"
+    if repair_ts != repair_txt:
+        return False, "EMPTY_RESULT_REPAIR in prompts.ts does not match empty_result_repair.txt"
+    if not version_m or version_m.group(1) != PROMPT_VERSION:
+        return (
+            False,
+            f"PROMPT_VERSION mismatch: prompts.ts={version_m.group(1) if version_m else None!r} "
+            f"benchmark={PROMPT_VERSION!r}",
+        )
     return True, "prompts in sync"
 
 
@@ -120,6 +138,8 @@ def exclusions_in_sync() -> tuple[bool, str]:
         "v_brighton_shots_official",
         "For season or aggregate stats, query v_brighton_shots_official",
         "is_tracked=false",
+        "game_type = 'playoffs'",
+        'Never use "playoff"',
     ):
         if needle not in schema:
             return False, f"schema_prompt.txt missing required scope text: {needle!r}"

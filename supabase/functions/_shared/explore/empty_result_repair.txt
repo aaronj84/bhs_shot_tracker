@@ -1,0 +1,7 @@
+That SQL returned 0 rows. Before concluding the answer is zero, rewrite the query fixing likely literal mismatches:
+- game_type must be EXACTLY one of: preseason, region, league, playoffs, tournament, futsal, friendly, other (use 'playoffs' not 'playoff'; region games use 'region' not 'regular')
+- result / assist_type / stat_scope / position must use documented enum values only
+- player_name on the views is usually a first/short name (e.g. 'Natalia' not 'Natalia Shepherd'); prefer ILIKE 'Natalia%' or join players on name/short_name
+- opponent_name: try ILIKE when an exact = returns nothing
+If after correcting literals the true answer is still zero, return a query that correctly returns zero.
+Return the same JSON shape: {"sql":"...","answer":"...","viz":"table"}

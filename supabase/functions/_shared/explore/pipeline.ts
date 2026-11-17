@@ -1,9 +1,14 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { NARRATE_PROMPT, PROMPT_VERSION, SCHEMA_PROMPT } from "./prompts.ts";
+import {
+  EMPTY_RESULT_REPAIR,
+  NARRATE_PROMPT,
+  PROMPT_VERSION,
+  SCHEMA_PROMPT,
+} from "./prompts.ts";
 import type { ChatCompletionResult, LlmProvider, TokenUsage } from "./providers/types.ts";
 import { parsePlan, validateSql, type LlmPlan } from "./sql.ts";
 
-export { PROMPT_VERSION, SCHEMA_PROMPT, NARRATE_PROMPT };
+export { PROMPT_VERSION, SCHEMA_PROMPT, NARRATE_PROMPT, EMPTY_RESULT_REPAIR };
 export { validateSql, parsePlan };
 
 export type ExploreHistoryMessage = { role: string; content: string };
@@ -20,7 +25,7 @@ export type ExplorePipelineParams = {
 };
 
 export type LlmCallTrace = {
-  stage: "sql_generation" | "result_narration";
+  stage: "sql_generation" | "sql_repair" | "result_narration";
   provider: string;
   model: string;
   usage: TokenUsage;
@@ -137,7 +142,8 @@ function traceFromResult(
 }
 
 /**
- * Production Explore pipeline: plan SQL → validate → explore_readonly → narrate.
+ * Production Explore pipeline: plan SQL → validate → explore_readonly
+ * → (optional zero-row repair) → narrate.
  * Used by the edge function and mirrored by the Python benchmark harness.
  */
 export async function runExploreAnalysis(
@@ -212,9 +218,9 @@ export async function runExploreAnalysis(
     };
   }
 
-  const sqlStarted = Date.now();
-  const { data: rows, error: rpcErr } = await params.admin.rpc("explore_readonly", { query: sql });
-  const sqlMs = Date.now() - sqlStarted;
+  let sqlStarted = Date.now();
+  let { data: rows, error: rpcErr } = await params.admin.rpc("explore_readonly", { query: sql });
+  let sqlMs = Date.now() - sqlStarted;
 
   if (rpcErr) {
     return {
@@ -235,7 +241,59 @@ export async function runExploreAnalysis(
     };
   }
 
-  const list = Array.isArray(rows) ? rows : [];
+  let list = Array.isArray(rows) ? rows : [];
+
+  // One repair pass when the first plan returns zero rows — catches enum typos
+  // like game_type='playoff' vs 'playoffs' and full-name vs short player_name.
+  if (list.length === 0) {
+    try {
+      const repairMessages = [
+        ...buildPlanMessages(question, params.history || []),
+        {
+          role: "assistant" as const,
+          content: JSON.stringify({ sql: plan.sql, answer: plan.answer, viz: plan.viz }),
+        },
+        { role: "user" as const, content: EMPTY_RESULT_REPAIR },
+      ];
+      const repairResult = await params.provider.complete({
+        model: params.model,
+        temperature: Math.max(planTemperature, 0.2),
+        json_object: true,
+        messages: repairMessages,
+      });
+      totalUsage = addUsage(totalUsage, repairResult.usage);
+      totalLlmLatency += repairResult.latency_ms;
+      llmCalls.push(traceFromResult("sql_repair", repairResult));
+      base.model = repairResult.model || base.model;
+
+      const repaired = parsePlan(repairResult.content);
+      const repairedSql = validateSql(repaired.sql);
+      if (repairedSql !== sql) {
+        sqlStarted = Date.now();
+        const second = await params.admin.rpc("explore_readonly", { query: repairedSql });
+        sqlMs += Date.now() - sqlStarted;
+        if (!second.error) {
+          plan = repaired;
+          sql = repairedSql;
+          rows = second.data;
+          list = Array.isArray(rows) ? rows : [];
+        }
+      }
+    } catch (repairErr) {
+      const msg = repairErr instanceof Error ? repairErr.message : String(repairErr);
+      llmCalls.push({
+        stage: "sql_repair",
+        provider: params.provider.id,
+        model: params.model,
+        usage: emptyUsage(),
+        latency_ms: 0,
+        retries: 0,
+        success: false,
+        error: msg,
+      });
+    }
+  }
+
   const columns =
     list.length > 0 && list[0] && typeof list[0] === "object"
       ? Object.keys(list[0] as Record<string, unknown>)

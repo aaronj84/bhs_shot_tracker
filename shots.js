@@ -808,7 +808,7 @@
     inspectEventId: "",
     inspectRole: "",
     pendingOpenGameId: "",
-    history: { seasonId: "", playerId: "", opponentId: "", depth: "", lane: "", range: "", rows: null, loading: false },
+    history: { seasonId: "", playerId: "", opponentId: "", gameType: "", depth: "", lane: "", range: "", rows: null, loading: false },
     playoffs: { tab: "rankings", rankings: null, updated: null, loading: false, error: "", loadedAt: 0 },
     explore: {
       messages: [],
@@ -1880,6 +1880,7 @@
       if (player) p.set("player", sharePlayerRef(player));
       const opp = teamById(st.history.opponentId);
       if (opp) p.set("opp", shareTeamRef(opp));
+      if (st.history.gameType) p.set("type", st.history.gameType);
       if (st.history.depth) p.set("depth", st.history.depth);
       if (st.history.lane) p.set("lane", st.history.lane);
       if (st.history.range) p.set("range", st.history.range);
@@ -2070,6 +2071,10 @@
         if (params.has("player")) st.history.playerId = player ? player.id : "";
         const opp = findTeamByRef(params.get("opp") || "");
         if (params.has("opp")) st.history.opponentId = opp ? opp.id : "";
+        if (params.has("type")) {
+          const gt = params.get("type") || "";
+          st.history.gameType = gt === "regular" || gt === "playoffs" ? gt : "";
+        }
         if (params.has("depth")) st.history.depth = params.get("depth") || "";
         if (params.has("lane")) st.history.lane = params.get("lane") || "";
         if (params.has("range")) st.history.range = params.get("range") || "";
@@ -2077,6 +2082,7 @@
           st.history.seasonId ||
           st.history.playerId ||
           st.history.opponentId ||
+          st.history.gameType ||
           st.history.depth ||
           st.history.lane ||
           st.history.range
@@ -2730,6 +2736,7 @@
       seasonId: "",
       playerId: "",
       opponentId: "",
+      gameType: "",
       depth: "",
       lane: "",
       range: "",
@@ -9147,6 +9154,8 @@
     if (f.seasonId === "__last3") filters.seasonYearMin = new Date().getFullYear() - 2;
     else if (f.seasonId) filters.seasonId = f.seasonId;
     if (f.opponentId) filters.opponentId = f.opponentId;
+    if (f.gameType === "regular") filters.gameTypes = ["region", "league"];
+    else if (f.gameType === "playoffs") filters.gameTypes = ["playoffs"];
     if (f.depth === "outside") filters.depthIds = OUTSIDE_BOX_DEPTHS;
     if (f.depth === "box") filters.depthIds = ["6Y", "PS", "BOX"];
     if (f.depth && f.depth !== "outside" && f.depth !== "box" && f.depth !== "") {
@@ -9339,7 +9348,7 @@
       <div class="shots-admin shots-history">
         ${trackerNav("history")}
         <h1>Season history</h1>
-        <p class="muted">${escapeHtml(usLabel)} only — filter by player, opponent, and depth. Naming a player updates every shot tied to that player.</p>
+        <p class="muted">${escapeHtml(usLabel)} only — filter by player, opponent, game type, and depth. Naming a player updates every shot tied to that player.</p>
         ${st.error ? `<p class="shots-error">${escapeHtml(st.error)}</p>` : ""}
         <form id="history-form" class="shots-form">
           <label class="shots-field">Season
@@ -9347,6 +9356,13 @@
               <option value="">All seasons</option>
               <option value="__last3" ${f.seasonId === "__last3" ? "selected" : ""}>Last 3 years</option>
               ${seasonOptions(f.seasonId === "__last3" ? "" : f.seasonId, false)}
+            </select>
+          </label>
+          <label class="shots-field">Game type
+            <select id="hist-game-type">
+              <option value="" ${f.gameType === "" ? "selected" : ""}>All games</option>
+              <option value="regular" ${f.gameType === "regular" ? "selected" : ""}>Regular season</option>
+              <option value="playoffs" ${f.gameType === "playoffs" ? "selected" : ""}>Playoffs</option>
             </select>
           </label>
           <label class="shots-field">Player
@@ -9439,6 +9455,7 @@
     $("#history-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       st.history.seasonId = $("#hist-season").value;
+      st.history.gameType = $("#hist-game-type").value;
       st.history.playerId = $("#hist-player").value;
       st.history.opponentId = $("#hist-opp").value;
       st.history.depth = $("#hist-depth").value;
