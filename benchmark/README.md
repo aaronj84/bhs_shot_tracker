@@ -161,6 +161,7 @@ Both providers receive the same:
 
 - schema / system prompt (`schema_prompt.txt` / edge `SCHEMA_PROMPT`)
 - narrate prompt
+- empty-result repair prompt (one retry when the first SQL returns 0 rows)
 - user question
 - SQL validation rules
 - `explore_readonly` execution
@@ -174,6 +175,7 @@ Anthropic gets an extra “JSON only” reminder when structured output is requi
 | --- | --- |
 | Schema prompt | `supabase/functions/_shared/explore/schema_prompt.txt` (+ `prompts.ts`) |
 | Narrate prompt | `…/narrate_prompt.txt` |
+| Empty-result repair | `…/empty_result_repair.txt` (+ `EMPTY_RESULT_REPAIR`) |
 | SQL validation | `…/sql.ts` and `benchmark/sql_safety.py` (kept in sync; `--check` verifies prompts) |
 | Edge Function | `supabase/functions/explore-shots/index.ts` (uses shared pipeline + OpenAI provider) |
 | Provider adapters (Deno) | `supabase/functions/_shared/explore/providers/` |

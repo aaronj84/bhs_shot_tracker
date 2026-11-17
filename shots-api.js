@@ -474,6 +474,9 @@
             (s.game.home_team_id === filters.opponentId || s.game.away_team_id === filters.opponentId)
         );
       }
+      if (filters.gameTypes && filters.gameTypes.length) {
+        rows = rows.filter((s) => s.game && filters.gameTypes.includes(s.game.game_type));
+      }
       if (filters.seasonYearMin) {
         rows = rows.filter((s) => s.game?.season && s.game.season.year >= filters.seasonYearMin);
       }

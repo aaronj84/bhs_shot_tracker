@@ -84,8 +84,12 @@ class QuestionsTests(unittest.TestCase):
 
 class PromptSyncTests(unittest.TestCase):
     def test_prompts_load(self):
+        from benchmark.prompts import load_empty_result_repair
+
         self.assertIn("Brighton", load_schema_prompt())
         self.assertIn("coaches", load_narrate_prompt())
+        self.assertIn("playoffs", load_schema_prompt())
+        self.assertIn("playoff", load_empty_result_repair())
 
     def test_ts_txt_sync(self):
         ok, msg = prompts_in_sync()

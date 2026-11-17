@@ -15,7 +15,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .pricing import estimate_cost_usd
-from .prompts import PROMPT_VERSION, load_narrate_prompt, load_schema_prompt
+from .prompts import (
+    PROMPT_VERSION,
+    load_empty_result_repair,
+    load_narrate_prompt,
+    load_schema_prompt,
+)
 from .providers import ChatResult, TokenUsage, add_usage, create_provider
 from .sql_safety import parse_plan, validate_sql
 
@@ -123,6 +128,7 @@ def run_explore_analysis(
     provider = create_provider(provider_id, api_key, max_retries=max_retries)
     schema_prompt = load_schema_prompt()
     narrate_prompt = load_narrate_prompt()
+    empty_result_repair = load_empty_result_repair()
     llm_calls: List[LlmCallTrace] = []
     total_usage = TokenUsage()
     total_llm_latency = 0
@@ -259,6 +265,68 @@ def run_explore_analysis(
             provider=provider_id,
         )
         return result
+
+    # One repair pass when the first plan returns zero rows — catches enum typos
+    # like game_type='playoff' vs 'playoffs' and full-name vs short player_name.
+    if not rows:
+        try:
+            repair_messages = list(messages)
+            repair_messages.append(
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {"sql": plan["sql"], "answer": plan["answer"], "viz": plan["viz"]}
+                    ),
+                }
+            )
+            repair_messages.append({"role": "user", "content": empty_result_repair})
+            repair_result = provider.complete(
+                model=model,
+                messages=repair_messages,
+                temperature=max(plan_temperature, 0.2),
+                json_object=True,
+            )
+            total_usage = add_usage(total_usage, repair_result.usage)
+            total_llm_latency += repair_result.latency_ms
+            retries_total += repair_result.retries
+            llm_calls.append(
+                LlmCallTrace(
+                    stage="sql_repair",
+                    provider=repair_result.provider,
+                    model=repair_result.model,
+                    usage=repair_result.usage,
+                    latency_ms=repair_result.latency_ms,
+                    retries=repair_result.retries,
+                    success=True,
+                )
+            )
+            model_used = repair_result.model or model_used
+            repaired = parse_plan(repair_result.content)
+            repaired_sql = validate_sql(repaired["sql"])
+            if repaired_sql != sql:
+                second_rows, second_err, second_ms = execute_readonly_sql(
+                    supabase_url=supabase_url,
+                    service_role_key=service_role_key,
+                    sql=repaired_sql,
+                )
+                sql_ms += second_ms
+                if not second_err:
+                    plan = repaired
+                    sql = repaired_sql
+                    rows = second_rows
+        except Exception as exc:  # noqa: BLE001
+            llm_calls.append(
+                LlmCallTrace(
+                    stage="sql_repair",
+                    provider=provider_id,
+                    model=model,
+                    usage=TokenUsage(),
+                    latency_ms=0,
+                    retries=0,
+                    success=False,
+                    error=str(exc),
+                )
+            )
 
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
     answer = plan["answer"]
